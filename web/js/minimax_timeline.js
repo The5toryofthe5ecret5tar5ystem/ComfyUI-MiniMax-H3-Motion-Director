@@ -856,6 +856,26 @@ function drawPostprocessToggle(ctx, node, width, y, height = 20) {
     drawDirectorBooleanWidget.call(this, ctx, node, width, y, height);
 }
 
+/** Fit `text` into `maxWidth` by binary search over prefix length — NOT the old
+ *  char-by-char slice loop. measureText cost is ~O(len), so truncating a long
+ *  prompt one char at a time was ~O(len^2) per call: thousands of measureText
+ *  calls per segment made the timeline canvas draw take seconds on open.
+ *  This needs only ~log2(len) measureText calls and is output-equivalent
+ *  (appends an ellipsis when truncated). */
+function fitCanvasText(ctx, text, maxWidth) {
+    const raw = String(text == null ? "" : text);
+    if (!raw) return "";
+    if (ctx.measureText(raw).width <= maxWidth) return raw;
+    let lo = 0;
+    let hi = raw.length;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (ctx.measureText(raw.slice(0, mid) + "…").width <= maxWidth) lo = mid;
+        else hi = mid - 1;
+    }
+    return lo > 0 ? `${raw.slice(0, lo)}…` : "…";
+}
+
 function drawPostprocessSummary(ctx, node, width, y, height = 18) {
     const state = postprocessProxyState(node, this._mmxSection);
     const maxWidth = Math.max(20, width - 44);
@@ -864,8 +884,7 @@ function drawPostprocessSummary(ctx, node, width, y, height = 18) {
     ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    let clipped = String(state.summary || (getLocale() === "en" ? "Disabled" : "已停用"));
-    while (clipped.length > 1 && ctx.measureText(clipped).width > maxWidth) clipped = `${clipped.slice(0, -2)}…`;
+    const clipped = fitCanvasText(ctx, state.summary || (getLocale() === "en" ? "Disabled" : "已停用"), maxWidth);
     ctx.fillText(clipped, 22, y + Math.max(16, Number(height) || 18) / 2);
     ctx.restore();
 }
@@ -8891,12 +8910,7 @@ class MiniMaxH3MotionDirectorEditor {
         ctx.fillStyle = "#e0e3ed";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        let label = prompt;
-        const maxW = pxWidth - 10;
-        if (ctx.measureText(label).width > maxW) {
-            while (label.length > 0 && ctx.measureText(label + "…").width > maxW) label = label.slice(0, -1);
-            label += "…";
-        }
+        const label = fitCanvasText(ctx, prompt, pxWidth - 10);
         ctx.fillText(label, startX + pxWidth / 2, overlayY + overlayH / 2);
         ctx.restore();
     }
@@ -9028,13 +9042,7 @@ class MiniMaxH3MotionDirectorEditor {
             const showSegSel = this.isR2vBatch() || this.isFl2vMode()
                 || !(this.isImageBatch() || this.isGenMode());
             this.ctx.fillStyle = (showSegSel && i === this.selectedIndex) ? "#eee" : "#9a9a9a";
-            let draw = rangeText;
-            if (this.ctx.measureText(draw).width > pxW - 6) {
-                while (draw.length > 1 && this.ctx.measureText(`${draw}…`).width > pxW - 6) {
-                    draw = draw.slice(0, -1);
-                }
-                draw = draw.length < rangeText.length ? `${draw}…` : draw;
-            }
+            const draw = fitCanvasText(this.ctx, rangeText, pxW - 6);
             this.ctx.fillText(draw, x0 + 4, RULER_H + SEG_LABEL_H / 2);
         }
 
