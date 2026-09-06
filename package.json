@@ -1,4 +1,11 @@
 {
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/run_js_tests.mjs",
+    "test:js": "node scripts/run_js_tests.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  }
 }
