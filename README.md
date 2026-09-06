@@ -4,6 +4,8 @@
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
+> **Maintained fork** — upstream features plus **Re-ground segments (anti-drift)**, a big **Generation-tab UI performance fix**, **newer-ComfyUI compatibility**, **CI**, and a ready-to-run **ref2va example workflow**. See [✨ Improvements in this fork](#-improvements-in-this-fork).
+
 **One Director. From a single MiniMax H3 shot to a complete multi-segment video project.**
 
 Here is  tutorial, or you like to read the introduction first? / 下面连结是教学，或者你想先往下看看介绍?
@@ -20,6 +22,37 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 
 ---
 
+## ✨ Improvements in this fork
+
+Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### Re-ground segments — stop visual / color drift on long runs
+
+Long multi-segment chains can drift in color, contrast and identity after several hops. **Re-ground** marks a segment to re-anchor its continuity context at the **chain root** (the clean start of the job) instead of the immediately-previous segment — resetting accumulated error without breaking the visual flow.
+
+- Every segment boundary in the timeline shows **two** small circles: the top `↔ / ×` is the existing context link; the **bottom `R` circle** is the Re-ground toggle.
+- **Left-click** the bottom `R` circle to turn it on (it turns **amber**); click again to turn it off. Right-clicking either circle opens the boundary menu, which also contains **⟳ Re-ground**.
+- A Re-ground segment stays fully continuous with the project but grounds itself on the root reference — use it every 3–5 shots on long jobs, alongside **Latent Scale Lock** and **Color Re-anchor**.
+
+### Generation-tab / timeline performance
+
+- Fixed a long freeze (up to ~30 s) when opening the Director modal on projects with large per-segment prompts: prompt truncation now uses binary search (`fitCanvasText`) instead of an O(n²) char-by-char `measureText` loop — measured ~525× faster on the draw path.
+- Cheap rendering wins (`content-visibility` on batch group cards) and the Re-ground toggle circle shipped in the same pass.
+
+### Compatibility with newer ComfyUI
+
+- H3 node execution now uses keyword arguments, matching the ComfyUI core node API after the `io.Schema` / `ComfyNode` rewrite (v0.34.x-era builds). This removes the `unsupported operand //: 'str' and 'int'` crash those builds hit with the upstream positional calls.
+
+### Tests + CI
+
+- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 94 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
+
+### Example workflow
+
+- [`example_workflows/`](example_workflows/) ships a ready-to-run **ref2va** sample (`ref2va example workflow 3x7s.json`) with bundled AI-generated placeholder headshot + character sheet — see [`example_workflows/README.md`](example_workflows/README.md).
+
+---
+
 ## What it does
 
 | Area | What Motion Director adds |
@@ -27,7 +60,7 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 | **Standalone generation** | `T2V / I2V / FL2V / R2V / V2V / RV2V` |
 | **Mixed Mode** | Choose `T2V / I2V / FL2V / R2V / Source Video` independently for each segment |
 | **Selective Run** | Regenerate selected segments instead of rerunning the whole sequence |
-| **Cross-segment continuity** | Motion Context, Context Frames, Latent Scale Lock, generated-audio continuation, Color Re-anchor |
+| **Cross-segment continuity** | Motion Context, Context Frames, Latent Scale Lock, generated-audio continuation, Color Re-anchor, **Re-ground** (re-anchor a segment at the chain root to stop drift) |
 | **Segment Result reuse** | Reuse a decoded frame from an earlier Mixed segment as a later I2V / FL2V input |
 | **Source-video workflow** | Dedicated V2V / RV2V handling and Source Bridge for standalone source-video boundaries |
 | **Assets** | Common References plus a persistent Material Library for images, audio, video, and prompts |
@@ -298,9 +331,20 @@ MiniMax H3 Motion Director
 
 ### Manual install
 
+Upstream:
+
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/j955229/ComfyUI-MiniMax-H3-Motion-Director.git
+cd ComfyUI-MiniMax-H3-Motion-Director
+python -m pip install -r requirements.txt
+```
+
+This fork (upstream + Re-ground segments, UI/perf fixes, newer-ComfyUI compatibility, example workflow):
+
+```bash
+cd ComfyUI/custom_nodes
+git clone https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director.git
 cd ComfyUI-MiniMax-H3-Motion-Director
 python -m pip install -r requirements.txt
 ```
@@ -314,6 +358,8 @@ Restart ComfyUI completely after installation. If an update changes frontend fil
 ## Requirements / compatibility
 
 Motion Director requires a **recent ComfyUI build with official MiniMax H3 support**, including the official MiniMax H3 conditioning nodes used by the current runtime.
+
+This fork calls the H3 nodes with **keyword arguments**, which is compatible with the ComfyUI core node API introduced by the `io.Schema` / `ComfyNode` rewrite (v0.34.x-era builds) — the build that changed the H3 node parameter order and broke the upstream positional calls. It also works on earlier builds that still accept the legacy signature.
 
 Core Python dependencies are declared in the project package/requirements files. Some post-processing features have additional optional runtime/model requirements, for example:
 
@@ -357,7 +403,7 @@ See [`NOTICE`](NOTICE), [`LICENSE`](LICENSE), and [`LICENSES`](LICENSES) for the
 The test suites run without a live ComfyUI instance (CPU is enough for the Python tests):
 
 ```bash
-# Python unit + contract tests (83 tests) — any working directory, no ComfyUI needed
+# Python unit + contract tests (94 tests) — any working directory, no ComfyUI needed
 python -m pytest
 
 # Frontend unit tests (jsdom is a dev-only dependency)
