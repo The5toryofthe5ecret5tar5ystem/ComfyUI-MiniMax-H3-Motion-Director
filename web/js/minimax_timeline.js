@@ -693,17 +693,24 @@ function openContinuityStrategyMenu(event, pos, node) {
 }
 
 function openSegmentContextLinkMenu(event, editor, index) {
+    const regroundOn = Boolean(editor.getSegmentReground?.(index));
     const options = [
         { label: `${t("contextLink.visual")} + ${t("contextLink.audio")}`, visual: true, audio: true },
         { label: t("contextLink.visual"), visual: true, audio: false },
         { label: t("contextLink.audio"), visual: false, audio: true },
         { label: "×", visual: false, audio: false },
+        { label: regroundOn ? "⟳ Re-ground (ON)" : "⟳ Re-ground", regroundToggle: true },
     ];
     const choose = (value) => {
         const option = typeof value === "string"
             ? options.find((item) => item.label === value)
             : value;
-        if (option) editor.setSegmentContextChannels(index, option);
+        if (!option) return;
+        if (option.regroundToggle) {
+            editor.toggleSegmentReground?.(index);
+            return;
+        }
+        editor.setSegmentContextChannels(index, option);
     };
     const ContextMenu = globalThis.LiteGraph?.ContextMenu;
     if (ContextMenu) {
@@ -2624,6 +2631,18 @@ class MiniMaxH3MotionDirectorEditor {
 
     getSegmentContextMode(index) {
         return contextLinkMode(this.getSegmentContextLink(index), index);
+    }
+
+    getSegmentReground(index) {
+        return Boolean(this.timeline.segments?.[index]?.reground);
+    }
+
+    toggleSegmentReground(index) {
+        const seg = this.timeline.segments?.[index];
+        if (!seg || index <= 0) return;
+        seg.reground = !seg.reground;
+        if (this.timeline.shots?.[index]) this.timeline.shots[index].reground = seg.reground;
+        this._commitContextLinkChange();
     }
 
     updateExternalGroupsBanner() {
@@ -9178,6 +9197,15 @@ class MiniMaxH3MotionDirectorEditor {
             this.ctx.textBaseline = "middle";
             this.ctx.fillText(mode === "off" ? "×" : (mode === "both" ? "↔" : mode[0].toUpperCase()), g.x, g.y + 0.5);
             this.ctx.restore();
+            if (segs[i]?.reground) {
+                this.ctx.save();
+                this.ctx.fillStyle = "#ffd24a";
+                this.ctx.font = "bold 9px sans-serif";
+                this.ctx.textAlign = "left";
+                this.ctx.textBaseline = "middle";
+                this.ctx.fillText("R", g.x + g.radius + 4, g.y - g.radius * 0.5);
+                this.ctx.restore();
+            }
         }
 
         // fl2v: dashed overlay for the region past the sampling window.
