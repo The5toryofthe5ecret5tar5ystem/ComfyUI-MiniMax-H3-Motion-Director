@@ -3710,7 +3710,7 @@ class MiniMaxH3MotionDirectorEditor {
             e.preventDefault();
             const { x, y } = this.getMousePos(e);
             const hit = this.hitTest(x, y);
-            if (hit?.type === "context-link") {
+            if (hit?.type === "context-link" || hit?.type === "context-link-reground") {
                 stopDomEvent(e);
                 openSegmentContextLinkMenu(e, this, hit.index);
                 return;
@@ -3725,13 +3725,19 @@ class MiniMaxH3MotionDirectorEditor {
             const { x, y } = this.getMousePos(e);
             const hit = this.hitTest(x, y);
             this.canvas.classList.remove("bd-grab");
-            if (hit?.type === "run-check" || hit?.type === "split" || hit?.type === "context-link") {
+            if (hit?.type === "run-check" || hit?.type === "split" || hit?.type === "context-link" || hit?.type === "context-link-reground") {
                 this.canvas.style.cursor = "pointer";
-                this.canvas.title = hit?.type === "context-link"
-                    ? t(this.getSegmentContextMode(hit.index) === "off"
+                if (hit?.type === "context-link") {
+                    this.canvas.title = t(this.getSegmentContextMode(hit.index) === "off"
                         ? "contextLink.connectTooltip"
-                        : "contextLink.disconnectTooltip")
-                    : "";
+                        : "contextLink.disconnectTooltip");
+                } else if (hit?.type === "context-link-reground") {
+                    this.canvas.title = this.getSegmentReground(hit.index)
+                        ? t("contextLink.regroundOnTooltip")
+                        : t("contextLink.regroundOffTooltip");
+                } else {
+                    this.canvas.title = "";
+                }
             } else if (hit?.type === "edge") {
                 // Edge drag is always horizontal (change start/length); keep ↔ cursor.
                 this.canvas.style.cursor = "ew-resize";
@@ -7667,6 +7673,17 @@ class MiniMaxH3MotionDirectorEditor {
         };
     }
 
+    /** Re-ground toggle button sits directly below the context-link circle. */
+    _regroundCircleGeometry(index, width, segs = this.timeline.segments) {
+        const g = this._contextLinkGeometry(index, width, segs);
+        if (!g) return null;
+        return {
+            x: g.x,
+            y: g.y + CONTEXT_LINK_RADIUS * 2 + 4,
+            radius: g.radius,
+        };
+    }
+
     /** Draw fl2v edge grips; joints are split (top=prev yellow, bottom=next cyan). */
     _drawFl2vEdgeHandles(segs, index, x0, x1, width) {
         const ordered = (segs || [])
@@ -7774,6 +7791,12 @@ class MiniMaxH3MotionDirectorEditor {
                 return { type: "context-link", index: i };
             }
         }
+        for (let i = 1; i < segs.length; i++) {
+            const g = this._regroundCircleGeometry(i, width, segs);
+            if (g && Math.hypot(x - g.x, y - g.y) <= g.radius + 4) {
+                return { type: "context-link-reground", index: i };
+            }
+        }
 
         // Checkbox corner wins over generic segment hit (same toggle action either way
         // in run-select mode; keeps hit type accurate for cursor / future hooks).
@@ -7869,6 +7892,9 @@ class MiniMaxH3MotionDirectorEditor {
             this.clearSplitSelection();
         } else if (hit.type === "run-check") {
             this.toggleSegmentRun(hit.index);
+            this._drag = null;
+        } else if (hit.type === "context-link-reground") {
+            this.toggleSegmentReground(hit.index);
             this._drag = null;
         } else if (hit.type === "context-link") {
             this.toggleSegmentContextLink(hit.index);
@@ -9205,13 +9231,24 @@ class MiniMaxH3MotionDirectorEditor {
             this.ctx.textBaseline = "middle";
             this.ctx.fillText(mode === "off" ? "×" : (mode === "both" ? "↔" : mode[0].toUpperCase()), g.x, g.y + 0.5);
             this.ctx.restore();
-            if (segs[i]?.reground) {
+            // Re-ground toggle button directly below the context-link circle.
+            // Left-click toggles; re-grounded segments re-anchor context at the chain root.
+            const rg = this._regroundCircleGeometry(i, width, segs);
+            if (rg) {
+                const rOn = !!segs[i]?.reground;
                 this.ctx.save();
-                this.ctx.fillStyle = "#ffd24a";
+                this.ctx.fillStyle = rOn ? "#ffd24a" : "#1c1c1c";
+                this.ctx.strokeStyle = rOn ? "#a87600" : "#6a6a6a";
+                this.ctx.lineWidth = 1.5;
+                this.ctx.beginPath();
+                this.ctx.arc(rg.x, rg.y, rg.radius, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.stroke();
+                this.ctx.fillStyle = rOn ? "#2b2000" : "#9aa0aa";
                 this.ctx.font = "bold 9px sans-serif";
-                this.ctx.textAlign = "left";
+                this.ctx.textAlign = "center";
                 this.ctx.textBaseline = "middle";
-                this.ctx.fillText("R", g.x + g.radius + 4, g.y - g.radius * 0.5);
+                this.ctx.fillText("R", rg.x, rg.y + 0.5);
                 this.ctx.restore();
             }
         }
