@@ -49,13 +49,13 @@ Long multi-segment chains can drift in color, contrast and identity after severa
 
 ### Example workflow
 
-- [`example_workflows/`](example_workflows/) ships a ready-to-run **ref2va** sample (`ref2va example workflow 3x7s.json`) with bundled AI-generated placeholder headshot + character sheet — see [`example_workflows/README.md`](example_workflows/README.md).
+- [`example_workflows/`](example_workflows/) ships a ready-to-run **ref2va** sample (`Minimax h3 Director - ref2va example workflow 3x7s.json`) with bundled AI-generated placeholder headshot + character sheet — see [`example_workflows/README.md`](example_workflows/README.md).
 
 ---
 
 ## Models used by the example workflow (defaults)
 
-The bundled `ref2va example workflow 3x7s.json` opens routed to the **REF2VA** model (`ImpactSwitch select = 2 → MODEL_2`). Place the files under your ComfyUI `models/` folder using the subfolders below (paths match the workflow's model subgraph):
+The bundled `Minimax h3 Director - ref2va example workflow 3x7s.json` opens routed to the **REF2VA** model (`ImpactSwitch select = 2 → MODEL_2`). Place the files under your ComfyUI `models/` folder using the subfolders below (paths match the workflow's model subgraph):
 
 | Role | Place in `ComfyUI/models/…` | Download |
 |---|---|---|
@@ -66,8 +66,8 @@ The bundled `ref2va example workflow 3x7s.json` opens routed to the **REF2VA** m
 The example's model subgraph also references (same repos unless noted):
 
 - **Audio VAE**: `vae/minimax_h3_audio_vae_fp32.safetensors` — also in [Kijai / MiniMax-H3-experimental](https://huggingface.co/Kijai/MiniMax-H3-experimental)
-- **REF2V turbo LoRA** (ref2va path): `loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`
-- **Optional MysticXXX REF2VA LoRA** (top-level Power Lora Loader): `loras/Minimax/MysticXXX_MMH3-V4-ref2va.safetensors`
+- **REF2V turbo LoRA** (ref2va path, applied inside the model subgraph): `loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`
+- The top-level **Power Lora Loader** node is present but has **no LoRA set** — it is an empty free slot if you want to add your own (this example does not apply one).
 - The **FL2VA** and **H3 Fast Video** models wired to switch inputs 1 and 3 are unused by this ref2va example.
 
 Swap the loader files inside the model subgraph if you use different names/paths on your machine.
