@@ -12,7 +12,7 @@
 > - **测试与 CI**：`python -m pytest`（94 个测试，无需 ComfyUI 即可运行）+ 前端 jsdom 测试，CI 见 `.github/workflows/tests.yml`。
 > - **示例工作流**：`example_workflows/` 内含可直接运行的 **ref2va** 示例与配套 AI 生成参考图。
 >
-> 英文详情见 [Improvements in this fork](README.md#-improvements-in-this-fork)。
+> 英文详情见 [Improvements in this fork](README.md#-improvements-in-this-fork)；示例默认模型下载见 [Models used by the example workflow](README.md#models-used-by-the-example-workflow-defaults)。
 
 **一个 Director，从单个 MiniMax H3 镜头到完整的多段视频项目。**
 
