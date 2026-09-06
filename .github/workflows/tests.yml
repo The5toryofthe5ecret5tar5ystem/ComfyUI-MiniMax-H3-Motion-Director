@@ -21,12 +21,23 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          # CPU-only torch is enough for the unit tests (no ComfyUI/CUDA needed).
-          python -m pip install pytest torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+          # CPU-only torch. NB: --index-url alone would REPLACE PyPI (torch's
+          # deps like sympy/numpy live there), so keep PyPI as the extra index.
+          python -m pip install torch \
+            --index-url https://download.pytorch.org/whl/cpu \
+            --extra-index-url https://pypi.org/simple
+          # The Director's own extras (opencv/imageio-ffmpeg/scenedetect).
           python -m pip install -r requirements.txt
+          # Director modules import comfy / folder_paths / comfy_extras /
+          # comfy_execution / server / latent_preview / node_helpers at runtime,
+          # so a real ComfyUI checkout must be importable (see conftest.py).
+          git clone --depth 1 https://github.com/Comfy-Org/ComfyUI.git /tmp/ComfyUI
+          python -m pip install -r /tmp/ComfyUI/requirements.txt
 
       - name: Run Python test suite
-        # The suite is CWD-independent (see conftest.py) and needs no ComfyUI.
+        env:
+          PYTHONPATH: /tmp/ComfyUI
         run: python -m pytest
 
   frontend-tests:
