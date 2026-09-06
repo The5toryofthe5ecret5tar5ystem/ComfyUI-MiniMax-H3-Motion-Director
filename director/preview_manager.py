@@ -7,6 +7,7 @@ import io
 import logging
 import queue
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -16,6 +17,15 @@ from .progress import report_director_segment_preview
 from .tae_preview import x0_to_preview_pils
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director.preview")
+
+# Minimum wall-clock time between live TAE preview decodes (per segment stage).
+# A TAE decode of a preview clip runs on the sampling thread, so decoding on
+# every diffusion step (the preview_every=1 default) wastes GPU time producing
+# more animated clips per second than the UI can display.  This cadence cap is
+# output-neutral: it only skips *side-channel preview* decodes.  The first and
+# the final step of every stage are always decoded so the live preview stays
+# faithful.  Set to 0 to disable the cap and decode on every step as before.
+_DEFAULT_PREVIEW_MIN_INTERVAL_MS = 400.0
 
 
 @dataclass
@@ -124,6 +134,8 @@ class DirectorPreviewManager:
         decoder: Callable[..., list[Image.Image]] = x0_to_preview_pils,
         encoder: Callable[[PreviewJob, dict[str, Any]], dict[str, Any] | None] = encode_preview_job,
         sender: Callable[..., None] = report_director_segment_preview,
+        min_interval_ms: float = _DEFAULT_PREVIEW_MIN_INTERVAL_MS,
+        now: Callable[[], float] = time.monotonic,
     ):
         self.node_id = node_id
         self.config = dict(config)
@@ -131,11 +143,45 @@ class DirectorPreviewManager:
         self.encoder = encoder
         self.sender = sender
         self.queue: queue.Queue[PreviewJob | None] = queue.Queue(maxsize=max(1, int(queue_size)))
+        # Per (segment_index, stage) wall-clock cap between preview decodes.
+        configured = self.config.get("preview_min_interval_ms", min_interval_ms)
+        try:
+            self.min_interval_ms = max(0.0, float(configured or 0.0))
+        except (TypeError, ValueError):
+            self.min_interval_ms = max(0.0, float(min_interval_ms))
+        self._now = now
+        self._last_emit: dict[tuple[int, str], float] = {}
         self.dropped = 0
+        self.skipped = 0
         self.failed = 0
         self._closed = False
         self._thread = threading.Thread(target=self._work, name=f"mmx-preview-{node_id}", daemon=True)
         self._thread.start()
+
+    def _should_decode(self, *, segment_index: int, stage: str, step: int, total_steps: int) -> bool:
+        """Decide whether the sampling thread should run a TAE preview decode.
+
+        Policy (output-neutral — previews are a side channel):
+        - interval <= 0  -> every request decodes (legacy behavior).
+        - otherwise decode at most once per ``min_interval_ms`` per stage, but
+          ALWAYS decode the first request and the final step of the stage so
+          the live preview keeps a faithful first/mid/final progression.
+        """
+        if self.min_interval_ms <= 0:
+            return True
+        if step <= 0:
+            return True
+        try:
+            final_step = int(total_steps) > 0 and int(step) >= max(0, int(total_steps) - 1)
+        except (TypeError, ValueError):
+            final_step = False
+        if final_step:
+            return True
+        key = (int(segment_index), str(stage))
+        last = self._last_emit.get(key)
+        if last is None:
+            return True
+        return (self._now() - last) * 1000.0 >= self.min_interval_ms
 
     def submit(
         self,
@@ -153,6 +199,16 @@ class DirectorPreviewManager:
         # side-channel update without adding work to the sampling callback.
         if self.queue.full():
             self.dropped += 1
+            return False
+        # Cadence cap: never decode more often than the live UI can show, and
+        # always keep the first and final step of each stage (output-neutral).
+        if not self._should_decode(
+            segment_index=segment_index,
+            stage=stage,
+            step=step,
+            total_steps=total_steps,
+        ):
+            self.skipped += 1
             return False
         try:
             frames = self.decoder(
@@ -172,6 +228,7 @@ class DirectorPreviewManager:
             self.queue.put_nowait(
                 PreviewJob(segment_index, stage, step, total_steps, cpu_frames)
             )
+            self._last_emit[(int(segment_index), str(stage))] = self._now()
             return True
         except queue.Full:
             self.dropped += 1
