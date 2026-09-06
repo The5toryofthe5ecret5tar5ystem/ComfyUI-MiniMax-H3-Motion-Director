@@ -1680,52 +1680,11 @@ function buildContextLinkConnector(editor, index) {
     return row;
 }
 
-// Fingerprint of everything that renders inside a batch card. When this is
-// unchanged between renders we can skip the expensive teardown + full rebuild
-// and only re-apply chrome (selection / running / run-select / done).
-function batchContentSignature(editor, segments, opts) {
-    const perSeg = (segments || []).map((s) => ({
-        p: s.prompt,
-        np: s.negativePrompt,
-        d: s.durationSec,
-        fc: s.frameCount,
-        len: s.length,
-        refs: s.refs,
-        audios: s.refAudios,
-        videos: s.refVideos,
-        gi: s.genImage,
-        img: s.imageFile,
-        pb: s.previewB64,
-        pf: (s.previewFrames || []).length,
-        cl: s.contextLink || s.context_link || null,
-    }));
-    return JSON.stringify({ o: opts, s: perSeg });
-}
-
-// In-place chrome update used by the fast path (matches the class logic the
-// full rebuild applies while building each card).
-function applyBatchCardChrome(editor, list, { isR2v, runningIdx, runSelectOn, isVideo }) {
-    const segs = editor.timeline.segments || [];
-    for (const card of Array.from(list.children)) {
-        if (!card.classList || !card.classList.contains("bd-batch-card")) continue;
-        const idx = Number(card.dataset.segmentIndex);
-        if (!Number.isFinite(idx)) continue;
-        const seg = segs[idx];
-        const runEnabled = !runSelectOn || !!editor.isSegmentRunEnabled?.(idx);
-        card.classList.toggle("selected", !!isR2v && idx === editor.selectedIndex);
-        card.classList.toggle("running", idx === runningIdx);
-        card.classList.toggle("run-on", !!runSelectOn && runEnabled);
-        card.classList.toggle("run-skipped", !!runSelectOn && !runEnabled);
-        const hasPreview = isVideo
-            ? (seg?.previewFrames?.length > 0 || seg?.previewB64)
-            : !!seg?.previewB64;
-        card.classList.toggle("done", !!hasPreview && idx !== runningIdx);
-    }
-}
-
 export function renderImageBatchGroups(editor) {
     const list = editor.batchList;
     if (!list) return;
+    for (const controller of editor._batchPromptMentionControllers || []) controller?.destroy?.();
+    editor._batchPromptMentionControllers = [];
     flushBatchDurationInputs(editor);
     stopAllPlayers(list);
     const key = resolveTaskKey(editor.getTaskKey?.() || editor.taskTypeWidget?.value);
@@ -1782,29 +1741,6 @@ export function renderImageBatchGroups(editor) {
         addBtn.disabled = externalLocked;
     }
 
-    const runSelectOn = !!(editor.isRunSelectEnabled?.() && editor.supportsRunSelect?.());
-    const contentSig = batchContentSignature(editor, editor.timeline.segments || [], {
-        key,
-        variant,
-        isVideo,
-        fps,
-        motionOn,
-        externalLocked,
-        runSelectOn,
-        r2vCommon: editor.timeline.r2vCommon,
-    });
-    if (
-        editor._batchRenderSig === contentSig
-        && list.childElementCount > 0
-    ) {
-        // Data-driven card content is unchanged. Skip the expensive teardown +
-        // full rebuild; just re-apply chrome (selection/running/run-select/done)
-        // so prompt editors and mention controllers stay alive and cheap.
-        applyBatchCardChrome(editor, list, {
-            isR2v: key === "r2v", key, runningIdx, runSelectOn, isVideo,
-        });
-        return;
-    }
     list.innerHTML = "";
     syncR2vCommonToggleForTask(editor.r2vCommonToggle, {
         taskKey: key,
@@ -1819,10 +1755,6 @@ export function renderImageBatchGroups(editor) {
     } else {
         editor._r2vCommonPopover?.close();
     }
-    // Tear down old prompt mention controllers only on a real rebuild (the fast
-    // path above leaves them alive so the prompt editor keeps working).
-    for (const controller of editor._batchPromptMentionControllers || []) controller?.destroy?.();
-    editor._batchPromptMentionControllers = [];
     editor.timeline.segments.forEach((seg, index) => {
         const connector = buildContextLinkConnector(editor, index);
         if (connector) list.appendChild(connector);
@@ -2062,7 +1994,6 @@ export function renderImageBatchGroups(editor) {
     });
     // Batch list is scroll-capped; refresh node/widget height after card count changes.
     editor.updateDomWidgetHeight?.();
-    editor._batchRenderSig = contentSig;
 }
 
 export function setImageBatchPreview(editor, segmentIndex, imageB64, extra = {}) {
