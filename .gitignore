@@ -16,3 +16,10 @@ output/
 temp/
 minimax_seg_cache/
 minimax_motion_context_cache/
+
+# JS dev tooling
+node_modules/
+
+# Machine-generated UI validation report (produced by local playwright/puppeteer
+# runs against a dev ComfyUI instance, e.g. "LIVE UI VALIDATED" dumps)
+artifacts/live_ui_report.json
