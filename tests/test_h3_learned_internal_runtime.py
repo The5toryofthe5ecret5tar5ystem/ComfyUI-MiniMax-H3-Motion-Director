@@ -2,6 +2,7 @@ import importlib
 import sys
 import types
 
+import pytest
 import torch
 
 
@@ -14,11 +15,42 @@ class Nested:
         return self.parts
 
 
+_RUNTIME_NAMES = [
+    "nodes",
+    "folder_paths",
+    "comfy",
+    "comfy.nested_tensor",
+    "comfy.model_management",
+    "comfy_extras",
+    "comfy_extras.nodes_lt",
+]
+_saved_modules: dict[str, types.ModuleType | None] | None = None
+
+
+def _restore_runtime() -> None:
+    """Put the real/prior modules back so fakes do not leak across tests."""
+    global _saved_modules
+    if not _saved_modules:
+        return
+    for name, module in _saved_modules.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+    _saved_modules = None
+
+
+@pytest.fixture(autouse=True)
+def _restore_sys_modules_after_test():
+    yield
+    _restore_runtime()
+
+
 def _install_comfy_stubs():
-    for name in [
-        "nodes", "folder_paths", "comfy", "comfy.nested_tensor", "comfy.model_management",
-        "comfy_extras", "comfy_extras.nodes_lt",
-    ]:
+    global _saved_modules
+    if _saved_modules is None:
+        _saved_modules = {name: sys.modules.get(name) for name in _RUNTIME_NAMES}
+    for name in _RUNTIME_NAMES:
         sys.modules.pop(name, None)
 
     nodes = types.ModuleType("nodes")
