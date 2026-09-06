@@ -2079,6 +2079,29 @@ function stopDomEvent(e) {
     e.stopPropagation();
 }
 
+/**
+ * Schedule a non-critical mount on idle so it never blocks the node-add path.
+ * Falls back to a short timeout where requestIdleCallback is unavailable.
+ */
+function scheduleAuxPageMount(callback) {
+    const run = () => {
+        try { callback(); }
+        catch (error) {
+            console.error("[MiniMax H3 Motion Director] deferred page mount failed:", error);
+        }
+    };
+    if (typeof requestIdleCallback === "function") {
+        const id = requestIdleCallback(run, { timeout: 600 });
+        return {
+            cancel() { try { cancelIdleCallback(id); } catch (_e) { /* noop */ } },
+        };
+    }
+    const timer = setTimeout(run, 80);
+    return {
+        cancel() { clearTimeout(timer); },
+    };
+}
+
 function hideWidget(w) {
     if (!w) return;
     // Group headers in HIDDEN_WIDGETS duplicate timeline panel sections — hide them too.
@@ -2331,6 +2354,15 @@ class MiniMaxH3MotionDirectorEditor {
             ),
             onOpen: () => {
                 this._directorModalOpen = true;
+                // If the user opens the modal before the idle aux-page mount ran,
+                // build the Postprocess/Live/Results pages now so every tab is
+                // ready (same end state as always; the work is just not on the
+                // node-add path).
+                if (!this._auxPagesMounted) {
+                    this._mountAuxPagesTimer?.cancel?.();
+                    this._mountAuxPagesTimer = null;
+                    this._mountAuxPages?.();
+                }
                 this._resetLayoutStyles();
                 this.applyZoomWidth();
                 this.syncExternalGroupsTimeline?.();
@@ -2403,38 +2435,67 @@ class MiniMaxH3MotionDirectorEditor {
         };
         initPhase("Generation state", () => this.ensureContextLinks());
         initPhase("Generation DOM", () => this.buildDOM());
-        this.postprocessUi = initPhase("Postprocess page", () => mountPostprocessUI(
-            this._directorModalController.pages.postprocess,
-            this.postprocessStore,
-            {
-                fetchApi: (path) => api.fetchApi(path),
-                directorSize: () => [Number(this.widthWidget?.value || 864), Number(this.heightWidget?.value || 480)],
-                locale: getLocale,
-            },
-        ));
-        this.outputUi = initPhase("Live Preview / Results pages", () => mountOutputUI(
-            {
-                live: this._directorModalController.pages.live,
-                results: this._directorModalController.pages.results,
-            },
-            this.postprocessStore,
-            {
-                locale: getLocale,
-                fetchApi: (path, options) => api.fetchApi(path, options),
-                nodeId: () => String(this.node?.id ?? ""),
-            },
-        ));
 
-        this.outputUi.setPageVisibility(
-            this._directorModalController.currentPage,
-        );
-        this.runStatusEl = this.outputUi.runStatusEl;
-        this.runTitleEl = this.outputUi.runTitleEl;
-        this.runDetailEl = this.outputUi.runDetailEl;
-        this.runOverallEl = this.outputUi.runOverallEl;
-        this.runPhaseEl = this.outputUi.runPhaseEl;
-        this.runSelectBar = this.outputUi.runSelectBar;
-        this.runSelectSummary = this.outputUi.runSelectSummary;
+        // The Postprocess / Live Preview / Results pages are hidden until their
+        // tab is opened, yet mounting them used to run synchronously inside the
+        // node-add path: ~450 hidden DOM nodes plus full mount logic for pages
+        // the user may never open, paid on every workflow load / node add.  Mount
+        // them on idle right after construction instead, and flush synchronously
+        // on first modal open (identical end state - the work just leaves the
+        // node-add critical path).  Until then, runStatusEl etc. point at the
+        // Generation page's own run-status block (set by buildDOM above), exactly
+        // as they did before the Output pages were mounted.
+        this._mountAuxPages = () => {
+            if (this._auxPagesMounted || this._destroyed) return;
+            this._auxPagesMounted = true;
+            const doPostprocess = () => {
+                this.postprocessUi = initPhase("Postprocess page", () => mountPostprocessUI(
+                    this._directorModalController.pages.postprocess,
+                    this.postprocessStore,
+                    {
+                        fetchApi: (path) => api.fetchApi(path),
+                        directorSize: () => [Number(this.widthWidget?.value || 864), Number(this.heightWidget?.value || 480)],
+                        locale: getLocale,
+                    },
+                ));
+            };
+            const doOutput = () => {
+                this.outputUi = initPhase("Live Preview / Results pages", () => mountOutputUI(
+                    {
+                        live: this._directorModalController.pages.live,
+                        results: this._directorModalController.pages.results,
+                    },
+                    this.postprocessStore,
+                    {
+                        locale: getLocale,
+                        fetchApi: (path, options) => api.fetchApi(path, options),
+                        nodeId: () => String(this.node?.id ?? ""),
+                    },
+                ));
+
+                this.outputUi.setPageVisibility(
+                    this._directorModalController.currentPage,
+                );
+                this.runStatusEl = this.outputUi.runStatusEl;
+                this.runTitleEl = this.outputUi.runTitleEl;
+                this.runDetailEl = this.outputUi.runDetailEl;
+                this.runOverallEl = this.outputUi.runOverallEl;
+                this.runPhaseEl = this.outputUi.runPhaseEl;
+                this.runSelectBar = this.outputUi.runSelectBar;
+                this.runSelectSummary = this.outputUi.runSelectSummary;
+            };
+            // One aux page failing must not hide the others or break Generation.
+            try { doPostprocess(); }
+            catch (error) {
+                console.error("[MiniMax H3 Motion Director] Postprocess page mount failed:", error);
+            }
+            try { doOutput(); }
+            catch (error) {
+                console.error("[MiniMax H3 Motion Director] Live/Results page mount failed:", error);
+            }
+        };
+        this._mountAuxPagesTimer = scheduleAuxPageMount(() => this._mountAuxPages());
+
         this.bindEvents();
         this._unsubLocale = onLocaleChange(() => this.applyLocale());
         this.applyLocale();
@@ -3686,6 +3747,8 @@ class MiniMaxH3MotionDirectorEditor {
             if (f?.type.startsWith("video/")) this.loadVideoFile(f);
             else if (f?.type.startsWith("image/")) {
                 if (this.isImageBatch?.() && e.target.closest?.(".bd-batch-ref")) return;
+        this._mountAuxPagesTimer?.cancel?.();
+        this._mountAuxPagesTimer = null;
                 if (this.isImageBatch?.()) return;
                 this.addRefFromFile(f, this.getRefTarget());
             }
