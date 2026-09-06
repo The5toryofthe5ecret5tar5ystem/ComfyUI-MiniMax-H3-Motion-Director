@@ -103,6 +103,10 @@ class SegmentPlan:
     # Consumer-side link from timeline Segment N-1. None preserves legacy
     # workflows that only have the global Motion/Audio Context widgets.
     context_link: ContextLink | None = None
+    # Re-ground segment: source Motion Context (visual + audio) from the chain
+    # root's exported tail instead of the immediately-previous segment, so
+    # accumulated look/audio drift is reset to the canonical baseline here.
+    reground: bool = False
 
     @property
     def frame_count(self) -> int:
@@ -688,6 +692,7 @@ def build_director_plan(
                 reference_video_meta=seg_ref_video,
                 reference_video_start_frame=ref_start,
                 context_link=parse_context_link(seg_data, idx),
+                reground=bool(seg_data.get("reground") or seg_data.get("regroundSegment") or False),
             )
         )
 

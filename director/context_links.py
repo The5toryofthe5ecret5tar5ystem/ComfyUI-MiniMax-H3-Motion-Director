@@ -163,6 +163,32 @@ def context_link_identity(segment) -> dict[str, Any] | None:
     return link.as_payload() if isinstance(link, ContextLink) else None
 
 
+def resolve_reground_context_source(
+    *,
+    timeline_slot: int,
+    reground: bool,
+    context_pipeline_active: bool,
+    apply_visual_context: bool,
+) -> tuple[int, bool]:
+    """Decide where a segment's Motion Context is sourced from.
+
+    A "Re-ground" segment (timeline_slot > 0, boundary visual context ON, motion
+    context pipeline active) sources its carried context from the chain ROOT
+    (Segment 1, timeline index 0) instead of the immediately-previous segment, so
+    accumulated visual/audio drift is reset to the canonical baseline.
+
+    Returns ``(context_source_index, active)``.
+    """
+    previous_index = timeline_slot - 1
+    active = bool(
+        reground
+        and timeline_slot > 0
+        and context_pipeline_active
+        and apply_visual_context
+    )
+    return (0, True) if active else (previous_index, False)
+
+
 __all__ = [
     "CONTEXT_LINK_SCHEMA",
     "ContextLink",
@@ -170,4 +196,5 @@ __all__ = [
     "context_link_identity",
     "parse_context_link",
     "resolve_context_link",
+    "resolve_reground_context_source",
 ]

@@ -642,6 +642,7 @@ def build_gen_director_plan(
                 source_clip=seg_source,
                 reference_tags=reference_tags,
                 context_link=parse_context_link(seg_data, idx),
+                reground=bool(seg_data.get("reground") or seg_data.get("regroundSegment") or False),
             )
         )
 

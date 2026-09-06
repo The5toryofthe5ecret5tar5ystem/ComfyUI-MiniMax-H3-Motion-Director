@@ -53,7 +53,7 @@ from .context_cache import (
     save_motion_context_cache,
     tensor_fingerprint,
 )
-from .context_links import resolve_context_link
+from .context_links import resolve_context_link, resolve_reground_context_source
 from .execution_report import (
     context_shortfall_warning,
     DirectorExecutionReport,
@@ -693,34 +693,69 @@ def execute_director_plan_core(
         color_anchor = None
         if apply_visual_context or apply_audio_context:
             previous_index = timeline_slot - 1
-            context_entry = completed_contexts.get(previous_index)
+            # Re-ground: a marked segment sources its Motion Context (visual +
+            # audio + color/scale anchors) from the chain ROOT's exported tail
+            # (Segment 1) instead of the immediately-previous segment, resetting
+            # accumulated drift back to the canonical baseline at this boundary.
+            context_source_index, reground_active = resolve_reground_context_source(
+                timeline_slot=timeline_slot,
+                reground=bool(seg.reground),
+                context_pipeline_active=bool(context_pipeline_active),
+                apply_visual_context=bool(apply_visual_context),
+            )
+            if seg.reground and timeline_slot > 0 and not apply_visual_context:
+                warning_messages.append(
+                    f"S{timeline_slot + 1}: marked Re-ground but this boundary has no visual Motion Context "
+                    "(Context Link visual OFF or Motion Context disabled) — Re-ground ignored."
+                )
+            if reground_active:
+                reports.append(
+                    f"Segment {timeline_slot + 1}: RE-GROUND — Motion Context sourced from chain-root "
+                    f"Segment 1 instead of Segment {previous_index + 1} (visual/audio drift baseline reset)."
+                )
+            context_entry = completed_contexts.get(context_source_index)
             if context_entry is None:
-                previous_seg = next(
-                    (candidate for candidate in all_segments if int(candidate.timeline_index) == previous_index),
+                source_seg = next(
+                    (candidate for candidate in all_segments if int(candidate.timeline_index) == context_source_index),
                     None,
                 )
-                if previous_seg is None:
+                if source_seg is None and reground_active:
+                    # Chain root absent from this compact run (e.g. selection run
+                    # that excludes Segment 1). Fall back to the previous segment.
+                    reground_active = False
+                    context_source_index = previous_index
+                    context_entry = completed_contexts.get(context_source_index)
+                    source_seg = next(
+                        (candidate for candidate in all_segments
+                         if int(candidate.timeline_index) == context_source_index),
+                        None,
+                    )
+                    warning_messages.append(
+                        f"S{timeline_slot + 1}: Re-ground requested but the chain-root segment is absent "
+                        "from this run; fell back to the previous segment. Run the full sequence once first."
+                    )
+                if source_seg is None:
                     raise ValueError(
-                        "Segment %d requires Segment %d for Motion Context, but the previous segment is absent "
+                        "Segment %d requires Segment %d for Motion Context, but that segment is absent "
                         "from this compact execution plan. Run the complete sequence once to create a validated context cache."
-                        % (timeline_slot + 1, previous_index + 1)
+                        % (timeline_slot + 1, context_source_index + 1)
                     )
                 pixel_context = load_motion_context_cache(
-                    node_id, previous_seg, plan, settings=cache_settings, strict=False,
+                    node_id, source_seg, plan, settings=cache_settings, strict=False,
                 )
                 latent_context = load_latent_context_cache(
-                    node_id, previous_seg, plan, settings=cache_settings,
+                    node_id, source_seg, plan, settings=cache_settings,
                 )
                 refine_latent_context = load_latent_context_cache(
-                    node_id, previous_seg, plan, settings=cache_settings, variant="refine",
+                    node_id, source_seg, plan, settings=cache_settings, variant="refine",
                 )
                 if refine_latent_context is not None:
-                    completed_refine_contexts[previous_index] = (
+                    completed_refine_contexts[context_source_index] = (
                         refine_latent_context.latent, refine_latent_context.handoff
                     )
                 if pixel_context is None and latent_context is None and refine_latent_context is None:
                     load_motion_context_cache(
-                        node_id, previous_seg, plan, settings=cache_settings, strict=True,
+                        node_id, source_seg, plan, settings=cache_settings, strict=True,
                     )
                     raise ValueError("Previous Context cache is unavailable.")
                 fallback_latent = latent_context or refine_latent_context
@@ -732,7 +767,7 @@ def execute_director_plan_core(
                     handoff=fallback_latent.handoff if fallback_latent is not None else None,
                 )
                 context_loaded_from_cache = True
-                context_cache_hits.add(previous_index)
+                context_cache_hits.add(context_source_index)
             available_context_frames = int(
                 (context_entry.handoff or {}).get("export_frames")
                 or (context_entry.frames.shape[0] if isinstance(context_entry.frames, torch.Tensor) else 0)
