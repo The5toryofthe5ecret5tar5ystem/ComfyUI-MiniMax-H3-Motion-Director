@@ -14,12 +14,6 @@ Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, m
 
 > Current version: **v1.2.0** · Registry package: **1.2.0**
 
-<!-- IMAGE SLOT 1
-Place your Mixed + Selective Run screenshot here:
-docs/images/hero-mixed-selective-run.png
-Recommended source: 螢幕擷取畫面 2026-08-19 041546.png
--->
-
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
 The screenshot above shows the native **Mixed** timeline: five segments using different generation paths, per-boundary visual/audio continuity controls, and **Selective Run** enabled so only chosen segments are regenerated.
@@ -49,12 +43,6 @@ Motion Director is an `OUTPUT_NODE`, so it can run as the end of a workflow whil
 ## Live Preview
 
 Motion Director has its own live preview instead of relying only on the normal sampler preview. It can show the active generation stage while the workflow is running, including later post-processing stages.
-
-<!-- IMAGE SLOT 2
-Place your Live Preview GIF here:
-docs/images/live-preview.gif
-Recommended source: Video Project 1(1).gif
--->
 
 ![MiniMax H3 Motion Director — Live Preview](docs/images/live-preview.gif)
 
@@ -161,12 +149,6 @@ Standalone V2V / RV2V use the Director's dedicated source-video workflow. Source
 
 Common References are project-level media that many standalone segments can share. They are useful for recurring characters, scenes, props, reference motion, and audio without adding the same material to every segment manually.
 
-<!-- IMAGE SLOT 3
-Place your Common References screenshot here:
-docs/images/common-references.png
-Recommended source: 螢幕擷取畫面 2026-08-19 040543(1).png
--->
-
 ![MiniMax H3 Motion Director — Common References](docs/images/common-references.png)
 
 Segment-specific assets remain local to that segment/group. At execution time, common and local references are combined into the reference sequence used by the current task.
@@ -186,12 +168,6 @@ It can store:
 
 Images can be organized into categories such as characters, scenes, props, or other material. Search and allocation happen inside the Director UI instead of repeatedly browsing for the same files on disk.
 
-<!-- IMAGE SLOT 4
-Place your Material Library screenshot here:
-docs/images/material-library.png
-Recommended source: 螢幕擷取畫面 2026-08-19 035702(1).png
--->
-
 ![MiniMax H3 Motion Director — Material Library](docs/images/material-library.png)
 
 In Mixed Mode, the Library targets the currently selected segment and only exposes media that are legal for that segment mode. The actual Mixed `Source Video` remains a local upload rather than a Material Library reference video.
@@ -201,12 +177,6 @@ In Mixed Mode, the Library targets the currently selected segment and only expos
 ## Post-processing
 
 The Director can continue beyond first-pass generation instead of requiring a separate post-processing graph for every project.
-
-<!-- IMAGE SLOT 5
-Place your Postprocess screenshot here:
-docs/images/postprocess.png
-Recommended source: 螢幕擷取畫面 2026-08-19 034623(1).png
--->
 
 ![MiniMax H3 Motion Director — Postprocess](docs/images/postprocess.png)
 
@@ -242,12 +212,6 @@ If no usable face is detected or Face Refine fails, the assembled result is kept
 
 Results are managed inside the Director rather than being reduced to one anonymous output batch.
 
-<!-- IMAGE SLOT 6
-Place your Results screenshot here:
-docs/images/results-final.png
-Recommended source: 螢幕擷取畫面 2026-08-19 035629(1).png
--->
-
 ![MiniMax H3 Motion Director — Final Result](docs/images/results-final.png)
 
 The Results page has three levels:
@@ -271,12 +235,6 @@ Public node outputs remain simple:
 ## External Director Inputs / Assets
 
 The Director is an all-in-one production interface, but it is not a closed box. Other ComfyUI nodes can still feed prompts and media into standalone modes through the external input architecture.
-
-<!-- IMAGE SLOT 7
-Place your external Inputs / Assets node screenshot here:
-docs/images/external-inputs.png
-Recommended source: 螢幕擷取畫面 2026-08-19 040419(1).png
--->
 
 ![MiniMax H3 Motion Director — External Inputs and Assets](docs/images/external-inputs.png)
 
@@ -391,6 +349,23 @@ Motion Director is intentionally an integrated project. It contains, modifies, o
 Thanks to the upstream authors and contributors.
 
 See [`NOTICE`](NOTICE), [`LICENSE`](LICENSE), and [`LICENSES`](LICENSES) for the exact attribution and derivative-work details.
+
+---
+
+## Development / running tests
+
+The test suites run without a live ComfyUI instance (CPU is enough for the Python tests):
+
+```bash
+# Python unit + contract tests (83 tests) — any working directory, no ComfyUI needed
+python -m pytest
+
+# Frontend unit tests (jsdom is a dev-only dependency)
+npm install
+npm test
+```
+
+Three frontend DOM tests additionally import ComfyUI's own frontend (`scripts/app.js`, `scripts/api.js`); they only run inside a ComfyUI checkout. A CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering pass notes.
 
 ## License
 
