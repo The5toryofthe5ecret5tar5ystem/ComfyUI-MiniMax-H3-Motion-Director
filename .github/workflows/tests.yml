@@ -1,0 +1,54 @@
+name: Tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  python-tests:
+    name: Python unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # CPU-only torch is enough for the unit tests (no ComfyUI/CUDA needed).
+          python -m pip install pytest torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements.txt
+
+      - name: Run Python test suite
+        # The suite is CWD-independent (see conftest.py) and needs no ComfyUI.
+        run: python -m pytest
+
+  frontend-tests:
+    name: Frontend tests (node --check + unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Install frontend dev dependencies (jsdom)
+        run: npm install
+
+      - name: Syntax-check all frontend modules
+        run: |
+          for f in $(find web/js -name '*.js' -o -name '*.mjs'); do
+            node --check "$f"
+          done
+
+      - name: Run standalone JS unit tests
+        run: npm test
