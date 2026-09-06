@@ -4,6 +4,16 @@
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
+> **维护分支（fork）**：本仓库在原版 j955229 基础上新增：
+>
+> - **Re-ground 分段（防累积漂移）**：时间线每段边界下方新增 **R 圆圈**，左键切换（开启后变琥珀色）。开启的段落会从「链首 root」而非上一段重新锚定上下文，用于长片每 3–5 段设置一次，配合 Latent Scale Lock 与 Color Re-anchor 抑制色彩/画面漂移。
+> - **性能修复**：修复打开 Director 面板时因超长提示词逐字裁剪导致的长时间卡顿（改为二分查找 `fitCanvasText`，实测约快 525 倍）；批量卡片启用 `content-visibility` 优化滚动。
+> - **新版 ComfyUI 兼容**：H3 节点改为关键字传参，兼容 v0.34.x 之后 io.Schema / ComfyNode 重写版 ComfyUI，修复 `//: 'str' and 'int'` 崩溃。
+> - **测试与 CI**：`python -m pytest`（94 个测试，无需 ComfyUI 即可运行）+ 前端 jsdom 测试，CI 见 `.github/workflows/tests.yml`。
+> - **示例工作流**：`example_workflows/` 内含可直接运行的 **ref2va** 示例与配套 AI 生成参考图。
+>
+> 英文详情见 [Improvements in this fork](README.md#-improvements-in-this-fork)。
+
 **一个 Director，从单个 MiniMax H3 镜头到完整的多段视频项目。**
 
 下面连结是教学，或者你想先往下看看介绍?
