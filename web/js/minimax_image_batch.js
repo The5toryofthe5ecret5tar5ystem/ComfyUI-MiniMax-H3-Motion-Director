@@ -276,6 +276,8 @@ export const IMAGE_BATCH_STYLES = `
 .bd-r2v-common-popover-add{min-height:86px;border:1px dashed #46644f;border-radius:8px;background:#101711;color:#9dc9aa;cursor:pointer;font-size:11px}
 .bd-r2v-common-popover-add:hover{border-color:#65a879;background:#152019;color:#d7f3df}
 .bd-batch-card{background:linear-gradient(165deg,#1a1a1a 0%,#141414 55%,#111 100%);border:1px solid #2c2c2c;border-radius:10px;padding:12px 14px;display:grid;gap:10px;align-items:stretch;box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
+/* Perf: browser skips layout+paint for offscreen group cards; intrinsic-size hint keeps scrollbar stable (auto refines after first paint). */
+.bd-batch-card{content-visibility:auto;contain-intrinsic-size:auto 220px}
 /* t2v */
 .bd-batch-card.bd-batch-plain{grid-template-columns:minmax(0,1fr)}
 /* i2v / r2i */
