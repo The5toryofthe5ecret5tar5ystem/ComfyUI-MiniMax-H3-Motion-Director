@@ -1,6 +1,6 @@
 # Example Workflows — MiniMax H3 Motion Director
 
-## `ref2va example workflow 3x7s.json`
+## `Minimax h3 Director - ref2va example workflow 3x7s.json`
 
 A ready-to-run **ref2va (Reference to Video)** example: one continuous golden-hour
 forest run, 3 segments × 7 s (21 s @ 24 fps). Subject 1 is an athletic elf woman
@@ -37,4 +37,4 @@ Place files under your ComfyUI `models/` folder (subfolders as shown):
 | Text encoder (uncensored) | `text_encoders/qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors` | [Qwen3-VL-32B-Heretic (sakamakismile)](https://huggingface.co/sakamakismile/Qwen3-VL-32B-Heretic-MiniMax-H3-NVFP4/blob/main/qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors) |
 | Video VAE | `vae/minimax_h3_video_vae_int8_convrot.safetensors` | [Kijai / MiniMax-H3-experimental](https://huggingface.co/Kijai/MiniMax-H3-experimental/blob/main/minimax_h3_video_vae_int8_convrot.safetensors) |
 
-Also referenced by the subgraph: **audio VAE** (`vae/minimax_h3_audio_vae_fp32.safetensors`, same Kijai repo), a **REF2V turbo LoRA** (`loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`), and an optional **MysticXXX REF2VA LoRA** (`loras/Minimax/MysticXXX_MMH3-V4-ref2va.safetensors`) applied by the top-level Power Lora Loader.
+Also referenced by the model subgraph: the **audio VAE** (`vae/minimax_h3_audio_vae_fp32.safetensors`, same Kijai repo) and the **REF2V turbo LoRA** applied on the ref2va path (`loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`). The workflow also contains a top-level **Power Lora Loader**, but it is intentionally left **empty** — add your own LoRA there if you want one.
