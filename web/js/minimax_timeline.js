@@ -10392,28 +10392,521 @@ class MiniMaxH3MotionDirectorEditor {
         this._applyRunIntent({ resume, from });
         if (reseed) this._rollSeed();
         this._setRunActive(true);
+        let queued = false;
         try {
             if (typeof this.commit === "function") {
                 this.commit(true, { syncTimeline: false });
             }
             this.ensureRunSelectionSerialized?.();
             this.flushTimelineSync?.();
+            this._directorModalController?.setPage?.("live");
+            if (typeof app?.queuePrompt === "function") {
+                app.queuePrompt();
+                queued = true;
+                // The queued prompt captured the intent; clear the transient field so
+                // a later ordinary Start run is not mistaken for a Resume.
+                try { this._applyRunIntent({ resume: false }); } catch (_err) { /* noop */ }
+            }
         } catch (error) {
-            console.error("[MiniMax H3 Motion Director] Run flush failed:", error);
-        }
-        this._directorModalController?.setPage?.("live");
-        if (typeof app?.queuePrompt === "function") {
-            app.queuePrompt();
-            // The queued prompt captured the intent; clear the transient field so
-            // a later ordinary Start run is not mistaken for a Resume.
-            try { this._applyRunIntent({ resume: false }); } catch (_err) { /* noop */ }
+            console.error("[MiniMax H3 Motion Director] Run flush/queue failed:", error);
+        } finally {
+            if (!queued) {
+                // The prompt was never handed to ComfyUI (flush or queuePrompt
+                // failed) - do not leave the run bar stuck in an active state.
+                this._stopRequested = false;
+                this._setRunActive(false);
+            }
         }
         this._syncRunControls?.();
     }
 
     resumeDirectorRun() {
         if (this._isRunActive()) return;
-        this._queueRunWithIntent({ resume: true });
+        // Show the cache-status dialog first instead of starting immediately.
+        this.openResumeDialog?.();
+    }
+
+    // --- Resume cache-status dialog -------------------------------------------------
+    _resumeText(zh, en) {
+        return String(getLocale?.() || "zh").toLowerCase().startsWith("en") ? en : zh;
+    }
+
+    _resumeMegapixels(w, h) {
+        const width = Number(w) || 0;
+        const height = Number(h) || 0;
+        return width && height ? width * height / 1e6 : 0;
+    }
+
+    _resumeFmtRes(w, h, refMax) {
+        const width = Number(w) || 0;
+        const height = Number(h) || 0;
+        const mp = this._resumeMegapixels(width, height).toFixed(2);
+        const ref = Number(refMax) > 0 ? ` · ref ${Number(refMax)}` : "";
+        return width && height ? `${width}×${height} (${mp} MP${ref})` : "";
+    }
+
+    _resumeCurrentRes() {
+        return {
+            width: Number(this.widthWidget?.value) || 0,
+            height: Number(this.heightWidget?.value) || 0,
+            ref_max: Number(this.refMaxWidget?.value) || 0,
+        };
+    }
+
+    _resumeResMatches(entry, cur) {
+        const e = entry || {};
+        return (Number(e.width) || 0) === cur.width
+            && (Number(e.height) || 0) === cur.height
+            && (Number(e.ref_max) || 0) === cur.ref_max;
+    }
+
+    _resumePostprocessSummary() {
+        try {
+            const cfg = this.postprocessStore?.get?.() || {};
+            const gr = cfg.global_refine || {};
+            const fr = cfg.face_refine || {};
+            const grOn = gr.enabled !== false;
+            const frOn = fr.enabled === true;
+            const mode = gr.mode || "";
+            const zh = `后期处理：全局精修 ${grOn ? "开" : "关"}${mode && grOn ? ` (${mode})` : ""} · 人脸精修 ${frOn ? "开" : "关"}`;
+            const en = `Post-process: Global Refine ${grOn ? "on" : "off"}${mode && grOn ? ` (${mode})` : ""} · Face Refine ${frOn ? "on" : "off"}`;
+            return this._resumeText(zh, en);
+        } catch (_err) {
+            return "";
+        }
+    }
+
+    _resumeDialogStyle() {
+        if (document.getElementById("mmx-resume-dialog-styles")) return;
+        const style = document.createElement("style");
+        style.id = "mmx-resume-dialog-styles";
+        style.textContent = `
+.mmx-resume-layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(8,10,16,.5);z-index:270}
+.mmx-resume-layer[hidden]{display:none!important}
+.mmx-resume-card{width:min(740px,100%);max-height:88%;overflow:auto;background:#14161d;border:1px solid #2c3140;border-radius:10px;box-shadow:0 18px 60px rgba(0,0,0,.6);font-size:13px;color:#dfe4ee}
+.mmx-resume-head{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid #262b38;font-weight:600;position:sticky;top:0;background:#14161d}
+.mmx-resume-close{background:none;border:none;color:#9aa3b5;font-size:18px;cursor:pointer}
+.mmx-resume-body{padding:14px 16px;display:flex;flex-direction:column;gap:11px}
+.mmx-resume-summary{font-weight:600}
+.mmx-resume-row{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#191c26;border:1px solid #262b38;border-radius:8px;padding:9px 12px;flex-wrap:wrap}
+.mmx-resume-note{color:#b8c0d0;line-height:1.5}
+.mmx-resume-bad{color:#ff9b7a}
+.mmx-resume-good{color:#7ceba4}
+.mmx-resume-warn{color:#f2c879}
+.mmx-resume-kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:12px;color:#9aa3b5;width:100%}
+.mmx-resume-kv b{color:#e6eaf3;font-weight:600;text-align:right;white-space:nowrap}
+.mmx-resume-kv .delta{color:#f2c879}
+.mmx-resume-seglist{max-height:150px;overflow:auto;background:#10121a;border:1px solid #262b38;border-radius:8px;padding:6px 4px}
+.mmx-resume-seg{display:flex;gap:10px;align-items:center;padding:3px 8px;border-radius:6px;font-size:12px}
+.mmx-resume-seg .st{flex:0 0 64px;font-weight:600}
+.mmx-resume-seg .res{flex:1;color:#9aa3b5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mmx-resume-actions{display:flex;justify-content:flex-end;gap:10px;align-items:center;flex-wrap:wrap}
+.mmx-resume-startwrap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mmx-resume-btn{background:#22263a;color:#dfe4ee;border:1px solid #333a4d;border-radius:8px;padding:7px 13px;cursor:pointer;font-size:12px}
+.mmx-resume-btn:hover{background:#2a2f47}
+.mmx-resume-btn.primary{background:#2f7a4f;border-color:#2f7a4f;color:#eafff2}
+.mmx-resume-btn.primary:hover{background:#36945f}
+.mmx-resume-btn.danger{background:#5a2f2f;border-color:#7a3b3b;color:#ffdcdc}
+.mmx-resume-btn:disabled{opacity:.5;cursor:not-allowed}
+.mmx-resume-select{background:#191c26;color:#dfe4ee;border:1px solid #333a4d;border-radius:7px;padding:6px 8px;max-width:380px}
+.mmx-resume-select option{background:#191c26;color:#dfe4ee}
+`;
+        document.head.appendChild(style);
+    }
+
+    _resumeDialogHost() {
+        if (!this._resumeDialogLayer) {
+            const host = this._directorOverlayLayer;
+            if (!host) return null;
+            const layer = document.createElement("div");
+            layer.className = "mmx-resume-layer";
+            layer.hidden = true;
+            host.appendChild(layer);
+            this._resumeDialogLayer = layer;
+            // Clicking the backdrop dismisses the dialog (and re-syncs the run bar).
+            layer.addEventListener("click", (event) => {
+                if (event.target === layer) this._resumeDialogClose();
+            });
+        }
+        return this._resumeDialogLayer;
+    }
+
+    _resumeDialogClose() {
+        const layer = this._resumeDialogLayer;
+        if (layer) layer.hidden = true;
+        // Dismissing the popup without having queued a run must never leave the
+        // run bar stuck in an "active" state (Start run / Resume greyed out).
+        if (!this._resumeDialogQueued) {
+            this._stopRequested = false;
+            this._setRunActive(false);
+        }
+        this._resumeDialogQueued = false;
+        this.refreshResumeState?.();
+        this._syncRunControls?.();
+    }
+
+    _resumeCachedSegmentsByIndex() {
+        const map = new Map();
+        const data = this._resumeDialogData || {};
+        if (data?.authoritative && Array.isArray(data.segments)) {
+            for (const seg of data.segments) {
+                const cached = seg.cached && typeof seg.cached === "object" ? seg.cached : {};
+                map.set(Number(seg.index), {
+                    index: Number(seg.index),
+                    complete: seg.status !== "missing" && cached.complete !== false,
+                    status: seg.status,
+                    reasons: Array.isArray(seg.reasons) ? seg.reasons : [],
+                    ...cached,
+                });
+            }
+            return map;
+        }
+        for (const entry of data.caches || []) {
+            map.set(Number(entry.index), entry);
+        }
+        return map;
+    }
+
+    async openResumeDialog() {
+        const nodeId = this._directorNodeId();
+        if (!nodeId) {
+            this._queueRunWithIntent({ resume: true });
+            return;
+        }
+        this._resumeDialogQueued = false;
+        const layer = this._resumeDialogHost();
+        if (!layer) {
+            this._queueRunWithIntent({ resume: true });
+            return;
+        }
+        // Authoritative analysis needs the node's current inputs so the backend
+        // can rebuild the plan and apply the exact engine fingerprint check.
+        const widgetVal = (name) => this.widget(name)?.value;
+        const postBody = {
+            node_id: nodeId,
+            timeline_data: widgetVal("timeline_data"),
+            task_type: widgetVal("task_type"),
+            global_prompt: widgetVal("global_prompt"),
+            total_frames: Number(widgetVal("total_frames")) || 0,
+            frame_rate: Number(widgetVal("frame_rate")) || 24,
+            width: Number(widgetVal("width")) || 0,
+            height: Number(widgetVal("height")) || 0,
+            ref_max_size: Number(widgetVal("ref_max_size")) || 0,
+        };
+        let data = null;
+        try {
+            const response = await api.fetchApi("/minimax/motion-director/resume_preview", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(postBody),
+            });
+            data = await response.json();
+            if (!data || data.error) throw new Error(data?.error || "authoritative preview unavailable");
+        } catch (error) {
+            // External-group workflows and pre-restart backends fall back to the
+            // lightweight heuristic below.
+            console.warn("[MiniMax H3 Motion Director] authoritative resume_preview failed; falling back:", error);
+            data = null;
+            try {
+                const response = await api.fetchApi(`/minimax/motion-director/resume_preview?node_id=${encodeURIComponent(nodeId)}`);
+                data = await response.json();
+            } catch (fallbackError) {
+                console.warn("[MiniMax H3 Motion Director] resume_preview fetch failed:", fallbackError);
+                data = {};
+            }
+        }
+        this._resumeDialogData = data || {};
+        this._renderResumeDialog();
+        layer.hidden = false;
+    }
+
+    _renderResumeDialog() {
+        this._resumeDialogStyle();
+        const layer = this._resumeDialogHost();
+        if (!layer) return;
+        const data = this._resumeDialogData || {};
+        const cur = this._resumeCurrentRes();
+        const total = Math.max(0, Number(data.segment_total) || Number(this.timeline?.segments?.length) || 0);
+        const doneCount = Array.isArray(data.done) ? data.done.length : 0;
+        const authoritative = Boolean(data?.authoritative && Array.isArray(data?.segments) && !data?.error);
+        const engineFrom = authoritative ? Math.max(0, Number(data.resume_from) || 0) : -1;
+
+        // Normalize per-segment cache entries.
+        // Authoritative: status comes from the engine's real fingerprint check.
+        // Fallback: stored-metadata heuristic (complete cache + node settings).
+        const byIndex = new Map();
+        if (authoritative) {
+            for (const seg of data.segments) {
+                const idx = Number(seg.index);
+                const cached = seg.cached && typeof seg.cached === "object" ? seg.cached : {};
+                const complete = seg.status !== "missing" && cached.complete !== false;
+                byIndex.set(idx, {
+                    index: idx,
+                    complete,
+                    status: seg.status,
+                    reasons: Array.isArray(seg.reasons) ? seg.reasons : [],
+                    audio_cached: Boolean(cached.audio_cached),
+                    width: cached.width,
+                    height: cached.height,
+                    ref_max: cached.ref_max,
+                    output_mode: cached.output_mode,
+                    start: cached.start,
+                    end: cached.end,
+                });
+            }
+        } else {
+            for (const entry of data.caches || []) {
+                byIndex.set(Number(entry.index), { ...entry, complete: Boolean(entry.complete) });
+            }
+        }
+
+        const complete = [...byIndex.values()].filter((entry) => entry.complete);
+        const completeCount = complete.length;
+        const firstComplete = complete.sort((a, b) => a.index - b.index)[0] || null;
+
+        // Natural resume start.
+        // Authoritative: the engine's exact resume-from index (every segment
+        // before it is truly reusable; it and everything after is re-sampled).
+        // Fallback heuristic: first segment without a complete matching cache.
+        let firstNeeds = -1;
+        let allReusable = false;
+        if (authoritative) {
+            allReusable = engineFrom >= total;
+            firstNeeds = allReusable ? -1 : engineFrom;
+        } else {
+            for (let i = 0; i < total; i += 1) {
+                const entry = byIndex.get(i);
+                const reusable = Boolean(entry && entry.complete && this._resumeResMatches(entry, cur));
+                if (!reusable) { firstNeeds = i; break; }
+            }
+            allReusable = firstNeeds < 0;
+        }
+        const recommended = allReusable ? Math.max(0, total - 1) : firstNeeds;
+        const reusableFor = (i) => {
+            const entry = byIndex.get(i);
+            if (authoritative) return i < engineFrom;
+            return Boolean(entry && entry.complete && this._resumeResMatches(entry, cur));
+        };
+        const prefixReusable = (k) => {
+            for (let j = 0; j < k; j += 1) if (!reusableFor(j)) return false;
+            return true;
+        };
+
+        // Settings deltas between the earliest cached segment and the node now.
+        const deltas = [];
+        if (firstComplete) {
+            const del = (labelZh, labelEn, cached, current) => {
+                if (String(cached) !== String(current)) {
+                    deltas.push({ label: this._resumeText(labelZh, labelEn), cached, current });
+                }
+            };
+            del("分辨率", "Resolution", this._resumeFmtRes(firstComplete.width, firstComplete.height), this._resumeFmtRes(cur.width, cur.height));
+            del("参考最大边", "Ref max", firstComplete.ref_max, cur.ref_max);
+        }
+        const hasNodeMismatch = deltas.length > 0;
+
+        // Compose the lead message.
+        let lead = "";
+        let leadClass = "mmx-resume-note";
+        if (total <= 0) {
+            lead = this._resumeText("时间线里还没有片段。", "No segments in the timeline yet.");
+        } else if (completeCount === 0) {
+            lead = this._resumeText("还没有可用缓存 —— Resume 等同从头运行全部片段。", "Nothing cached yet — Resume behaves like a fresh run of every segment.");
+            leadClass = "mmx-resume-warn";
+        } else if (allReusable) {
+            lead = this._resumeText("全部片段都已有匹配的缓存 —— Resume 将不会重新采样。", "Every segment is cached and matches — Resume would not re-sample anything.");
+            leadClass = "mmx-resume-warn";
+        } else if (firstNeeds === 0) {
+            if (authoritative) {
+                lead = this._resumeText("S1 的缓存无法复用（设置或内容与缓存不同）—— Resume 将从头重新渲染。", "S1's cache can't be reused (settings or content differ) — Resume will re-render from the start.");
+            } else if (hasNodeMismatch) {
+                lead = this._resumeText("节点设置与缓存不同 —— 需要从 S1 重新渲染。改回缓存设置即可复用已完成的片段。", "Node settings differ from the cache — Resume would re-render from S1. Restoring the cached settings lets it reuse the finished segments.");
+            } else {
+                lead = this._resumeText("S1 没有可用缓存（缺失，或提示词 / 参考 / 片段内容已变）—— Resume 将从头重新渲染。", "S1 has no reusable cache (missing, or prompts / refs / shot content changed) — Resume will re-render from the start.");
+            }
+            leadClass = "mmx-resume-bad";
+        } else {
+            lead = authoritative
+                ? this._resumeText(`将复用 S1–S${firstNeeds} 的缓存，从 S${firstNeeds + 1} 重新采样。`, `Reuses S1–S${firstNeeds} from cache; re-samples from S${firstNeeds + 1}.`)
+                : this._resumeText(`将复用 S1–S${firstNeeds} 的缓存，从 S${firstNeeds + 1} 继续渲染（假设提示词 / 参考未变）。`, `Reuses S1–S${firstNeeds} from cache, continues rendering from S${firstNeeds + 1} (assuming prompts / refs are unchanged).`);
+        }
+
+        // Segment list rows.
+        const rows = [];
+        for (let i = 0; i < total; i += 1) {
+            const entry = byIndex.get(i);
+            let status = this._resumeText("无缓存", "no cache");
+            let statusClass = "mmx-resume-bad";
+            let resText = "";
+            if (reusableFor(i)) {
+                status = this._resumeText("可复用", "reusable");
+                statusClass = "mmx-resume-good";
+                resText = this._resumeFmtRes(entry.width, entry.height, entry.ref_max);
+                if (authoritative && !entry.audio_cached && data.audio_generate) resText += this._resumeText(" · 无音频缓存", " · no audio cache");
+            } else if (i === firstNeeds) {
+                status = this._resumeText("从此重渲染", "re-render from here");
+                statusClass = "mmx-resume-warn";
+                resText = entry ? this._resumeFmtRes(entry.width, entry.height, entry.ref_max) : "";
+            } else if (entry && entry.complete) {
+                status = this._resumeText("无法复用", "not reusable");
+                statusClass = "mmx-resume-bad";
+                resText = this._resumeFmtRes(entry.width, entry.height, entry.ref_max);
+                if (authoritative && entry.reasons && entry.reasons.length) {
+                    resText = this._resumeText("原因：", "why: ") + entry.reasons.slice(0, 2).map((r) => r.label).join(" · ");
+                }
+            } else if (entry) {
+                status = this._resumeText("不完整", "partial");
+                statusClass = "mmx-resume-warn";
+            }
+            rows.push(`<div class="mmx-resume-seg"><span class="st ${statusClass}">S${i + 1} ${status}</span><span class="res">${resText}</span></div>`);
+        }
+
+        // Start-point options (value = 0-based first segment to re-render).
+        // Only offer a start whose whole prefix the engine will actually reuse,
+        // otherwise picking it would silently re-render from S1 anyway.
+        const options = [];
+        options.push(`<option value="fresh">${this._resumeText("从头开始（清空缓存重跑）", "Start Over (clear caches, fresh run)")}</option>`);
+        if (total > 0) {
+            options.push(`<option value="0">${this._resumeText("S1 开始 · 全部重渲染（不复用）", "From S1 · render all (no reuse)")}</option>`);
+            for (let k = 1; k < total; k += 1) {
+                if (!prefixReusable(k)) continue;
+                options.push(`<option value="${k}">${this._resumeText(`S${k + 1} 开始 · 复用 S1–S${k}`, `From S${k + 1} · reuse S1–S${k}`)}</option>`);
+            }
+        }
+
+        const ppText = this._resumePostprocessSummary();
+        const kvRows = [];
+        if (firstComplete) {
+            const cachedRes = this._resumeFmtRes(firstComplete.width, firstComplete.height, firstComplete.ref_max);
+            const nodeRes = this._resumeFmtRes(cur.width, cur.height, cur.ref_max);
+            const cachedIsNode = cachedRes === nodeRes && String(firstComplete.ref_max) === String(cur.ref_max);
+            kvRows.push(
+                `<div class="mmx-resume-kv"><b>${this._resumeText("缓存设置", "Cached settings")}</b><span>${cachedRes || "—"}</span>`
+                + `<b>${this._resumeText("当前节点", "Node now")}</b><span class="${cachedIsNode ? "" : "delta"}">${nodeRes || "—"}</span>`
+                + `<b>${this._resumeText("输出模式", "Output mode")}</b><span>${String(firstComplete.output_mode || "—")}</span></div>`,
+            );
+        }
+
+        const reasonHtml = (authoritative && firstNeeds >= 0 && byIndex.get(firstNeeds)?.reasons?.length)
+            ? `<div class="mmx-resume-row"><div style="width:100%"><div class="mmx-resume-label mmx-resume-bad">${this._resumeText(`为什么无法从 S${firstNeeds + 1} 之前的缓存继续`, `Why cache before S${firstNeeds + 1} can't be reused`)}</div>`
+                + `<div class="mmx-resume-kv" style="margin-top:6px">${byIndex.get(firstNeeds).reasons.map((r) => `<b>${r.label}</b><span class="delta">${this._resumeText("缓存", "cached")}: ${r.cached} → ${this._resumeText("当前", "now")}: ${r.current}</span>`).join("")}</div></div></div>`
+            : "";
+        const resolutionHtml = deltas.length
+            ? `<div class="mmx-resume-row"><div style="width:100%"><div class="mmx-resume-label mmx-resume-bad">${this._resumeText("节点设置差异（可一键改回）", "Node settings differ (restorable)")}</div>`
+                + `<div class="mmx-resume-kv" style="margin-top:6px">${deltas.map((d) => `<b>${d.label}</b><span class="delta">${this._resumeText("缓存", "cached")}: ${d.cached} → ${this._resumeText("当前", "now")}: ${d.current}</span>`).join("")}</div>`
+                + `<div class="mmx-resume-note" style="margin-top:6px">${this._resumeText("点击下方按钮把节点设置改回缓存值，即可复用已完成片段。", "Use the button below to restore the node to the cached values so finished segments can be reused.")}</div></div></div>`
+            : "";
+        const mismatchHtml = reasonHtml || resolutionHtml;
+
+        layer.innerHTML = `
+          <div class="mmx-resume-card">
+            <div class="mmx-resume-head">
+              <span>${this._resumeText("继续渲染 · 缓存检查", "Resume · cache check")}</span>
+              <button type="button" class="mmx-resume-close" data-rd="close" title="Close">×</button>
+            </div>
+            <div class="mmx-resume-body">
+              <div class="mmx-resume-summary">${this._resumeText("片段共", "Segments")} ${total} · ${this._resumeText("完整缓存", "cached")} ${completeCount}/${total} · ${this._resumeText("已完成标记", "done marks")} ${doneCount}</div>
+              <div class="mmx-resume-row"><span class="${leadClass}" style="line-height:1.5">${lead}</span></div>
+              ${mismatchHtml}
+              ${kvRows.join("")}
+              ${ppText ? `<div class="mmx-resume-note">${ppText} — ${this._resumeText("后期处理在采样后执行，不属于片段缓存，不会阻止 Resume。", "post-process runs after sampling, is not part of the segment cache, and never blocks Resume.")}</div>` : ""}
+              <div class="mmx-resume-row mmx-resume-startwrap">
+                <span class="mmx-resume-label">${this._resumeText("开始位置", "Start at")}</span>
+                <select class="mmx-resume-select" data-rd="start">${options.join("")}</select>
+              </div>
+              <div class="mmx-resume-seglist">${rows.join("")}</div>
+              <div class="mmx-resume-actions">
+                <button type="button" class="mmx-resume-btn" data-rd="apply" ${firstComplete ? "" : "disabled"}>${this._resumeText("套用缓存设置后继续", "Restore cached settings & continue")}</button>
+                <button type="button" class="mmx-resume-btn danger" data-rd="fresh">${this._resumeText("全部重来", "Start Over")}</button>
+                <button type="button" class="mmx-resume-btn" data-rd="cancel">${this._resumeText("取消", "Cancel")}</button>
+                <button type="button" class="mmx-resume-btn primary" data-rd="run" ${total > 0 ? "" : "disabled"}>${this._resumeText("继续", "Resume")}</button>
+              </div>
+            </div>
+          </div>`;
+
+        const startSelect = layer.querySelector('[data-rd="start"]');
+        if (startSelect) {
+            if (allReusable && total > 0) {
+                startSelect.value = String(Math.max(0, total - 1));
+            } else {
+                startSelect.value = String(recommended);
+            }
+        }
+        const applyBtn = layer.querySelector('[data-rd="apply"]');
+        const nodeFixable = Boolean(firstComplete && !this._resumeResMatches(firstComplete, cur));
+        if (applyBtn && nodeFixable) {
+            applyBtn.textContent = this._resumeText("套用缓存设置后继续", "Restore cached settings & continue");
+        } else if (applyBtn) {
+            applyBtn.textContent = firstComplete
+                ? this._resumeText("节点设置已一致", "Node settings already match")
+                : this._resumeText("无可套用设置", "No settings to restore");
+            applyBtn.disabled = true;
+        }
+
+        const close = () => this._resumeDialogClose();
+        layer.querySelector('[data-rd="close"]')?.addEventListener("click", close);
+        layer.querySelector('[data-rd="cancel"]')?.addEventListener("click", close);
+        layer.querySelector('[data-rd="fresh"]')?.addEventListener("click", () => {
+            this._resumeDialogQueued = true;
+            const nodeId = this._directorNodeId();
+            this._resumeDialogClose();
+            if (!nodeId) { this._queueRunWithIntent({ resume: true }); return; }
+            void api.fetchApi("/minimax/motion-director/clear_run", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ node_id: nodeId }),
+            }).catch(() => {});
+            this._resumeDone = new Set();
+            this._resumeNext = 0;
+            this._resumeTotal = 0;
+            this._resumeState = "idle";
+            this._pendingRestart = null;
+            this._syncRunControls?.();
+            this._queueRunWithIntent({ freshClear: true });
+        });
+        layer.querySelector('[data-rd="run"]')?.addEventListener("click", () => {
+            this._resumeDialogQueued = true;
+            const value = startSelect?.value;
+            this._resumeDialogClose();
+            if (value === "fresh") {
+                const nodeId = this._directorNodeId();
+                if (nodeId) {
+                    void api.fetchApi("/minimax/motion-director/clear_run", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ node_id: nodeId }),
+                    }).catch(() => {});
+                }
+                this._resumeDone = new Set();
+                this._resumeNext = 0;
+                this._resumeTotal = 0;
+                this._resumeState = "idle";
+                this._pendingRestart = null;
+                this._syncRunControls?.();
+                this._queueRunWithIntent({ freshClear: true });
+                return;
+            }
+            const from = value == null ? null : Number(value);
+            if (from == null || Number.isNaN(from)) {
+                this._queueRunWithIntent({ resume: true });
+            } else {
+                this._queueRunWithIntent({ resume: true, from });
+            }
+        });
+        layer.querySelector('[data-rd="apply"]')?.addEventListener("click", () => {
+            const caches = [...this._resumeCachedSegmentsByIndex().values()]
+                .filter((entry) => entry.complete)
+                .sort((a, b) => a.index - b.index);
+            const src = caches[0];
+            if (!src) return;
+            const applyNum = (widget, value) => { if (widget) widget.value = Number(value) || 0; };
+            applyNum(this.widthWidget, src.width);
+            applyNum(this.heightWidget, src.height);
+            applyNum(this.refMaxWidget, src.ref_max);
+            this.node?.setDirtyCanvas?.(true, true);
+            this.refreshResumeState?.();
+            void this.openResumeDialog();
+        });
     }
 
     restartSegmentRun() {

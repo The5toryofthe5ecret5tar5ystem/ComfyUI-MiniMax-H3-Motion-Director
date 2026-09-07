@@ -2,6 +2,11 @@
 
 import { getLocale, onLocaleChange } from "./minimax_i18n.js";
 
+// NOTE: the categories_* arrays below are NOT display strings — they are the
+// canonical category keys persisted in library.json and validated by the backend,
+// so they are identical in both locales. Display text is localized via
+// materialCategoryLabel() (see bottom of this file).
+
 const ZH = {
     button: "素材库", title: "素材库", close: "关闭", cancel: "关闭", apply: "应用", applying: "应用中…",
     image: "图片", audio: "音频", video: "视频", prompt: "Prompt", add: "新增素材", search: "搜索标题…",
@@ -61,6 +66,32 @@ export function mlT(key, vars = {}) {
 
 export function materialCategories(kind) {
     return mlT(`categories_${kind}`);
+}
+
+// English labels for the built-in (canonical Chinese) default categories.
+// Per-kind so e.g. 人物 = People (image/video) but Characters (prompt).
+const CATEGORY_EN = {
+    image: { 人物: "People", 场景: "Scenes", 道具: "Props", 其他: "Other" },
+    audio: { 音色: "Voices", 台词: "Lines", 音效: "SFX", 音乐: "Music", 其他: "Other" },
+    video: { 人物: "People", 场景: "Scenes", 动作: "Actions", 镜头: "Camera", 其他: "Other" },
+    prompt: { 人物: "Characters", 场景: "Scenes", 动作: "Actions", 运镜: "Camera", 风格: "Styles", 对白: "Dialogue", 其他: "Other" },
+};
+
+function isEnglishMode() {
+    return String(getLocale?.() || "zh").toLowerCase().startsWith("en");
+}
+
+/** Localized display label for a stored category value. Built-in default
+ *  categories map to their English equivalents in EN mode; any other value
+ *  (user-created categories) is shown verbatim. */
+export function materialCategoryLabel(kind, value) {
+    const text = value == null ? "" : String(value).trim();
+    const key = String(kind || "");
+    if (isEnglishMode()) {
+        if (text && CATEGORY_EN[key]?.[text]) return CATEGORY_EN[key][text];
+        return text || "Other";
+    }
+    return text || "其他";
 }
 
 export function onMaterialLocaleChange(callback) {

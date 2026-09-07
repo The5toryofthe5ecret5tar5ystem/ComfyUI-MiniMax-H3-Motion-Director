@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 import torch
 
@@ -328,6 +329,128 @@ def prepare_director_plan(
     )
     log.info(plan_summary(plan).replace("\n", " | "))
     return plan
+
+
+def _fmt_fp_value(value: Any) -> str:
+    """Compact, safe string form of one fingerprint value for the Resume popup."""
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if isinstance(value, (list, tuple)):
+        if len(value) > 3:
+            return f"[{len(value)} items]"
+        return str(value)
+    if isinstance(value, dict):
+        keys = sorted(value.keys())
+        return "{" + ", ".join(keys[:4]) + ("…" if len(keys) > 4 else "") + "}"
+    text = str(value)
+    return text if len(text) <= 60 else text[:57] + "…"
+
+
+_RESUME_FINGERPRINT_LABELS: list[tuple[str, str]] = [
+    ("width", "Resolution width"),
+    ("height", "Resolution height"),
+    ("ref_max", "Reference max size"),
+    ("output_mode", "Output mode"),
+    ("prompt", "Prompt"),
+    ("negative", "Negative prompt"),
+    ("start", "Segment start frame"),
+    ("end", "Segment end frame"),
+    ("task_key", "Task type"),
+    ("continuity", "Continuity"),
+    ("continuity_overlap", "Continuity frames"),
+    ("color_reanchor_enabled", "Color re-anchor"),
+    ("spatial_stride", "Spatial stride"),
+    ("refs", "Reference images"),
+    ("ref_audios", "Reference audio"),
+    ("ref_videos", "Reference video"),
+    ("ref_video", "Reference video file"),
+    ("ref_video_start", "Reference video start"),
+    ("context_link", "Context link"),
+    ("source_overlap_frames", "Source overlap frames"),
+]
+
+
+def analyze_resume_cache(node_id: str | None, **plan_inputs: Any) -> dict[str, Any]:
+    """Authoritative per-segment cache analysis for the Resume popup.
+
+    Rebuilds the plan the same way an execution would (so the fingerprint check
+    is identical to the engine's), then reports each segment's real status
+    (hit / stale / missing) plus the exact resume-from index.  Returns an
+    ``error`` dict when the plan cannot be rebuilt (e.g. external-group
+    workflows) so the frontend can fall back to its lightweight heuristic.
+    """
+    if node_id is None:
+        return {"error": "no node id"}
+    try:
+        from ..director.audio_export import AUDIO_MODE_GENERATE, resolve_audio_mode
+        from ..director import resume_state
+        from ..director.segment_cache import (
+            segment_cache_fingerprint,
+            segment_cache_status,
+            resolve_resume_from_index,
+        )
+
+        plan = prepare_director_plan(
+            unique_id=node_id,
+            **plan_inputs,
+        )
+        if plan is None:
+            return {"error": "empty plan"}
+        audio_generate = resolve_audio_mode(plan) == AUDIO_MODE_GENERATE
+        stored_by_index = {
+            int(entry["index"]): entry
+            for entry in resume_state.segment_cache_preview(node_id)
+        }
+        segments: list[dict[str, Any]] = []
+        for seg in plan.segments:
+            idx = int(seg.index)
+            status = segment_cache_status(node_id, seg, plan)
+            out: dict[str, Any] = {
+                "index": idx,
+                "timeline_index": int(getattr(seg, "timeline_index", idx)),
+                "status": status,
+            }
+            cached = stored_by_index.get(idx)
+            if cached:
+                out["cached"] = cached
+            if status in {"stale", "error"} and cached:
+                try:
+                    expected = segment_cache_fingerprint(seg, plan)
+                    stored = json.loads(
+                        (resume_state.segment_cache_dir(node_id) / f"seg_{idx:04d}.meta.json")
+                        .read_text(encoding="utf-8")
+                    )
+                    reasons: list[dict[str, str]] = []
+                    for key, label in _RESUME_FINGERPRINT_LABELS:
+                        if not isinstance(stored, dict):
+                            break
+                        if key in stored and key in expected and stored.get(key) == expected.get(key):
+                            continue
+                        if key in expected or (isinstance(stored, dict) and key in stored):
+                            reasons.append({
+                                "label": label,
+                                "cached": _fmt_fp_value(stored.get(key) if isinstance(stored, dict) else None),
+                                "current": _fmt_fp_value(expected.get(key)),
+                            })
+                    if reasons:
+                        out["reasons"] = reasons
+                except Exception as exc:
+                    out["reason_error"] = str(exc)
+            segments.append(out)
+        resume_from = int(resolve_resume_from_index(
+            node_id, plan.segments, plan,
+            audio_generate=audio_generate,
+        ))
+        return {
+            "node_id": node_id,
+            "authoritative": True,
+            "segment_total": len(plan.segments),
+            "audio_generate": audio_generate,
+            "segments": segments,
+            "resume_from": resume_from,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
 def _fit_source_clip_to_plan(plan, raw_clip: torch.Tensor) -> torch.Tensor:

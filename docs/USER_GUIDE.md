@@ -362,7 +362,49 @@ This is also why a low-resolution first pass is efficient: spend upscale/refine 
 
 ---
 
-## 14. Postprocess: Global Refine, Upscale and Face Refine
+## 14. Resume, Stop and Start Over
+
+Long jobs are expensive, so the run bar is built around stopping and continuing instead of always re-rendering everything:
+
+- **Start run** - queues a fresh run of the project. Every selected segment is rendered; caches are not reused.
+- **Resume** - continues an interrupted run. Finished segments that are still valid are reused from disk cache, and only the segments that cannot be reused are re-rendered.
+- **Restart** - interrupts the current run and re-renders from the current (or first unfinished) segment with a fresh seed.
+- **Stop** - lets the current segment finish, then stops. Hit Resume later to continue from where it stopped.
+- **Start Over** - clears this node's segment caches and run history, then queues a fresh run.
+
+### What Resume reuses
+
+Finished segments are kept as best-effort on-disk caches. When you press Resume, the Director walks the timeline from the start and reuses every segment whose cache still matches the current project settings, then re-renders from the first segment whose cache does not match. If nothing changed since the run stopped or crashed, Resume continues exactly at the interruption and only re-renders the segment that was in flight.
+
+### Which settings keep a cache reusable
+
+A segment cache is keyed to the settings that decide what that segment renders. Change one of the settings in the left column and the segment (plus everything after it) is stale, so Resume re-renders from there. Change one on the first segment and the whole project re-renders.
+
+| Changing these invalidates the cache | Changing these is safe (cache still reused) |
+|---|---|
+| Prompt / negative text | Seed |
+| Resolution: width, height, megapixels / ref-max | Steps |
+| Reference files and their content | Sampler / scheduler |
+| Shot frame range (start/end or Source Range) | CFG / guidance |
+| Generation task type (T2V / I2V / FL2V / R2V / V2V / RV2V) | Export bitrate / CRF / encoder |
+| Output mode / resolution scaling | Global Refine and Face Refine on/off |
+| Continuity on/off and Context Frames | Live Preview settings |
+| Color Re-anchor, Re-ground and context links |  |
+| V2V / RV2V Source Bridge and overlap frames |  |
+
+Practical rules:
+
+- Crashed or hit Stop mid-run? Leave the content knobs alone and press Resume. It continues from the interruption and only re-renders the segment that was in flight.
+- **Resume now opens a cache-check dialog first.** It shows how many segments are cached, where the run will continue, and - when the node settings changed (for example resolution / megapixels / ref-max) - exactly which cached settings differ, with a button to restore the cached settings onto the node so the finished prefix is reused. You can also pick a different start segment, or Start Over from the dialog. **Restart** re-renders from the current / first unfinished segment with a fresh random seed.
+- Changing resolution / megapixels / ref-max is the most common accidental full restart, because the old caches were rendered at a different size. Set them back to the cached size and Resume reuses the finished prefix again.
+- Bitrate / CRF (Results > Save Video) and the Global / Face Refine toggles are export and post-process choices - they never invalidate finished segment caches. (Refine output is baked into the cache, so a cached segment keeps the refine state it was generated with.)
+- Use **Start Over** only when you want a guaranteed-fresh render: it deliberately discards the caches.
+
+Segment caches live under your ComfyUI output directory in `minimax_seg_cache/<node id>`. They are best-effort: if that folder is not writable (for example a read-only network or cloud mount), caches cannot be written and Resume always re-renders.
+
+---
+
+## 15. Postprocess: Global Refine, Upscale and Face Refine
 
 ![Post-processing](images/tutorial/08-postprocess.webp)
 
@@ -390,7 +432,7 @@ If Global Refine fails, the completed first-pass result is retained. If Face Ref
 
 ---
 
-## 15. Live Preview: see what the pipeline is doing
+## 16. Live Preview: see what the pipeline is doing
 
 ![Live Preview](images/tutorial/09-live-preview.webp)
 
@@ -406,7 +448,7 @@ Live Preview is observational; it does not change the prompt or generation resul
 
 ---
 
-## 16. Results: inspect and save the final video
+## 17. Results: inspect and save the final video
 
 ![Results](images/tutorial/10-results.webp)
 
@@ -435,7 +477,7 @@ The three result levels are:
 
 ---
 
-## 17. Common workflows you can follow directly
+## 18. Common workflows you can follow directly
 
 ### A. Three continuous text-generated shots
 
@@ -532,7 +574,7 @@ R2V / RV2V
 
 ---
 
-## 18. Concepts that are easy to confuse
+## 19. Concepts that are easy to confuse
 
 | Concept | Meaning |
 |---|---|
@@ -549,7 +591,7 @@ R2V / RV2V
 
 ---
 
-## 19. Pre-run checklist
+## 20. Pre-run checklist
 
 Before a long generation, verify:
 
