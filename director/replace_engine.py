@@ -25,7 +25,73 @@ from .replace_spec import ReplaceSpec
 MASK_REGENERATE = 1.0
 MASK_KEEP = 0.0
 
+# H3 video-VAE temporal layout: one latent token per entry, pixel frames per
+# token repeating every 5 tokens (1+4+4+4+4 = 17 pixel frames per 5 tokens).
+# Mirrors director.motion_context.FRAME_PER_TOKEN; kept local so replace_engine
+# stays dependency-light. Frame index f lives in token t where
+# sum(pattern[:t]) <= f < sum(pattern[:t+1]).
+H3_FRAME_PER_TOKEN = (1, 4, 4, 4, 4)
+_H3_TOKEN_CYCLE_FRAMES = sum(H3_FRAME_PER_TOKEN)  # 17
+_H3_REMAINDER_TOKENS = (0, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5)  # r=0..16
+
 _FRAME_RE = re.compile(r"frame_(\d+)(?:\.\w+)?$")
+
+
+def video_latent_tokens_for_frames(pixel_frames: int) -> int:
+    """Number of H3 video latent tokens that cover ``pixel_frames``."""
+    frames = max(0, int(pixel_frames))
+    full_cycles = frames // _H3_TOKEN_CYCLE_FRAMES
+    remainder = frames - full_cycles * _H3_TOKEN_CYCLE_FRAMES
+    return max(0, full_cycles * 5 + _H3_REMAINDER_TOKENS[remainder])
+
+
+def pixel_frames_for_latent_tokens(latent_tokens: int) -> int:
+    """Pixel-frame coverage of ``latent_tokens`` H3 video latent tokens."""
+    tokens = max(0, int(latent_tokens))
+    full_cycles = tokens // 5
+    remainder = tokens - full_cycles * 5
+    return full_cycles * _H3_TOKEN_CYCLE_FRAMES + sum(H3_FRAME_PER_TOKEN[:remainder])
+
+
+def _token_pixel_ranges(latent_tokens: int) -> list[tuple[int, int]]:
+    """Per-token half-open pixel ranges [start, end) for ``latent_tokens``."""
+    out: list[tuple[int, int]] = []
+    cursor = 0
+    for token in range(max(0, int(latent_tokens))):
+        width = H3_FRAME_PER_TOKEN[token % len(H3_FRAME_PER_TOKEN)]
+        out.append((cursor, cursor + width))
+        cursor += width
+    return out
+
+
+def pool_mask_to_latent_time(
+    mask_hi: torch.Tensor,
+    latent_tokens: int,
+    *,
+    _pad_value: float = 0.0,
+) -> torch.Tensor:
+    """Aggregate a per-pixel-frame [T,H,W] 0..1 mask onto H3 latent tokens.
+
+    A latent token is marked regenerate (1) when ANY pixel frame it covers is
+    marked subject, so a keep (0) token is always fully background - the
+    pixel-exact background is only locked where that is guaranteed.
+    ``mask_hi`` shorter than the token coverage is repeat-last padded; longer
+    input is truncated to the covered range.
+    """
+    latent_tokens = max(1, int(latent_tokens))
+    if mask_hi is None or mask_hi.ndim != 3 or int(mask_hi.shape[0]) <= 0:
+        raise ValueError(f"pool mask expects [T,H,W], got {None if mask_hi is None else tuple(mask_hi.shape)}")
+    mask = mask_hi.float()
+    covered = pixel_frames_for_latent_tokens(latent_tokens)
+    have = int(mask.shape[0])
+    if have < covered:
+        tail = mask[-1:].repeat(covered - have, 1, 1)
+        mask = torch.cat([mask, tail], dim=0)
+    elif have > covered:
+        mask = mask[:covered]
+    ranges = _token_pixel_ranges(latent_tokens)
+    pooled = torch.stack([mask[start:end].amax(dim=0) for start, end in ranges], dim=0)
+    return pooled.clamp(0.0, 1.0).contiguous()
 
 
 def snap_window_length(frames: int) -> int:

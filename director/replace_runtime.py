@@ -26,6 +26,7 @@ from .replace_engine import (
     MASK_KEEP,
     MASK_REGENERATE,
     load_mask_window,
+    pool_mask_to_latent_time,
     sanitize_source_frames,
     to_latent_mask,
 )
@@ -160,18 +161,16 @@ def build_replace_noise_mask(
     """
     h, w = _video_latent_grid(video_latent)
     t_v = int(video_latent.shape[2]) if video_latent.ndim == 5 else int(video_latent.shape[0])
-    t = int(mask_hi.shape[0])
 
+    # mask_hi is per PIXEL frame; the H3 video latent compresses time with the
+    # (1,4,4,4,4) token schedule, so aggregate the mask onto latent tokens first
+    # (a token is keep only when every pixel frame it covers is background),
+    # then downscale each token spatially to the latent grid.
+    pooled = pool_mask_to_latent_time(mask_hi, t_v)  # [t_v, H, W]
     video_mask_low = to_latent_mask(
-        mask_hi, latent_h=h, latent_w=w, grow=int(grow), feather=float(feather)
-    )  # [T, h, w]
-    # Match the latent time length: repeat/trim (mask is per source frame).
-    if video_mask_low.shape[0] < t_v:
-        pad = video_mask_low[-1:].repeat(t_v - video_mask_low.shape[0], 1, 1)
-        video_mask_low = torch.cat([video_mask_low, pad], dim=0)
-    elif video_mask_low.shape[0] > t_v:
-        video_mask_low = video_mask_low[:t_v]
-    video_mask = video_mask_low.unsqueeze(0).unsqueeze(0)  # [1,1,T,h,w]
+        pooled, latent_h=h, latent_w=w, grow=int(grow), feather=float(feather)
+    )  # [t_v, h, w]
+    video_mask = video_mask_low.unsqueeze(0).unsqueeze(0)  # [1,1,t_v,h,w]
 
     if audio_policy == "source":
         audio_mask = torch.zeros_like(audio_latent)
