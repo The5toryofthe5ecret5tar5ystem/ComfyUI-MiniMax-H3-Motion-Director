@@ -517,10 +517,19 @@ def apply_global_refine(
     on_pass_result: RefinePassCallback | None = None,
     preview_every: int = 1,
     preserve_noise_mask: bool = False,
+    force_skip_reason: str = "",
 ) -> GlobalRefineOutcome:
-    """Run optional Deblur, upscale and one-or-more second-sampling passes."""
+    """Run optional Deblur, upscale and one-or-more second-sampling passes.
+
+    ``force_skip_reason`` short-circuits with a SKIPPED outcome (first pass is
+    kept unchanged). Masked Character Replace windows use it: a refine pass
+    would re-sample the whole frame and destroy the pixel-exact source
+    background kept by the replace noise mask.
+    """
     if not config.get("enabled"):
         return GlobalRefineOutcome(samples=samples, status="DISABLED")
+    if force_skip_reason:
+        return GlobalRefineOutcome(samples=samples, status=f"SKIPPED ({force_skip_reason})")
     if (not config.get(ALLOW_REFINE_ON_EXTERNAL_PATCH)
             and model_has_external_attention_patch(model)):
         log.warning(

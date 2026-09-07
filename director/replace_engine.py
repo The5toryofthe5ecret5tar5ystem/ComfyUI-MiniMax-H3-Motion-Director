@@ -118,7 +118,18 @@ def load_mask_window(mask: Any, start_frame: int, length: int) -> torch.Tensor |
     """
     if not isinstance(mask, dict) or str(mask.get("kind") or "none").strip().lower() != "frames":
         return None
-    root = Path(str(mask.get("dir") or ""))
+    root = Path(str(mask.get("dir") or "")).expanduser()
+    if not root.is_absolute():
+        # Best-effort ComfyUI input-directory fallback for relative paths.
+        try:
+            import folder_paths  # type: ignore
+
+            base = Path(str(folder_paths.get_input_directory() or ""))
+            candidate = base / root
+            if candidate.is_dir():
+                root = candidate
+        except Exception:
+            pass
     if not root.is_dir():
         return None
     offset = int(mask.get("offset") or 0)
