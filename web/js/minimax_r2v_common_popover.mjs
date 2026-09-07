@@ -144,6 +144,12 @@ export function createR2vCommonPopover({
     panel.hidden = true;
     const title = documentRef.createElement("div");
     title.className = "bd-r2v-common-popover-title";
+    const titleText = documentRef.createElement("span");
+    titleText.className = "bd-r2v-common-popover-title-text";
+    const titleHint = documentRef.createElement("span");
+    titleHint.className = "bd-r2v-common-popover-title-hint";
+    titleHint.hidden = true;
+    title.append(titleText, titleHint);
     const body = documentRef.createElement("div");
     body.className = "bd-r2v-common-popover-body bd-batch-r2v";
     panel.append(title, body);
@@ -169,8 +175,12 @@ export function createR2vCommonPopover({
         body,
         get isOpen() { return open; },
         setTitle(value) {
-            title.textContent = String(value || "");
-            panel.setAttribute("aria-label", title.textContent);
+            titleText.textContent = String(value || "");
+            panel.setAttribute("aria-label", titleText.textContent);
+        },
+        setHint(value) {
+            titleHint.textContent = String(value || "");
+            titleHint.hidden = !value;
         },
         render() {
             onRender?.(body);

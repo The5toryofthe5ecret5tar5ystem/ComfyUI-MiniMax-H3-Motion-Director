@@ -71,6 +71,23 @@ function ensureStyles() {
 .mmx-director-page-start:hover{border-color:#4fff8f;background:#245a3a;color:#c8ffdf}
 .mmx-director-page-start:disabled{opacity:.45;cursor:default;border-color:#393939;background:#222;color:#888}
 .mmx-director-page-start[hidden]{display:none!important}
+.mmx-director-page-run{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.mmx-director-page-run[hidden]{display:none!important}
+.mmx-director-page-run-btn{height:30px;flex:0 0 auto;border:1px solid #393939;border-radius:6px;background:#222;color:#bbb;font-size:12px;font-weight:650;padding:0 12px;cursor:pointer;white-space:nowrap}
+.mmx-director-page-run-btn:hover{border-color:#7a9cff;background:#2a2a2a;color:#fff}
+.mmx-director-page-run-btn:disabled,.mmx-director-page-run-btn.disabled{opacity:.45;cursor:default;pointer-events:none;border-color:#393939;background:#222;color:#888}
+.mmx-director-page-run-btn.mmx-run-over:disabled,.mmx-director-page-run-btn.mmx-run-over.disabled{background:transparent;border-color:transparent;color:#5a5a6a}
+.mmx-director-page-run-btn[hidden]{display:none!important}
+.mmx-director-page-run-btn.mmx-run-resume{border-color:#2f7a4f;background:#1c3a2a;color:#4fff8f}
+.mmx-director-page-run-btn.mmx-run-resume:hover{border-color:#4fff8f;background:#245a3a;color:#c8ffdf}
+.mmx-director-page-run-btn.mmx-run-restart{border-color:#7a6a2f;background:#2a2417;color:#ffd479}
+.mmx-director-page-run-btn.mmx-run-restart:hover{border-color:#ffd479;background:#3a2f1a;color:#ffe6ad}
+.mmx-director-page-run-btn.mmx-run-stop{border-color:#7a3030;background:#2a1717;color:#ff9a9a}
+.mmx-director-page-run-btn.mmx-run-stop:hover{border-color:#ff6a6a;background:#3a1c1c;color:#ffc4c4}
+.mmx-director-page-run-btn.mmx-run-over{background:transparent;border-color:transparent;color:#9a9ab0;font-size:11px}
+.mmx-director-page-run-btn.mmx-run-over:hover{border-color:#555;color:#ff9a9a;background:#221515}
+.mmx-director-run-notice{color:#ffd479;font-size:11px;font-weight:600;padding:0 4px;white-space:nowrap}
+.mmx-director-run-notice[hidden]{display:none!important}
 .mmx-director-page-tab{min-width:104px;padding:0 14px;font-size:12px;font-weight:650}
 .mmx-director-page-tab.active{border-color:#4fff8f;background:#163723;color:#4fff8f}
 .mmx-director-page-actions{display:flex;justify-content:flex-end}
@@ -100,6 +117,10 @@ export function createDirectorModal({
     onResize,
     onPageChange,
     onStartRun,
+    onResume,
+    onRestart,
+    onStop,
+    onStartOver,
 }) {
     if (!launcherHost) throw new Error("Director launcher host is required");
     directorModalByHost.get(launcherHost)?.destroy?.();
@@ -151,6 +172,38 @@ export function createDirectorModal({
     startRunButton.className = "mmx-director-page-start";
     startRunButton.dataset.a = "start-run";
     startRunButton.hidden = typeof onStartRun !== "function";
+    const hasRunActions = typeof onResume === "function"
+        || typeof onRestart === "function"
+        || typeof onStop === "function"
+        || typeof onStartOver === "function";
+    const runControls = document.createElement("div");
+    runControls.className = "mmx-director-page-run";
+    runControls.hidden = !hasRunActions;
+    const mkRunBtn = (label, cls, action) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `mmx-director-page-run-btn ${cls}`;
+        button.textContent = label;
+        button.disabled = true;
+        button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            action?.();
+        });
+        return button;
+    };
+    const resumeButton = mkRunBtn("Resume", "mmx-run-resume", () => onResume?.());
+    resumeButton.dataset.a = "director-resume";
+    const restartButton = mkRunBtn("Restart seg", "mmx-run-restart", () => onRestart?.());
+    restartButton.dataset.a = "director-restart";
+    const stopButton = mkRunBtn("Stop", "mmx-run-stop", () => onStop?.());
+    stopButton.dataset.a = "director-stop";
+    const startOverButton = mkRunBtn("Start over", "mmx-run-over", () => onStartOver?.());
+    startOverButton.dataset.a = "director-start-over";
+    const runNotice = document.createElement("span");
+    runNotice.className = "mmx-director-run-notice";
+    runNotice.hidden = true;
+    runControls.append(resumeButton, restartButton, stopButton, startOverButton, runNotice);
     const pageTabs = DIRECTOR_PAGES.map((page) => {
         const button = document.createElement("button");
         button.type = "button";
@@ -163,7 +216,7 @@ export function createDirectorModal({
     nextButton.className = "mmx-director-page-arrow";
     nextButton.dataset.a = "page-next";
     nextButton.textContent = "▶";
-    navigation.append(startRunButton, previousButton, ...pageTabs, nextButton);
+    navigation.append(startRunButton, runControls, previousButton, ...pageTabs, nextButton);
 
     const closeButton = document.createElement("button");
     closeButton.type = "button";
@@ -220,6 +273,14 @@ export function createDirectorModal({
         startRunButton.textContent = translate("modal.startRun") || "Start run";
         startRunButton.title = translate("modal.startRunTitle") || startRunButton.textContent;
         startRunButton.hidden = typeof onStartRun !== "function";
+        resumeButton.textContent = translate("modal.run.resume") || "Resume";
+        resumeButton.title = translate("modal.run.resumeTitle") || resumeButton.textContent;
+        restartButton.textContent = translate("modal.run.restart") || "Restart seg";
+        restartButton.title = translate("modal.run.restartTitle") || restartButton.textContent;
+        stopButton.textContent = translate("modal.run.stop") || "Stop";
+        stopButton.title = translate("modal.run.stopTitle") || stopButton.textContent;
+        startOverButton.textContent = translate("modal.run.startOver") || "Start over";
+        startOverButton.title = translate("modal.run.startOverTitle") || startOverButton.textContent;
     };
 
     const scheduleResize = () => {
@@ -245,6 +306,12 @@ export function createDirectorModal({
         pageTabs,
         previousButton,
         startRunButton,
+        runControls,
+        resumeButton,
+        restartButton,
+        stopButton,
+        startOverButton,
+        runNotice,
         nextButton,
         overlayLayer,
         closeButton,
@@ -271,6 +338,29 @@ export function createDirectorModal({
         cyclePage(direction = 1) {
             const index = DIRECTOR_PAGES.indexOf(currentPage);
             return api.setPage(DIRECTOR_PAGES[(index + direction + DIRECTOR_PAGES.length) % DIRECTOR_PAGES.length]);
+        },
+        setRunControls({
+            running = false,
+            canResume = false,
+            canRestart = false,
+            canStop = false,
+            canStartOver = false,
+            notice = "",
+        } = {}) {
+            // Buttons are always visible; grey/disable them until they apply.
+            const applyState = (button, enabled) => {
+                button.disabled = !enabled;
+                button.classList.toggle?.("disabled", !enabled);
+            };
+            applyState(resumeButton, Boolean(canResume && typeof onResume === "function"));
+            applyState(restartButton, Boolean(canRestart && typeof onRestart === "function"));
+            applyState(stopButton, Boolean(running && canStop && typeof onStop === "function"));
+            applyState(startOverButton, Boolean(canStartOver && typeof onStartOver === "function"));
+            startRunButton.disabled = Boolean(running) && typeof onStop === "function";
+            runControls.hidden = !hasRunActions;
+            runNotice.textContent = notice || "";
+            runNotice.hidden = !notice;
+            return true;
         },
         open() {
             if (destroyed || isOpen) return false;

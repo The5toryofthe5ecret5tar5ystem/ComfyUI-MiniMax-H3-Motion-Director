@@ -101,6 +101,7 @@ import {
 import {
     ensureR2vReferenceAssetSchema,
     ensureReferenceAssetSchema,
+    resolveReferenceAssetId,
 } from "./minimax_reference_assets.mjs";
 import {
     restoreBatchTaskWorkspace,
@@ -2431,6 +2432,7 @@ class MiniMaxH3MotionDirectorEditor {
 
                 refreshDirectorContinuityUi(this.node, this);
                 this.scheduleSettleRender();
+                this.refreshResumeState?.();
             },
             onClose: () => {
                 if (this.isPlaying) this._stopPlay();
@@ -2452,6 +2454,18 @@ class MiniMaxH3MotionDirectorEditor {
             onStartRun: () => {
                 this.queueDirectorRun?.();
             },
+            onResume: () => {
+                this.resumeDirectorRun?.();
+            },
+            onRestart: () => {
+                this.restartSegmentRun?.();
+            },
+            onStop: () => {
+                this.stopDirectorRun?.();
+            },
+            onStartOver: () => {
+                this.startOverRun?.();
+            },
         });
         this._directorModalOverlay = this._directorModalController.overlay;
         this._directorModalShell = this._directorModalController.shell;
@@ -2461,6 +2475,15 @@ class MiniMaxH3MotionDirectorEditor {
         // Existing editor code measures `container`; it now means the page-root modal content,
         // never the LiteGraph node's compact launcher host.
         this.container = this._directorModalContent;
+        this._stopRequested = false;
+        this._runActive = false;
+        this._runCurrentSegment = null;
+        this._resumeDone = new Set();
+        this._resumeNext = 0;
+        this._resumeTotal = 0;
+        this._resumeState = "idle";
+        this._pendingRestart = null;
+        this._syncRunControls?.();
 
         for (const w of node.widgets || []) {
             if (HIDDEN_WIDGETS.includes(w.name)) hideWidget(w);
@@ -9736,6 +9759,16 @@ class MiniMaxH3MotionDirectorEditor {
     removeRef(target, index) {
         target.refs = (target.refs || []).filter((r) => Number(r.index ?? r.slot) !== index);
         this.commit();
+        this.refreshPromptMentions();
+    }
+
+    /** Re-render the main PROMPT chips after a reference add/remove so tokens
+     * that now (or no longer) resolve update immediately (red "missing asset"
+     * -> active tag, and vice versa). */
+    refreshPromptMentions() {
+        for (const controller of this._promptMentionControllers || []) {
+            controller?.refresh?.();
+        }
     }
 
     renderRefAudioSlots() {
@@ -9858,6 +9891,7 @@ class MiniMaxH3MotionDirectorEditor {
         target.refAudios = (target.refAudios || []).filter((r) => Number(r.index ?? r.slot) !== index);
         this.commit();
         this.renderRefAudioSlots();
+        this.refreshPromptMentions();
     }
 
     pickRefAudio(target, index) {
@@ -9890,9 +9924,20 @@ class MiniMaxH3MotionDirectorEditor {
                 fileName: uploaded?.name || file.name,
                 type: "input",
                 subfolder: uploaded?.subfolder || "",
+                assetId: resolveReferenceAssetId(
+                    this.timeline,
+                    "audio",
+                    [
+                        target === this.timeline?.global
+                            ? this.timeline?.global?.prompt
+                            : target?.prompt,
+                    ],
+                    { audioFile: relPath, fileName: uploaded?.name || file.name },
+                ),
             });
             this.commit();
             this.renderRefAudioSlots();
+            this.refreshPromptMentions();
         } catch (err) {
             console.error("[MiniMax H3 Motion Director] ref audio upload failed:", err);
             alert(t("upload.refAudioFailed", { err: err?.message || err }));
@@ -9921,9 +9966,24 @@ class MiniMaxH3MotionDirectorEditor {
             const uploaded = await uploadToInput(file);
             const relPath = videoRelativePath(uploaded);
             target.refs = target.refs.filter((r) => Number(r.index ?? r.slot) !== index);
-            target.refs.push({ index, imageFile: relPath, imageB64: "" });
+            target.refs.push({
+                index,
+                imageFile: relPath,
+                imageB64: "",
+                assetId: resolveReferenceAssetId(
+                    this.timeline,
+                    "picture",
+                    [
+                        target === this.timeline?.global
+                            ? this.timeline?.global?.prompt
+                            : target?.prompt,
+                    ],
+                    { imageFile: relPath, fileName: uploaded?.name || file.name },
+                ),
+            });
             if (isGlobal) this.timeline.global = target;
             this.commit();
+            this.refreshPromptMentions();
         } catch (err) {
             console.error("[MiniMax H3 Motion Director] ref upload failed:", err);
         }
@@ -10190,7 +10250,148 @@ class MiniMaxH3MotionDirectorEditor {
      * runs.
      */
     queueDirectorRun() {
+        // No options = a fresh run (matches v1.3.1 Start run semantics).
+        this._queueRunWithIntent({});
+    }
+
+    _directorNodeId() {
+        return this.node ? String(this.node?.id ?? "") : "";
+    }
+
+    _isRunActive() {
+        return Boolean(this._runActive);
+    }
+
+    _setRunActive(active) {
+        const changed = this._runActive !== Boolean(active);
+        this._runActive = Boolean(active);
+        if (changed) this._syncRunControls?.();
+        return changed;
+    }
+
+    _syncRunControls() {
+        const controller = this._directorModalController;
+        if (!controller?.setRunControls) return;
+        const tlTotal = Number(this.timeline?.segments?.length ?? 0);
+        const total = Number(this._resumeTotal) || tlTotal;
+        const next = Number(this._resumeNext ?? total);
+        const running = this._isRunActive();
+        const partial = total > 0 && next >= 0 && next < total;
+        const doneAny = (this._resumeDone?.size || 0) > 0 || next > 0;
+        controller.setRunControls({
+            running,
+            canResume: !running && partial && next > 0,
+            canRestart: running ? true : partial,
+            canStop: running,
+            canStartOver: !running && (partial || doneAny),
+            notice: this._stopRequested ? t("run.stopping") : "",
+        });
+        if (controller.startRunButton) {
+            controller.startRunButton.disabled = running;
+        }
+    }
+
+    async refreshResumeState() {
+        const nodeId = this._directorNodeId();
+        if (!nodeId) return;
+        try {
+            const response = await api.fetchApi(
+                `/minimax/motion-director/resume_status?node_id=${encodeURIComponent(nodeId)}`,
+            );
+            const data = await response.json();
+            const doneArr = (Array.isArray(data?.done) ? data.done : []).map(Number);
+            this._resumeDone = new Set(doneArr);
+            // Server segment_total can be 0 for runs that predate the fix;
+            // fall back to the live timeline length, then to max(done)+1.
+            let total = Number(data?.segment_total ?? 0);
+            const tlTotal = Number(this.timeline?.segments?.length ?? 0);
+            if (!(total > 0)) total = tlTotal;
+            if (!(total > 0) && doneArr.length) total = Math.max(...doneArr) + 1;
+            let next = 0;
+            while (this._resumeDone.has(next)) next += 1;
+            if (next > total) next = total;
+            this._resumeTotal = total;
+            this._resumeNext = next;
+            this._resumeState = String(data?.state ?? "idle");
+            // Reconcile the running flag against the engine's manifest state so
+            // the Stop/Resume buttons recover even if a lifecycle event was missed.
+            // "Active" is driven by progress / executing / queue events; a
+            // terminal manifest state always clears it.
+            if (this._resumeState !== "running") {
+                this._stopRequested = false;
+                if (this._isRunActive()) this._setRunActive(false);
+            }
+            this._syncRunControls?.();
+            this._updateRunStatusBanner?.();
+        } catch (error) {
+            console.warn("[MiniMax H3 Motion Director] resume_status fetch failed:", error);
+        }
+    }
+
+    _markSegmentDoneLive(index) {
+        if (index == null) return;
+        this._resumeDone = this._resumeDone || new Set();
+        this._resumeDone.add(Number(index));
+        let next = 0;
+        while (this._resumeDone.has(next)) next += 1;
+        this._resumeNext = next;
+        if (this._resumeTotal < next) this._resumeTotal = next;
+        this._syncRunControls?.();
+        this._updateRunStatusBanner?.();
+    }
+
+    _updateRunStatusBanner() {
+        if (!this.runStatusEl || this._isRunActive()) return;
+        if (!String(this.runStatusEl.className || "").includes("idle")) return;
+        const total = Number(this._resumeTotal || this.timeline?.segments?.length || 0);
+        const next = Number(this._resumeNext ?? total);
+        if (total <= 0 || next <= 0) return;
+        if (next >= total) {
+            if (this.runTitleEl) this.runTitleEl.textContent = t("run.resumeAllDone");
+            return;
+        }
+        if (this.runTitleEl) this.runTitleEl.textContent = t("run.resumeBanner", { done: next, total });
+        if (this.runDetailEl) this.runDetailEl.textContent = t("run.resumeBannerHint");
+    }
+
+    _applyRunIntent({ resume = false, from = null } = {}) {
+        const timeline = this.timeline;
+        if (!timeline) return;
+        if (resume) {
+            timeline.resumeRun = {
+                enabled: true,
+                from: from == null ? null : Number(from),
+            };
+        } else {
+            timeline.resumeRun = { enabled: false, from: null };
+        }
+    }
+
+    _rollSeed() {
+        const node = this.node;
+        if (!node) return;
+        const seedWidget = (node.widgets || []).find((widget) => widget?.name === "seed");
+        if (!seedWidget) return;
+        seedWidget.value = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+        const controlAfter = (node.widgets || []).find(
+            (widget) => widget?.name === "control_after_generate",
+        );
+        if (controlAfter) controlAfter.value = "fixed";
+        if (typeof node.setDirtyCanvas === "function") node.setDirtyCanvas(true, true);
+    }
+
+    _queueRunWithIntent({ resume = false, from = null, reseed = false, freshClear = false } = {}) {
         if (this._destroyed) return;
+        if (freshClear) {
+            this._resumeDone = new Set();
+            this._resumeNext = 0;
+            this._resumeTotal = 0;
+            this._resumeState = "idle";
+        }
+        this._stopRequested = false;
+        this._applyRunIntent({ resume, from });
+        if (reseed) this._rollSeed();
+        this._setRunActive(true);
         try {
             if (typeof this.commit === "function") {
                 this.commit(true, { syncTimeline: false });
@@ -10198,12 +10399,120 @@ class MiniMaxH3MotionDirectorEditor {
             this.ensureRunSelectionSerialized?.();
             this.flushTimelineSync?.();
         } catch (error) {
-            console.error("[MiniMax H3 Motion Director] Start run flush failed:", error);
+            console.error("[MiniMax H3 Motion Director] Run flush failed:", error);
         }
         this._directorModalController?.setPage?.("live");
         if (typeof app?.queuePrompt === "function") {
             app.queuePrompt();
+            // The queued prompt captured the intent; clear the transient field so
+            // a later ordinary Start run is not mistaken for a Resume.
+            try { this._applyRunIntent({ resume: false }); } catch (_err) { /* noop */ }
         }
+        this._syncRunControls?.();
+    }
+
+    resumeDirectorRun() {
+        if (this._isRunActive()) return;
+        this._queueRunWithIntent({ resume: true });
+    }
+
+    restartSegmentRun() {
+        if (this._isRunActive()) {
+            // Live: re-roll the currently rendering segment — interrupt now and
+            // auto-re-queue a resume from it with a fresh seed once the run stops.
+            const from = this._runCurrentSegment;
+            this._pendingRestart = { from: from == null ? null : Number(from) };
+            this._interruptRun();
+            return;
+        }
+        const total = Number(this._resumeTotal || this.timeline?.segments?.length || 0);
+        const next = Number(this._resumeNext ?? total);
+        if (total > 0 && next < total) {
+            this._queueRunWithIntent({ resume: true, from: next, reseed: true });
+        } else {
+            // Nothing cached yet — just a fresh run under a new seed.
+            this._queueRunWithIntent({ reseed: true });
+        }
+    }
+
+    _interruptRun() {
+        // This ComfyUI frontend exposes no api.interrupt(); the server's
+        // POST /interrupt stops the currently running queue item (discarding
+        // the in-flight segment, which is exactly what Restart wants).
+        api.fetchApi("/interrupt", { method: "POST" }).catch((error) => {
+            console.warn("[MiniMax H3 Motion Director] interrupt failed:", error);
+        });
+    }
+
+    async stopDirectorRun() {
+        const nodeId = this._directorNodeId();
+        try {
+            await api.fetchApi("/minimax/motion-director/stop_request", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ node_id: nodeId }),
+            });
+        } catch (error) {
+            console.warn("[MiniMax H3 Motion Director] stop request failed:", error);
+        }
+        this._stopRequested = true;
+        this._syncRunControls?.();
+        // Graceful stop waits for the current segment to finish; keep refreshing
+        // the resume state so Resume lights up as soon as the engine stops.
+        const poll = (remaining) => {
+            if (remaining <= 0 || this._destroyed) return;
+            setTimeout(() => {
+                this.refreshResumeState?.();
+                poll(remaining - 1);
+            }, 1200);
+        };
+        poll(6);
+    }
+
+    _onRunInactive() {
+        this._setRunActive(false);
+        this._stopRequested = false;
+        const pending = this._pendingRestart;
+        this._pendingRestart = null;
+        if (pending) {
+            // Let the server settle after the interrupt, then auto-resume from the
+            // segment being restarted with a fresh seed.
+            setTimeout(() => {
+                if (this._destroyed) return;
+                const from = pending.from;
+                if (from == null) {
+                    this._queueRunWithIntent({ resume: true, reseed: true });
+                } else {
+                    this._queueRunWithIntent({ resume: true, from, reseed: true });
+                }
+            }, 350);
+            return;
+        }
+        this.refreshResumeState?.();
+    }
+
+    async startOverRun() {
+        if (this._isRunActive()) return;
+        const message = t("modal.run.startOverConfirm")
+            || "Start over? This clears this node's segment caches and run history, then queues a fresh render.";
+        if (!window.confirm(message)) return;
+        const nodeId = this._directorNodeId();
+        try {
+            await api.fetchApi("/minimax/motion-director/clear_run", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ node_id: nodeId }),
+            });
+        } catch (error) {
+            console.warn("[MiniMax H3 Motion Director] clear_run failed:", error);
+        }
+        this._resumeDone = new Set();
+        this._resumeNext = 0;
+        this._resumeTotal = 0;
+        this._resumeState = "idle";
+        this._pendingRestart = null;
+        this._syncRunControls?.();
+        this._queueRunWithIntent({ freshClear: true });
     }
 
     setRunProgress(detail) {
@@ -11084,7 +11393,21 @@ app.registerExtension({
         }
 
         api.addEventListener("minimax_motion_director_progress", ({ detail }) => {
-            findDirectorNode(detail?.node_id)?._minimaxEditor?.setRunProgress?.(detail);
+            const editor = findDirectorNode(detail?.node_id)?._minimaxEditor;
+            if (!editor) return;
+            if (detail?.timeline_segment != null) {
+                editor._runCurrentSegment = Math.max(0, Number(detail.timeline_segment) - 1);
+            } else if (detail?.segment != null) {
+                editor._runCurrentSegment = Math.max(0, Number(detail.segment) - 1);
+            }
+            editor.setRunProgress?.(detail);
+            if (detail?.phase && detail.phase !== "idle") editor._setRunActive?.(true);
+        });
+
+        api.addEventListener("minimax_motion_director_segment_done", ({ detail }) => {
+            const editor = findDirectorNode(detail?.node_id)?._minimaxEditor;
+            if (!editor) return;
+            editor._markSegmentDoneLive?.(detail?.timeline_segment_index ?? detail?.segment_index);
         });
 
         api.addEventListener("minimax_motion_director_preview", ({ detail }) => {
@@ -11106,10 +11429,18 @@ app.registerExtension({
         });
 
         api.addEventListener("executing", ({ detail }) => {
-            if (detail == null) return;
+            if (detail == null) {
+                // Current queue item finished / was cancelled — end any active Director run.
+                const graph = app.graph ?? app.canvas?.graph;
+                for (const node of graph?._nodes ?? graph?.nodes ?? []) {
+                    node?._minimaxEditor?._onRunInactive?.();
+                }
+                return;
+            }
             const node = findDirectorNode(detail);
             const editor = node?._minimaxEditor;
             if (!editor) return;
+            editor._setRunActive?.(true);
             editor.flushTimelineSync?.();
             editor.outputUi?.clear?.();
             const segTotal = editor.getRunProgressSegmentTotal?.() ?? (editor.timeline?.segments?.length || 1);
@@ -11138,6 +11469,17 @@ app.registerExtension({
             }
         });
 
+        const onDirectorRunFinished = () => {
+            const graph = app.graph ?? app.canvas?.graph;
+            for (const node of graph?._nodes ?? graph?.nodes ?? []) {
+                const editor = node?._minimaxEditor;
+                if (editor?._isRunActive?.()) editor._onRunInactive?.();
+            }
+        };
+        api.addEventListener("execution_success", onDirectorRunFinished);
+        api.addEventListener("execution_error", onDirectorRunFinished);
+        api.addEventListener("execution_interrupted", onDirectorRunFinished);
+
         patchDirectorDomWidgetLayout();
         setTimeout(patchDirectorDomWidgetLayout, 500);
     },
@@ -11152,6 +11494,7 @@ app.registerExtension({
         initDirectorEditor(node);
         refreshSamplingModeUi(node);
         node._minimaxEditor?.scheduleRender?.();
+        node._minimaxEditor?.refreshResumeState?.();
     },
     async getCustomWidgets() {
         return {

@@ -14,9 +14,11 @@ import {
     refImagePromptTag,
     refVideoLabel,
     refVideoPromptTag,
+    resolveTaskKey,
 } from "./minimax_gen_timeline.js";
 import {
     hydrateOfficialReferenceTags,
+    referenceAssetStates,
     SEMANTIC_REFERENCE_RE,
     semanticReferenceToken,
 } from "./minimax_reference_assets.mjs";
@@ -637,14 +639,29 @@ export function wirePromptImageMentions(editor, textarea, getMedia, options = {}
 export function mountPromptImageMentions(editor) {
     if (!editor) return [];
     const controllers = [];
-    const globalController = wirePromptImageMentions(editor, editor.globalPrompt, () => ({
-        refs: editor.timeline?.global?.refs || [],
-        audios: editor.timeline?.global?.refAudios || [],
-        videos: editor.timeline?.global?.refVideos || [],
-    }));
+    const isR2vTask = () => resolveTaskKey(
+        editor.getTaskKey?.() || editor.taskTypeWidget?.value || "",
+    ) === "r2v";
+    const globalController = wirePromptImageMentions(editor, editor.globalPrompt, () => {
+        if (isR2vTask()) {
+            return {
+                assets: referenceAssetStates(editor.timeline?.r2vCommon || {}, null),
+            };
+        }
+        return {
+            refs: editor.timeline?.global?.refs || [],
+            audios: editor.timeline?.global?.refAudios || [],
+            videos: editor.timeline?.global?.refVideos || [],
+        };
+    });
     if (globalController) controllers.push(globalController);
     const segmentController = wirePromptImageMentions(editor, editor.segPrompt, () => {
         const seg = editor.timeline?.segments?.[editor.selectedIndex];
+        if (isR2vTask()) {
+            return {
+                assets: referenceAssetStates(editor.timeline?.r2vCommon || {}, seg || null),
+            };
+        }
         return { refs: seg?.refs || [], audios: seg?.refAudios || [], videos: seg?.refVideos || [] };
     });
     if (segmentController) controllers.push(segmentController);

@@ -27,6 +27,7 @@ from .video_export import (
     StaleFinalVideoRun,
     video_save_capabilities,
 )
+from . import resume_state
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director")
 
@@ -306,6 +307,34 @@ async def minimax_release_final_video(request):
     return web.json_response({"ok": True})
 
 
+async def minimax_resume_status(request):
+    """Return the run manifest (done segments / resume point) for a node."""
+    node_id = str(request.query.get("node_id") or request.query.get("nodeId") or "").strip()
+    return web.json_response(resume_state.resume_status(node_id or None))
+
+
+async def minimax_stop_request(request):
+    """Ask the running executor to finish the current segment, then stop."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    node_id = str(body.get("node_id") or "").strip()
+    resume_state.request_graceful_stop(node_id or None)
+    return web.json_response({"ok": True, "node_id": node_id})
+
+
+async def minimax_clear_run(request):
+    """Start-over: clear the run manifest and this node's segment caches."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    node_id = str(body.get("node_id") or "").strip()
+    existed = resume_state.clear_run(node_id or None)
+    return web.json_response({"ok": True, "node_id": node_id, "cleared": existed})
+
+
 def register_routes() -> bool:
     """Register MiniMax H3 Motion Director HTTP routes on the ComfyUI PromptServer."""
     global _ROUTES_REGISTERED
@@ -325,6 +354,9 @@ def register_routes() -> bool:
     _register_route(routes, "GET", "/minimax/motion-director/postprocess_capabilities", minimax_postprocess_capabilities)
     _register_route(routes, "POST", "/minimax/motion-director/save_video", minimax_save_final_video)
     _register_route(routes, "POST", "/minimax/motion-director/release_video", minimax_release_final_video)
+    _register_route(routes, "GET", "/minimax/motion-director/resume_status", minimax_resume_status)
+    _register_route(routes, "POST", "/minimax/motion-director/stop_request", minimax_stop_request)
+    _register_route(routes, "POST", "/minimax/motion-director/clear_run", minimax_clear_run)
     register_material_library_routes(routes)
     _ROUTES_REGISTERED = True
     log.info("MiniMax H3 Motion Director HTTP routes registered")

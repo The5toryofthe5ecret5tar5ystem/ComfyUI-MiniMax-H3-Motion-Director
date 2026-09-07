@@ -884,22 +884,6 @@ export function mountOutputUI(
           <span data-result-frame>
             帧 0 / 0
           </span>
-
-          <label>
-            <span data-output-text="volume">
-              音量
-            </span>
-
-            <input
-              type="range"
-              data-result-volume
-              min="0"
-              max="1"
-              value="1"
-              step="0.05"
-              disabled
-            >
-          </label>
         </div>
 
         <div
@@ -1148,9 +1132,6 @@ export function mountOutputUI(
 
     const audio =
         resultsRoot.querySelector("[data-result-audio]");
-
-    const volume =
-        resultsRoot.querySelector("[data-result-volume]");
 
     const playButton =
         resultsRoot.querySelector("[data-result-play]");
@@ -1964,16 +1945,6 @@ export function mountOutputUI(
             ),
     );
 
-    volume.addEventListener(
-        "input",
-        () => {
-            audio.volume =
-                Number(
-                    volume.value,
-                );
-        },
-    );
-
     playButton.addEventListener(
         "click",
         () => {
@@ -2320,9 +2291,6 @@ export function mountOutputUI(
 
         audio.load?.();
 
-        volume.disabled =
-            true;
-
         saveButton.disabled =
             true;
 
@@ -2387,14 +2355,6 @@ export function mountOutputUI(
                 detail.media_type
                 || "audio/wav",
             );
-
-        audio.volume =
-            Number(
-                volume.value,
-            );
-
-        volume.disabled =
-            false;
     };
 
     const setPipelineStatus = (detail = {}) => {

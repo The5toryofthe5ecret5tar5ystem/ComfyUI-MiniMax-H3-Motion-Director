@@ -115,6 +115,7 @@ from .progress import (
     report_director_finish,
     report_director_progress,
     report_director_report,
+    report_director_segment_done,
     report_director_segment_preview,
 )
 from .segment_cache import (
@@ -123,7 +124,10 @@ from .segment_cache import (
     save_segment_audio_cache,
     save_segment_cache,
     segment_cache_status,
+    segment_reusable,
+    resolve_resume_from_index,
 )
+from . import resume_state
 from .cache_policy import (
     resolve_nominal_segment_frames,
     should_persist_segment_cache,
@@ -1254,10 +1258,117 @@ def execute_director_plan_core(
             "MiniMax H3 Motion Director segment %d/%d done (%d frames, task=%s)",
             ui_idx + 1, timeline_seg_total, target_len, seg.task_key,
         )
+        resume_state.mark_segment_done(node_id, int(seg.index), timeline_slot)
+        report_director_segment_done(
+            node_id,
+            segment_index=int(seg.index),
+            timeline_segment_index=timeline_slot,
+            segment_total=seg_total,
+            timeline_segment_total=timeline_seg_total,
+        )
         return chunk, audio_dict
 
+    # ------------------------------------------------------------------
+    # Resume / partial re-run: reuse the finished prefix from disk caches and
+    # (optionally) force a fresh start from plan.resume_from (Restart segment).
+    # plan.py owns the resume/resume_from parsing from the frontend timeline.
+    resume_active = bool(getattr(plan, "resume", False))
+    # Always open a run-manifest entry: fresh runs reset the done list, Resume
+    # runs keep the finished prefix. segment_total is what the frontend needs
+    # to decide whether a Resume is possible.
+    resume_state.begin_run(node_id, len(all_segments), reset_done=not resume_active)
+    resume_from_index: int | None = None
+    if resume_active:
+        requested_from = getattr(plan, "resume_from", None)
+        if requested_from is not None:
+            resume_from_index = int(requested_from)
+        else:
+            resume_from_index = resolve_resume_from_index(
+                node_id, all_segments, plan,
+                audio_generate=audio_mode == AUDIO_MODE_GENERATE,
+            )
+        if resume_from_index >= segment_total_run:
+            reports.append(
+                "Resume: every segment already has a valid cache — nothing will be re-sampled."
+            )
+        else:
+            reports.append(
+                f"Resume: reusing cached prefix before segment {resume_from_index + 1}; "
+                f"sampling from segment {resume_from_index + 1} onward."
+            )
+
+    def _reuse_cached_segment(seg) -> bool:
+        """Load one finished selected segment from cache for a Resume run.
+
+        Mirrors the unselected-segment cache-hit path (context/latent caches +
+        output registries) and additionally fills ``selected_results`` so the
+        segment still appears in the run's outputs.  Returns False when the
+        cache is missing / stale / incomplete so the caller re-samples instead.
+        """
+        cached = load_segment_cache(node_id, seg, plan)
+        if cached is None:
+            return False
+        cached = cached.float()
+        cached_audio = {}
+        if audio_mode == AUDIO_MODE_GENERATE:
+            cached_audio = load_segment_audio_cache(node_id, seg, plan)
+            if not audio_has_samples(cached_audio):
+                return False
+        if context_pipeline_active:
+            try:
+                cached_latent_context = load_latent_context_cache(
+                    node_id, seg, plan, settings=cache_settings,
+                )
+                cached_refine_latent_context = load_latent_context_cache(
+                    node_id, seg, plan, settings=cache_settings, variant="refine",
+                )
+                if cached_refine_latent_context is not None:
+                    completed_refine_contexts[int(seg.timeline_index)] = (
+                        cached_refine_latent_context.latent,
+                        cached_refine_latent_context.handoff,
+                    )
+                cached_context = load_motion_context_cache(
+                    node_id, seg, plan, settings=cache_settings, strict=False,
+                ) if context_pipeline_active else None
+                if cached_latent_context is not None:
+                    cached_context = CachedMotionContext(
+                        frames=cached_context.frames if cached_context is not None else None,
+                        audio=cached_context.audio if cached_context is not None else None,
+                        metadata=(cached_context.metadata if cached_context is not None else cached_latent_context.metadata),
+                        latent=cached_latent_context.latent,
+                        handoff=cached_latent_context.handoff,
+                    )
+                if cached_context is not None:
+                    completed_contexts[int(seg.timeline_index)] = cached_context
+            except Exception as exc:
+                log.warning(
+                    "Resume: context cache load for segment %d failed: %s",
+                    int(seg.timeline_index) + 1,
+                    exc,
+                )
+        cache_hit_indices.add(int(seg.index))
+        result = (cached, cached_audio)
+        completed_outputs[int(seg.index)] = cached
+        selected_results[int(seg.index)] = result
+        if plan.export_mode == "all":
+            all_export_results[int(seg.index)] = result
+        reports.append(
+            f"Segment {int(seg.index) + 1}/{len(all_segments)}: resume — reused from full segment cache "
+            f"({int(cached.shape[0])} frames)"
+        )
+        return True
+
     for seg in all_segments:
+        if resume_state.stop_requested(node_id):
+            resume_state.raise_graceful_stop(node_id)
         if seg.index in run_indices:
+            if (
+                resume_active
+                and resume_from_index is not None
+                and int(seg.index) < resume_from_index
+                and _reuse_cached_segment(seg)
+            ):
+                continue
             if clear_vram_between_segments and selected_results:
                 cleanup_segment_vram(enabled=True)
             _segment_started = time.perf_counter()
@@ -1910,4 +2021,5 @@ def execute_director_plan_core(
         except Exception as exc:
             log.debug("Final result preview skipped: %s", exc)
     preview_manager.close()
+    resume_state.mark_run_state(node_id, "done")
     return combined, segment_outputs, export_audios, rendered_report
