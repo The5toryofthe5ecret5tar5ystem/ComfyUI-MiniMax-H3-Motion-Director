@@ -657,6 +657,13 @@ def execute_director_plan_core(
                 f"Previous Context OFF (the source background owns continuity); "
                 f"audio policy = {replace_policy}."
             )
+            log.info(
+                "Segment %d: CHARACTER REPLACE engaged (task=%s, policy=%s, mask_dir=%s, grow=%s, feather=%s)",
+                timeline_slot + 1, seg.task_key, replace_policy,
+                str(getattr(getattr(replace_spec, "mask", None), "dir", "") or ""),
+                str(getattr(getattr(replace_spec, "mask", None), "grow", 0) or 0),
+                str(getattr(getattr(replace_spec, "mask", None), "feather", 0.0) or 0.0),
+            )
         if not context_link.explicit:
             warning_messages.append(f"S{timeline_slot + 1}: legacy workflow fallback is being used")
         if context_link.requested_audio and not apply_audio_context and not replace_active:
@@ -890,12 +897,21 @@ def execute_director_plan_core(
                     f"S{timeline_slot + 1}: Character Replace fell back to a plain "
                     f"{seg.task_key.upper()} window ({replace_fallback_reason})."
                 )
+                log.warning(
+                    "Segment %d: Character Replace FELL BACK to plain %s - %s",
+                    timeline_slot + 1, seg.task_key.upper(), replace_fallback_reason,
+                )
             else:
                 reports.append(
                     f"Segment {timeline_slot + 1}: masked replace ready - "
                     f"{int(replace_state['mask_vis'].shape[0])} frame mask, "
                     f"echo-free motion reference, grow={replace_state['grow']}, "
                     f"feather={replace_state['feather']:g}."
+                )
+                log.info(
+                    "Segment %d: masked replace ready - %d frame mask, grow=%d, feather=%.3g",
+                    timeline_slot + 1, int(replace_state['mask_vis'].shape[0]),
+                    replace_state['grow'], replace_state['feather'],
                 )
         report_director_progress(
             node_id, segment_index=progress_index, segment_total=seg_total,
@@ -974,6 +990,10 @@ def execute_director_plan_core(
                     f"S{timeline_slot + 1}: Character Replace disabled "
                     f"({replace_fallback_reason}); rendering a plain window."
                 )
+                log.warning(
+                    "Segment %d: Character Replace DISABLED (length mismatch) - %s",
+                    timeline_slot + 1, replace_fallback_reason,
+                )
             else:
                 try:
                     from .refine_sampling import _split_av
@@ -1018,10 +1038,18 @@ def execute_director_plan_core(
                         f"S{timeline_slot + 1}: Character Replace fell back to a plain "
                         f"{seg.task_key.upper()} window ({replace_fallback_reason})."
                     )
+                    log.warning(
+                        "Segment %d: Character Replace FELL BACK at assembly - %s",
+                        timeline_slot + 1, replace_fallback_reason,
+                    )
         if replace_masked:
             reports.append(
                 f"Segment {timeline_slot + 1}: sampling a masked replace latent "
                 "(subject region regenerated; source background kept pixel-exact)."
+            )
+            log.info(
+                "Segment %d: sampling MASKED replace latent (source background kept)",
+                timeline_slot + 1,
             )
         elif replace_active:
             # Masked replace did not engage (missing mask / bad window / encode
