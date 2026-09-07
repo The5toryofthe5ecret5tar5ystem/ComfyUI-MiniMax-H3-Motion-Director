@@ -287,8 +287,18 @@ def report_director_final_ready(node_id: str | None, payload: dict) -> None:
         log.debug("Director final-ready send skipped: %s", exc)
 
 
-def report_director_audio_preview(node_id: str | None, audio_outputs) -> None:
-    """Send CPU WAV side-channel data for Output volume/playback controls."""
+def report_director_audio_preview(
+    node_id: str | None,
+    audio_outputs,
+    *,
+    segment_index: int | None = None,
+) -> None:
+    """Send CPU WAV side-channel data for Output volume/playback controls.
+
+    ``segment_index`` marks the payload as the finished audio of one segment
+    (Results Segment view); omit it for the whole-run combined audio sent at
+    the end of a job.
+    """
     if not node_id:
         return
     audio = audio_outputs[0] if isinstance(audio_outputs, (list, tuple)) and audio_outputs else audio_outputs
@@ -311,16 +321,19 @@ def report_director_audio_preview(node_id: str | None, audio_outputs) -> None:
             wav.writeframes(pcm.tobytes())
         from server import PromptServer
 
+        payload = {
+            "node_id": str(node_id),
+            "audio_b64": base64.b64encode(buffer.getvalue()).decode("ascii"),
+            "media_type": "audio/wav",
+            "sample_rate": sample_rate,
+        }
+        if segment_index is not None:
+            payload["segment_index"] = int(segment_index)
         srv = PromptServer.instance
         if srv:
             srv.send_sync(
                 "minimax_motion_director_audio",
-                {
-                    "node_id": str(node_id),
-                    "audio_b64": base64.b64encode(buffer.getvalue()).decode("ascii"),
-                    "media_type": "audio/wav",
-                    "sample_rate": sample_rate,
-                },
+                payload,
                 srv.client_id,
             )
     except Exception as exc:

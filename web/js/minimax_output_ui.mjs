@@ -884,6 +884,22 @@ export function mountOutputUI(
           <span data-result-frame>
             帧 0 / 0
           </span>
+
+          <label>
+            <span data-output-text="volume">
+              音量
+            </span>
+
+            <input
+              type="range"
+              data-result-volume
+              min="0"
+              max="1"
+              value="1"
+              step="0.05"
+              disabled
+            >
+          </label>
         </div>
 
         <div
@@ -1066,6 +1082,8 @@ export function mountOutputUI(
         multiRangeUserSet: false,
 
         segments: new Map(),
+        segmentAudio: new Map(),
+        combinedAudio: null,
         final: null,
         finalRecord: null,
 
@@ -1132,6 +1150,12 @@ export function mountOutputUI(
 
     const audio =
         resultsRoot.querySelector("[data-result-audio]");
+
+    const volume =
+        resultsRoot.querySelector("[data-result-volume]");
+
+    // Currently loaded audio source key: "" (none) | "seg:<n>" | "combined".
+    let appliedAudioKey = "";
 
     const playButton =
         resultsRoot.querySelector("[data-result-play]");
@@ -1883,6 +1907,7 @@ export function mountOutputUI(
                             : "final_pipeline",
                 );
 
+        syncAudioSource();
         renderFrame();
     };
 
@@ -1909,6 +1934,7 @@ export function mountOutputUI(
             state.index =
                 0;
 
+            syncAudioSource();
             renderFrame();
         },
     );
@@ -1943,6 +1969,16 @@ export function mountOutputUI(
             playback.seek(
                 Number(seek.value),
             ),
+    );
+
+    volume.addEventListener(
+        "input",
+        () => {
+            audio.volume =
+                Number(
+                    volume.value,
+                );
+        },
     );
 
     playButton.addEventListener(
@@ -2266,6 +2302,9 @@ export function mountOutputUI(
         };
 
         state.segments.clear();
+        state.segmentAudio.clear();
+        state.combinedAudio = null;
+        appliedAudioKey = "";
         state.multiStart = null;
         state.multiEnd = null;
         state.multiRangeUserSet = false;
@@ -2290,6 +2329,9 @@ export function mountOutputUI(
         );
 
         audio.load?.();
+
+        volume.disabled =
+            true;
 
         saveButton.disabled =
             true;
@@ -2342,19 +2384,134 @@ export function mountOutputUI(
                 : "";
     };
 
+    const viewAudioSource = () => {
+        if (state.tab === "segment") {
+            const index =
+                Number(segmentSelect.value || 0);
+
+            const entry =
+                state.segmentAudio.get(index);
+
+            return entry
+                ? {
+                    key: `seg:${index}`,
+                    b64: entry.b64,
+                    type:
+                        entry.type
+                        || "audio/wav",
+                }
+                : null;
+        }
+
+        return state.combinedAudio
+            ? {
+                key: "combined",
+                b64: state.combinedAudio.b64,
+                type:
+                    state.combinedAudio.type
+                    || "audio/wav",
+            }
+            : null;
+    };
+
+    const syncAudioSource = () => {
+        const source =
+            viewAudioSource();
+
+        const nextKey =
+            source
+                ? source.key
+                : "";
+
+        if (nextKey === appliedAudioKey) {
+            return;
+        }
+
+        const wasPlaying =
+            state.playing;
+
+        appliedAudioKey =
+            nextKey;
+
+        // The clock source is changing under an active player; stop it so
+        // the audio/video clocks cannot desync.
+        if (wasPlaying) {
+            stop();
+        }
+
+        if (!source) {
+            audio.removeAttribute(
+                "src",
+            );
+
+            audio.load?.();
+
+            volume.disabled =
+                true;
+            return;
+        }
+
+        audio.src =
+            dataUrl(
+                source.b64,
+                source.type,
+            );
+
+        audio.volume =
+            Number(
+                volume.value,
+            );
+
+        volume.disabled =
+            false;
+    };
+
     const setAudio = (detail = {}) => {
         if (!detail.audio_b64) {
             return;
         }
 
-        stop();
+        const mediaType =
+            detail.media_type
+            || "audio/wav";
 
-        audio.src =
-            dataUrl(
-                detail.audio_b64,
-                detail.media_type
-                || "audio/wav",
+        if (detail.segment_index != null) {
+            const index =
+                Number(
+                    detail.segment_index,
+                );
+
+            state.segmentAudio.set(
+                index,
+                {
+                    b64: detail.audio_b64,
+                    type: mediaType,
+                },
             );
+
+            // Only swap the live audio element when this is the segment
+            // currently shown; otherwise just cache it for when the user
+            // selects that segment.
+            if (
+                state.tab === "segment"
+                && Number(segmentSelect.value || 0) === index
+            ) {
+                syncAudioSource();
+            }
+            return;
+        }
+
+        // Whole-run combined audio (sent once when the job completes).
+        state.combinedAudio = {
+            b64: detail.audio_b64,
+            type: mediaType,
+        };
+
+        // Used by Multi / Final views; never clobber a per-segment source
+        // while a single segment is being watched.
+        if (state.tab !== "segment") {
+            syncAudioSource();
+        }
     };
 
     const setPipelineStatus = (detail = {}) => {

@@ -28,6 +28,10 @@ from .postprocess_config import (
 )
 from .refine_latent_stage import sync_h3_keyframe_conditioning
 from .rtx_deblur import RTXDeblurOutcome, apply_rtx_deblur
+from .external_patch_guard import (
+    ALLOW_REFINE_ON_EXTERNAL_PATCH,
+    model_has_external_attention_patch,
+)
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director.refine")
 
@@ -517,6 +521,20 @@ def apply_global_refine(
     """Run optional Deblur, upscale and one-or-more second-sampling passes."""
     if not config.get("enabled"):
         return GlobalRefineOutcome(samples=samples, status="DISABLED")
+    if (not config.get(ALLOW_REFINE_ON_EXTERNAL_PATCH)
+            and model_has_external_attention_patch(model)):
+        log.warning(
+            "Global Refine skipped: the sampling model carries an external H3 "
+            "attention/diffusion patch (H3-SLA Attention / Spectrum / "
+            "optimized_attention_override). Refining through such a model has "
+            "crashed at the CUDA level; keeping the first-pass result. Set "
+            "%s in the post-process config to run it anyway.",
+            ALLOW_REFINE_ON_EXTERNAL_PATCH,
+        )
+        return GlobalRefineOutcome(
+            samples=samples,
+            status="SKIPPED (external attention-patched model)",
+        )
     if config.get("skip_fl2v") and task_key == "fl2v":
         return GlobalRefineOutcome(samples=samples, status="SKIPPED")
 

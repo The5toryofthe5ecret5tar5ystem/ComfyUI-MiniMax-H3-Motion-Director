@@ -265,3 +265,54 @@ def clear_run(node_id: Any) -> bool:
             log.debug("Resume clear skipped %s cache: %s", mod_name, exc)
     clear_stop_request(node_id)
     return existed
+
+
+def segment_cache_preview(node_id: Any) -> list[dict[str, Any]]:
+    """Summarize on-disk per-segment caches for the Resume popup.
+
+    Reads each stored fingerprint meta (width/height/ref_max/output_mode etc.)
+    so the frontend can compare them against the current node settings and
+    explain why a cached prefix is (or is not) reusable.  Best-effort: never
+    raises for unreadable/partial entries.
+    """
+    if node_id is None:
+        return []
+    root = segment_cache_dir(node_id)
+    if root is None or not root.is_dir():
+        return []
+    preview: list[dict[str, Any]] = []
+    for meta_path in root.glob("seg_*.meta.json"):
+        try:
+            # meta_path.name is "seg_0003.meta.json"; derive the index robustly.
+            base_name = meta_path.name
+            if base_name.endswith(".meta.json"):
+                base_name = base_name[: -len(".meta.json")]
+            parts = base_name.split("_")
+            idx = int(parts[1]) if len(parts) == 2 else None
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            if idx is None or not isinstance(meta, dict):
+                continue
+            pt = root / f"seg_{idx:04d}.pt"
+            audio = root / f"seg_{idx:04d}.audio.pt"
+            refs = meta.get("refs")
+            preview.append({
+                "index": int(meta.get("index", idx)),
+                "complete": pt.is_file(),
+                "audio_cached": audio.is_file(),
+                "width": meta.get("width"),
+                "height": meta.get("height"),
+                "ref_max": meta.get("ref_max"),
+                "output_mode": meta.get("output_mode"),
+                "task_key": meta.get("task_key"),
+                "start": meta.get("start"),
+                "end": meta.get("end"),
+                "prompt_chars": int(len(str(meta.get("prompt") or ""))),
+                "refs": list(refs) if isinstance(refs, list) else [],
+                "ref_audios": list(meta.get("ref_audios") or []),
+                "ref_videos": list(meta.get("ref_videos") or []),
+                "updated_ms": int(meta_path.stat().st_mtime * 1000),
+            })
+        except Exception as exc:
+            log.warning("Segment cache preview skipped %s: %s", meta_path.name, exc)
+    preview.sort(key=lambda item: int(item["index"]))
+    return preview

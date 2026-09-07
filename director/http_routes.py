@@ -313,6 +313,39 @@ async def minimax_resume_status(request):
     return web.json_response(resume_state.resume_status(node_id or None))
 
 
+async def minimax_resume_preview(request):
+    """Cache status for the Resume popup.
+
+    GET: lightweight manifest + cached-segment summaries (no plan rebuild).
+    POST: authoritative per-segment hit/stale/missing analysis by rebuilding
+    the plan from the node's current inputs (mirrors the engine exactly).
+    """
+    if request.method == "POST":
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        node_id = str(body.get("node_id") or "").strip()
+        if not node_id:
+            return web.json_response({"error": "no node id"})
+        from ..nodes.director_common import analyze_resume_cache
+
+        keys = (
+            "timeline_data", "task_type", "global_prompt", "total_frames",
+            "frame_rate", "width", "height", "ref_max_size",
+            "motion_context_enabled", "i2v_groups", "r2v_groups",
+        )
+        inputs = {key: body.get(key) for key in keys if key in body and body.get(key) is not None}
+        return web.json_response(analyze_resume_cache(node_id, **inputs))
+
+    node_id = str(request.query.get("node_id") or request.query.get("nodeId") or "").strip()
+    payload = resume_state.resume_status(node_id or None)
+    payload["caches"] = resume_state.segment_cache_preview(node_id or None)
+    return web.json_response(payload)
+
+
 async def minimax_stop_request(request):
     """Ask the running executor to finish the current segment, then stop."""
     try:
@@ -355,6 +388,8 @@ def register_routes() -> bool:
     _register_route(routes, "POST", "/minimax/motion-director/save_video", minimax_save_final_video)
     _register_route(routes, "POST", "/minimax/motion-director/release_video", minimax_release_final_video)
     _register_route(routes, "GET", "/minimax/motion-director/resume_status", minimax_resume_status)
+    _register_route(routes, "GET", "/minimax/motion-director/resume_preview", minimax_resume_preview)
+    _register_route(routes, "POST", "/minimax/motion-director/resume_preview", minimax_resume_preview)
     _register_route(routes, "POST", "/minimax/motion-director/stop_request", minimax_stop_request)
     _register_route(routes, "POST", "/minimax/motion-director/clear_run", minimax_clear_run)
     register_material_library_routes(routes)

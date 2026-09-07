@@ -112,6 +112,7 @@ from .plan import (
     reinforce_v2v_prompt,
 )
 from .progress import (
+    report_director_audio_preview,
     report_director_finish,
     report_director_progress,
     report_director_report,
@@ -1005,6 +1006,10 @@ def execute_director_plan_core(
         )
         global_refine_outcomes[timeline_slot] = global_outcome
         samples = global_outcome.samples
+        if global_outcome.status.startswith("SKIPPED"):
+            warning_messages.append(
+                f"S{timeline_slot + 1}: {global_outcome.status}; keeping the first-pass result."
+            )
         if global_outcome.status == "FAILED":
             cleanup_segment_vram(enabled=True, unload_models=False)
             warning_messages.append(
@@ -1157,6 +1162,15 @@ def execute_director_plan_core(
                 )
             except Exception as exc:
                 log.debug("Segment video preview skipped: %s", exc)
+        if audio_has_samples(audio_dict):
+            try:
+                report_director_audio_preview(
+                    node_id,
+                    [audio_dict],
+                    segment_index=ui_idx,
+                )
+            except Exception as exc:
+                log.debug("Segment audio preview skipped: %s", exc)
         if clear_vram_between_segments:
             cleanup_segment_vram(enabled=True)
         reports.append(
@@ -1604,6 +1618,11 @@ def execute_director_plan_core(
             preview_every=int(preview_config["preview_every"]),
         )
         bridge_samples = bridge_refine_outcome.samples
+        if bridge_refine_outcome.status.startswith("SKIPPED"):
+            warning_messages.append(
+                f"S{int(left.timeline_index) + 1}->S{int(right.timeline_index) + 1} "
+                f"Source Bridge {bridge_refine_outcome.status}; keeping the first-pass result."
+            )
         if bridge_refine_outcome.status == "FAILED":
             cleanup_segment_vram(enabled=True, unload_models=False)
             warning_messages.append(

@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.3.2-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.3.3-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.3.2**
+> Current version: **v1.3.3**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -43,9 +43,23 @@ Long multi-segment chains can drift in color, contrast and identity after severa
 
 - H3 node execution now uses keyword arguments, matching the ComfyUI core node API after the `io.Schema` / `ComfyNode` rewrite (v0.34.x-era builds). This removes the `unsupported operand //: 'str' and 'int'` crash those builds hit with the upstream positional calls.
 
+### Stop / Resume run controls
+
+Long jobs can be interrupted by the **Stop** button, a crash, or a ComfyUI restart. **Resume** continues the job instead of restarting it: finished segments are kept as on-disk caches, and Resume reuses every segment whose cache still matches the current project, re-sampling only from the first segment that does not match. Content-affecting settings (resolution / megapixels / ref-max, prompts, references, shot frame ranges, continuity, Color Re-anchor) invalidate the affected caches; sampling knobs (seed, steps, sampler, CFG), export bitrate/CRF, and the Global/Face Refine toggles do not. **Start Over** clears the caches for a guaranteed fresh run. Full rules and a settings table are in the [User Guide](docs/USER_GUIDE.md).
+
+Pressing **Resume** first opens a cache-check dialog: it shows how many segments are cached, exactly where the run will continue, and - when a cached prefix cannot be reused - the per-segment reasons (resolution / megapixels, prompts, references, Color Re-anchor, etc.), with a button to restore the cached settings onto the node, a choice of start segment, and Start Over. The analysis is authoritative: it rebuilds the plan and runs the same fingerprint check the engine uses.
+
+### Per-segment audio in Results
+
+Each finished segment's audio is pushed to the Results player as soon as that segment completes, so the **Segment** view has real, aligned sound while the job is still running - not only after the whole run finishes. Multi / Final views keep the whole-run combined audio.
+
+### Global Refine safety guard
+
+Global Refine is now skipped automatically (keeping the first-pass result) when the diffusion model carries an external attention patch such as SLA or Spectrum, which would otherwise be corrupted by a second guidance-distilled sampling pass. An opt-out is available (`allow_refine_on_external_patch`) for advanced users who know the patch is compatible.
+
 ### Tests + CI
 
-- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 94 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
+- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 123 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
 
 ### Example workflow
 
@@ -81,6 +95,7 @@ Swap the loader files inside the model subgraph if you use different names/paths
 | **Standalone generation** | `T2V / I2V / FL2V / R2V / V2V / RV2V` |
 | **Mixed Mode** | Choose `T2V / I2V / FL2V / R2V / Source Video` independently for each segment |
 | **Selective Run** | Regenerate selected segments instead of rerunning the whole sequence |
+| **Run controls** | Start / Resume / Restart / Stop / Start Over - Resume reuses finished segment caches that still match the project |
 | **Cross-segment continuity** | Motion Context, Context Frames, Latent Scale Lock, generated-audio continuation, Color Re-anchor, **Re-ground** (re-anchor a segment at the chain root to stop drift) |
 | **Segment Result reuse** | Reuse a decoded frame from an earlier Mixed segment as a later I2V / FL2V input |
 | **Source-video workflow** | Dedicated V2V / RV2V handling and Source Bridge for standalone source-video boundaries |
