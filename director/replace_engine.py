@@ -97,14 +97,14 @@ def gaussian_blur_frames(frames: torch.Tensor, sigma: float) -> torch.Tensor:
     radius = max(1, int(round(sigma * 3)))
     kernel = _gaussian_kernel_2d(radius, sigma)  # [2r+1, 2r+1]
     k = int(kernel.shape[0])
+    # Depthwise: one shared kernel per channel, groups=c.
     weight = kernel.view(1, 1, k, k).repeat(c, 1, 1, 1)
     blurred = F.conv2d(
-        source.reshape(t * c, 1, h, w),
+        source,
         weight,
         padding=k // 2,
-        groups=1,
+        groups=c,
     )
-    blurred = blurred.reshape(t, c, h, w)
     return blurred.squeeze(1) if frames.ndim == 3 else blurred
 
 
