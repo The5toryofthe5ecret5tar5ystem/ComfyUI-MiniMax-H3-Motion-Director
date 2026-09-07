@@ -13,6 +13,11 @@ from mmx_pkg.director.replace_runtime import (
     prepare_replace_window,
     sanitized_reference_frames,
 )
+from mmx_pkg.director.replace_engine import (
+    pixel_frames_for_latent_tokens,
+    pool_mask_to_latent_time,
+    video_latent_tokens_for_frames,
+)
 from mmx_pkg.director.replace_spec import ReplaceMaskSpec, ReplaceSpec
 from mmx_pkg.director.h3_noise_mask import split_h3_mask
 
@@ -154,14 +159,48 @@ def test_build_replace_noise_mask_generate_audio():
     assert audio_mask.float().sum().item() > 0  # regenerate audio
 
 
-def test_build_replace_noise_mask_pads_short_mask_to_video_time():
-    video_latent = torch.zeros(1, 4, 6, 2, 2)   # 6 latent frames
-    audio_latent = torch.zeros(1, 8, 60)
-    mask_hi = _mask(t=4)
+def test_video_latent_token_schedule():
+    # (1,4,4,4,4) schedule: 17 pixel frames per 5 tokens.
+    assert video_latent_tokens_for_frames(0) == 0
+    assert video_latent_tokens_for_frames(1) == 1
+    assert video_latent_tokens_for_frames(2) == 2
+    assert video_latent_tokens_for_frames(5) == 2
+    assert video_latent_tokens_for_frames(6) == 3
+    assert video_latent_tokens_for_frames(17) == 5
+    assert video_latent_tokens_for_frames(124) == 37  # 17*7 + 5
+    assert pixel_frames_for_latent_tokens(5) == 17
+    assert pixel_frames_for_latent_tokens(37) == 124
+
+
+def test_pool_mask_to_latent_time_token_boundaries():
+    # 17 pixel frames -> 5 tokens; subject presence maps to covering token.
+    mask = torch.zeros(17, 4, 4)
+    mask[0, 2, 2] = 1.0            # token 0 (pixel 0)
+    mask[4, 2, 2] = 1.0            # token 1 (pixels 1..4)
+    mask[5, 2, 2] = 1.0            # token 2 (pixels 5..8)
+    mask[13, 2, 2] = 1.0           # token 4 (pixels 13..16)
+    pooled = pool_mask_to_latent_time(mask, 5)
+    assert tuple(pooled.shape) == (5, 4, 4)
+    assert pooled[0, 2, 2].item() == 1.0
+    assert pooled[1, 2, 2].item() == 1.0
+    assert pooled[2, 2, 2].item() == 1.0
+    assert pooled[3, 2, 2].item() == 0.0  # pixels 9..12 untouched
+    assert pooled[4, 2, 2].item() == 1.0
+
+
+def test_build_replace_noise_mask_pools_pixel_frames_to_tokens():
+    # 17 source frames -> video latent with 5 tokens.
+    video_latent = torch.zeros(1, 4, 5, 2, 2)
+    audio_latent = torch.zeros(1, 8, 40)
+    mask_hi = torch.zeros(17, 8, 8)
+    mask_hi[0:1, 4:, :] = 1.0  # only the first pixel frame has the subject
     mask = build_replace_noise_mask(video_latent, audio_latent, mask_hi, grow=0, feather=0)
     video_mask, _audio_mask, is_nested = split_h3_mask(mask)
     assert is_nested
-    assert video_mask.shape[2] == 6
+    assert tuple(video_mask.shape) == (1, 1, 5, 2, 2)
+    # Token 0 covers only pixel 0 -> regenerate; later tokens are pure background.
+    assert video_mask[0, 0, 0, 1, :].min().item() >= 0.5
+    assert video_mask[0, 0, 1:, :, :].max().item() <= 0.5
 
 
 def test_prepare_state_validates_shapes():
