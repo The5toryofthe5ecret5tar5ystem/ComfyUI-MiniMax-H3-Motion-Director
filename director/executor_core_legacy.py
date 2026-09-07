@@ -1496,6 +1496,7 @@ def execute_director_plan_core(
     # runs keep the finished prefix. segment_total is what the frontend needs
     # to decide whether a Resume is possible.
     resume_state.begin_run(node_id, len(all_segments), reset_done=not resume_active)
+    segment_total_run = len(all_segments)
     resume_from_index: int | None = None
     if resume_active:
         requested_from = getattr(plan, "resume_from", None)
