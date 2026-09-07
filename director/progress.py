@@ -164,6 +164,40 @@ def report_director_progress(
         _PHASE_STARTED.pop(key, None)
 
 
+def report_director_segment_done(
+    node_id: str | None,
+    *,
+    segment_index: int,
+    timeline_segment_index: int,
+    segment_total: int,
+    timeline_segment_total: int | None = None,
+) -> None:
+    """Announce one fully-cached completed segment (Resume UI done markers)."""
+    if not node_id:
+        return
+    payload = {
+        "node_id": str(node_id),
+        "segment": int(segment_index) + 1,
+        "segment_index": int(segment_index),
+        "timeline_segment": int(timeline_segment_index) + 1,
+        "timeline_segment_index": int(timeline_segment_index),
+        "segment_total": max(1, int(segment_total)),
+        "timeline_segment_total": (
+            int(timeline_segment_total)
+            if timeline_segment_total is not None
+            else max(1, int(segment_total))
+        ),
+    }
+    try:
+        from server import PromptServer
+
+        srv = PromptServer.instance
+        if srv:
+            srv.send_sync("minimax_motion_director_segment_done", payload, srv.client_id)
+    except Exception as exc:
+        log.debug("Director segment-done send skipped: %s", exc)
+
+
 def report_director_segment_preview(
     node_id: str | None,
     *,

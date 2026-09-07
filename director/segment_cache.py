@@ -361,3 +361,46 @@ def segment_cache_status(
         return "hit" if stored == segment_cache_fingerprint(seg, plan) else "stale"
     except Exception:
         return "error"
+
+
+def segment_reusable(
+    node_id: str | None,
+    seg: SegmentPlan,
+    plan: DirectorPlan,
+    *,
+    audio_generate: bool,
+) -> bool:
+    """Return whether a full decoded segment can be reused without re-sampling.
+
+    Requires a fingerprint-valid full video cache and, when the run generates
+    audio, a fingerprint-valid full audio cache as well.  Used by Resume runs to
+    decide which finished-prefix segments can be skipped.
+    """
+    if segment_cache_status(node_id, seg, plan) != "hit":
+        return False
+    if not audio_generate:
+        return True
+    audio = load_segment_audio_cache(node_id, seg, plan)
+    return audio is not None
+
+
+def resolve_resume_from_index(
+    node_id: str | None,
+    segments: list[SegmentPlan],
+    plan: DirectorPlan,
+    *,
+    audio_generate: bool,
+) -> int:
+    """Return the first segment index whose cache cannot be reused, or
+    ``len(segments)`` when every segment is reusable.
+
+    ``segments`` must be in run order (``plan.segments``).  Resume runs skip the
+    reusable prefix before this index and re-sample from it onward.
+    """
+    for seg in segments:
+        if not segment_reusable(
+            node_id, seg, plan,
+            audio_generate=audio_generate,
+        ):
+            return int(seg.index)
+    return int(len(segments))

@@ -19,6 +19,92 @@ export function semanticReferenceToken(kind, assetId) {
     return `{{mmx-ref:${normalized}:${identity}}}`;
 }
 
+function referenceKindField(kind) {
+    if (kind === "video") return "refVideos";
+    if (kind === "audio") return "refAudios";
+    return "refs";
+}
+
+function referenceHash(input) {
+    let h1 = 0x811c9dc5;
+    let h2 = 5381;
+    const str = String(input || "");
+    for (let i = 0; i < str.length; i += 1) {
+        const code = str.charCodeAt(i);
+        h1 ^= code;
+        h1 = Math.imul(h1, 0x01000193) >>> 0;
+        h2 = (Math.imul(h2, 33) + code) >>> 0;
+    }
+    return h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
+}
+
+/** Deterministic asset id derived from the uploaded file, so removing and
+ * re-adding the same file keeps its prompt mentions bound. Empty when no
+ * usable file identity is available (callers fall back to a generated id). */
+export function fileStableReferenceAssetId(kind, fileRef) {
+    const raw = String(fileRef && typeof fileRef === "object"
+        ? (fileRef.imageFile || fileRef.fileName || fileRef.videoFile
+            || fileRef.audioFile || "")
+        : String(fileRef || "")).trim();
+    const normalized = raw.replace(/\\/g, "/");
+    if (!normalized) return "";
+    return `f-${referenceHash(`${kind}:${normalized}`)}`;
+}
+
+/** Every asset id of a kind currently assigned anywhere in the timeline. */
+export function timelineKnownAssetIds(timeline, kind) {
+    const field = referenceKindField(kind);
+    const ids = new Set();
+    const scan = (block) => {
+        for (const item of (block?.[field]) || []) {
+            if (item?.assetId) ids.add(String(item.assetId));
+        }
+    };
+    scan(timeline?.global);
+    scan(timeline?.r2vCommon);
+    for (const segment of (timeline?.segments) || []) scan(segment);
+    return ids;
+}
+
+/** {{mmx-ref:<kind>:<id>}} ids present in a prompt whose asset is not in
+ * knownIds, in document order. These are the mentions left dangling when a
+ * reference was removed. */
+export function danglingReferenceTokenIds(promptText, kind, knownIds) {
+    const used = knownIds instanceof Set
+        ? knownIds
+        : new Set((knownIds || []).map(String));
+    const re = new RegExp(
+        `\\{\\{mmx-ref:${kind}:([A-Za-z0-9_.:-]+)\\}\\}`,
+        "gi",
+    );
+    const out = [];
+    const text = String(promptText || "");
+    let match;
+    while ((match = re.exec(text))) {
+        const id = match[1];
+        if (!used.has(id) && !out.includes(id)) out.push(id);
+    }
+    return out;
+}
+
+/** Choose the asset id to use when a reference is (re-)added from a file.
+ *
+ * 1. If one of `referencingPrompts` still mentions a removed asset of this
+ *    kind (a dangling "missing asset" chip), reuse that id so the existing
+ *    prompt mention reconnects to the re-added reference.
+ * 2. Otherwise derive a stable id from the uploaded file so removing and
+ *    re-adding the same file keeps mentions bound.
+ * 3. Otherwise return "" so the schema assigns a fresh id.
+ */
+export function resolveReferenceAssetId(timeline, kind, referencingPrompts, fileRef) {
+    const knownIds = timelineKnownAssetIds(timeline, kind);
+    for (const promptText of referencingPrompts || []) {
+        const dangling = danglingReferenceTokenIds(promptText, kind, knownIds);
+        if (dangling.length) return dangling[0];
+    }
+    return fileStableReferenceAssetId(kind, fileRef);
+}
+
 function arraysFor(container) {
     if (!container || typeof container !== "object") return [];
     container.refs = Array.isArray(container.refs) ? container.refs : [];

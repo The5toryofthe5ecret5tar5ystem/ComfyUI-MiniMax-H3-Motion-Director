@@ -43,6 +43,7 @@ import {
     moveReferenceAssetSlot,
     referenceAssetStates,
     replaceReferenceAssetAtSlot,
+    resolveReferenceAssetId,
     setCommonAssetEnabled,
 } from "./minimax_reference_assets.mjs";
 import { syncR2vCommonToggleForTask } from "./minimax_r2v_common_ui.mjs";
@@ -266,7 +267,10 @@ export const IMAGE_BATCH_STYLES = `
 .bd-context-link-advanced label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}.bd-context-link-advanced input{accent-color:#4fff8f}
 .bd-r2v-common-toggle.hidden,.bd-r2v-common-popover[hidden]{display:none!important}
 .bd-r2v-common-popover{position:fixed;z-index:150;box-sizing:border-box;max-width:calc(100vw - 32px);overflow-y:auto;padding:14px;border:1px solid #46644f;border-radius:12px;background:linear-gradient(165deg,#172019 0%,#131713 58%,#101210 100%);box-shadow:0 18px 54px rgba(0,0,0,.65)}
-.bd-r2v-common-popover-title{margin:0 0 12px;color:#f0f5f1;font-size:14px;font-weight:700}
+.bd-r2v-common-popover-title{margin:0 0 12px;color:#f0f5f1;font-size:14px;font-weight:700;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.bd-r2v-common-popover-title-text{color:#f0f5f1;font-weight:700}
+.bd-r2v-common-popover-title-hint{color:#7f9485;font-size:10px;font-weight:500;font-style:italic}
+.bd-r2v-common-popover-title-hint[hidden]{display:none!important}
 .bd-r2v-common-popover-body{display:flex;flex-direction:column;gap:12px}
 .bd-r2v-common-popover-section{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid #2d3b31;border-radius:10px;background:#0c100d}
 .bd-r2v-common-popover-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#eaeaea;font-size:11px}
@@ -769,6 +773,37 @@ function batchAssetTarget(editor, index) {
     return editor.timeline.segments?.[index] || null;
 }
 
+/** Prompts that can mention assets held by the target container of `index`.
+ * Common pool assets (-1) are referenced by every segment and the global
+ * prompt, so the visible (selected) segment is healed first. Local adds only
+ * heal their own segment's prompt. */
+function batchReferencingPrompts(editor, index) {
+    const texts = [];
+    if (Number(index) === -1) {
+        const selected = editor.timeline?.segments?.[editor.selectedIndex];
+        if (selected?.prompt) texts.push(selected.prompt);
+        if (editor.timeline?.global?.prompt) texts.push(editor.timeline.global.prompt);
+        for (const segment of editor.timeline?.segments || []) {
+            if (segment !== selected && segment?.prompt) texts.push(segment.prompt);
+        }
+    } else {
+        const segment = editor.timeline?.segments?.[index];
+        if (segment?.prompt) texts.push(segment.prompt);
+    }
+    return texts;
+}
+
+/** Asset id to give a freshly uploaded reference so an existing "missing
+ * asset" mention (or a same-file re-add) reconnects instead of staying red. */
+function resolvedBatchAssetId(editor, index, kind, fileRef) {
+    return resolveReferenceAssetId(
+        editor.timeline,
+        kind,
+        batchReferencingPrompts(editor, index),
+        fileRef,
+    );
+}
+
 function ensureBatchAssetSchema(editor) {
     if (resolveTaskKey(editor.getTaskKey?.() || editor.taskTypeWidget?.value) === "r2v") {
         ensureR2vReferenceAssetSchema(editor.timeline);
@@ -793,8 +828,14 @@ async function assignSegRefFromFile(editor, index, slot, file) {
         const uploaded = await uploadImage(file);
         const seg = batchAssetTarget(editor, index);
         if (!seg) return;
+        const imageFile = relPath(uploaded);
         replaceReferenceAssetAtSlot(seg, "refs", slot, {
-            imageFile: relPath(uploaded), imageB64: "",
+            imageFile,
+            imageB64: "",
+            assetId: resolvedBatchAssetId(editor, index, "picture", {
+                imageFile,
+                fileName: uploaded?.name || file.name,
+            }),
         });
         commitBatchMutation(editor);
     } catch (err) {
@@ -871,11 +912,16 @@ async function uploadSegAudio(editor, index, slot) {
             const uploaded = await uploadMedia(file);
             const seg = batchAssetTarget(editor, index);
             if (!seg) return;
+            const audioFile = relPath(uploaded);
             replaceReferenceAssetAtSlot(seg, "refAudios", slot, {
-                audioFile: relPath(uploaded),
+                audioFile,
                 fileName: uploaded?.name || file.name,
                 type: "input",
                 subfolder: uploaded?.subfolder || "",
+                assetId: resolvedBatchAssetId(editor, index, "audio", {
+                    audioFile,
+                    fileName: uploaded?.name || file.name,
+                }),
             });
             commitBatchMutation(editor);
         } catch (err) {
@@ -904,6 +950,10 @@ async function uploadSegVideo(editor, index, slot) {
                 fileName: uploaded?.name || file.name,
                 type: "input",
                 subfolder: uploaded?.subfolder || "",
+                assetId: resolvedBatchAssetId(editor, index, "video", {
+                    videoFile,
+                    fileName: uploaded?.name || file.name,
+                }),
             });
             commitBatchMutation(editor);
         } catch (err) {
@@ -1365,7 +1415,8 @@ function appendCommonSelection(card, editor, seg) {
 
 function renderR2vCommonPopoverContent(body, editor) {
     const common = editor.timeline.r2vCommon || (editor.timeline.r2vCommon = { refs: [], refVideos: [], refAudios: [] });
-    editor._r2vCommonPopover?.setTitle(t("batch.r2v.commonReferences"));
+    editor._r2vCommonPopover?.setTitle?.(t("batch.r2v.commonReferences"));
+    editor._r2vCommonPopover?.setHint?.(t("batch.r2v.dragReorder"));
     renderR2vCommonSections(body, buildR2vCommonSections(common), {
         labels: {
             section: (kind) => t("batch.r2v.section" + ({
