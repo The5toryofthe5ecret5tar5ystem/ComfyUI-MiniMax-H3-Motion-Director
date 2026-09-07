@@ -2348,6 +2348,665 @@ function parseTimeline(raw, totalFrames, fps) {
     }
 }
 
+/* =========================================================================
+ * Character Replace window editing (Slice F)
+ * Two self-contained controls installed into the rv2v/v2v video timeline:
+ *   1. installReplaceWindowsMode(ed) - "Replace" toggle. When ON the canvas
+ *      editor is replaced by a windows list: each window has exact Start/End
+ *      (frames OR seconds), gaps are allowed (windows no longer need to tile
+ *      the whole clip), and each window carries its own replace config
+ *      (mask dir / grow / feather / audio policy).
+ *   2. installSegmentBoundsBar(ed) - numeric Start/End for the selected
+ *      segment in the NORMAL (tiled) timeline; moving a boundary slides the
+ *      neighbour so the 0..total partition stays contiguous.
+ * ========================================================================= */
+
+const REPLACE_AUDIO_POLICIES = ["source", "generate", "none"];
+
+function directorIsVideoMode(ed) {
+    try {
+        return ed.getDirectorMode?.() === "video";
+    } catch (_err) {
+        return false;
+    }
+}
+
+function directorFps(ed) {
+    try {
+        return ed.getFrameRate ? Number(ed.getFrameRate()) : Number(ed.timeline?.frameRate || 24);
+    } catch (_err) {
+        return Number(ed.timeline?.frameRate || 24);
+    }
+}
+
+function directorTotalFrames(ed) {
+    try {
+        return ed.getTotalFrames ? Number(ed.getTotalFrames()) : Number(ed.timeline?.totalFrames || 0);
+    } catch (_err) {
+        return Number(ed.timeline?.totalFrames || 0);
+    }
+}
+
+function replaceConfigFromSeg(seg) {
+    const r = (seg && seg.replace && typeof seg.replace === "object") ? seg.replace : {};
+    const m = (r.mask && typeof r.mask === "object") ? r.mask : {};
+    const policy = REPLACE_AUDIO_POLICIES.includes(r.audio_policy) ? r.audio_policy : "source";
+    return {
+        enabled: !!r.enabled,
+        audio_policy: policy,
+        dir: String(m.dir || ""),
+        grow: Number.isFinite(Number(m.grow)) ? Math.max(0, Math.round(Number(m.grow))) : 1,
+        feather: Number.isFinite(Number(m.feather)) ? Math.max(0, Number(m.feather)) : 1.0,
+        note: String(r.note || ""),
+    };
+}
+
+function ensureReplaceConfigOnSeg(seg, cfg) {
+    const c = cfg || replaceConfigFromSeg(seg);
+    seg.replace = {
+        enabled: !!c.enabled,
+        audio_policy: c.audio_policy,
+        mask: {
+            kind: "frames",
+            dir: String(c.dir || ""),
+            offset: 0,
+            grow: Math.max(0, Math.round(Number(c.grow) || 0)),
+            feather: Math.max(0, Number(c.feather) || 0),
+        },
+        sam_prompts: [],
+        note: String(c.note || ""),
+    };
+    return seg;
+}
+
+function h3AlignFrameCount(frames) {
+    let n = Math.max(1, Math.round(Number(frames) || 1));
+    while (n % 17 !== 5) n += 1;
+    return n;
+}
+
+function parseBoundsInput(raw, unit, fps) {
+    const v = String(raw || "").trim();
+    if (!v) return Number.NaN;
+    if (unit === "s") {
+        const sec = parseFloat(v);
+        if (!Number.isFinite(sec) || sec < 0) return Number.NaN;
+        return Math.max(0, Math.round(sec * fps));
+    }
+    const f = parseInt(v, 10);
+    return Number.isFinite(f) ? Math.max(0, f) : Number.NaN;
+}
+
+function formatBoundsValue(frames, unit, fps) {
+    if (!Number.isFinite(frames)) return "";
+    return unit === "s" ? (frames / fps).toFixed(3) : String(Math.round(frames));
+}
+
+function makeUnitToggle(initialUnit, onChange) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:inline-flex;gap:4px;align-items:center;margin-left:6px;";
+    const mk = (label, value) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.className = "bd-btn";
+        b.style.padding = "3px 8px";
+        b.style.fontSize = "10px";
+        b.dataset.unit = value;
+        const refresh = () => {
+            b.style.borderColor = value === wrap._unit ? "#4fff8f" : "#111";
+            b.style.color = value === wrap._unit ? "#4fff8f" : "#e0e0e0";
+        };
+        b.addEventListener("click", (e) => {
+            stopDomEvent(e);
+            wrap._unit = value;
+            [...wrap.children].forEach((c) => c._refresh && c._refresh());
+            onChange(value);
+        });
+        b._refresh = refresh;
+        return b;
+    };
+    wrap._unit = initialUnit === "s" ? "s" : "f";
+    wrap.append(mk("Frames", "f"), mk("Seconds", "s"));
+    [...wrap.children].forEach((c) => c._refresh && c._refresh());
+    return wrap;
+}
+
+function numField(value, width) {
+    const i = document.createElement("input");
+    i.type = "number";
+    i.className = "bd-num";
+    i.value = value == null || value === "" ? "" : String(value);
+    i.style.width = (width || 64) + "px";
+    i.style.fontSize = "11px";
+    i.addEventListener("keydown", (e) => e.stopPropagation());
+    return i;
+}
+
+function textField(value, width) {
+    const i = document.createElement("input");
+    i.type = "text";
+    i.value = value || "";
+    i.style.cssText = `width:${width || 160}px;font-size:10px;background:#181818;color:#cfcfcf;border:1px solid #333;border-radius:3px;padding:2px 4px;box-sizing:border-box;`;
+    i.spellcheck = false;
+    i.addEventListener("keydown", (e) => e.stopPropagation());
+    return i;
+}
+
+function selectField(options, value, width) {
+    const s = document.createElement("select");
+    s.className = "bd-select";
+    s.style.width = (width || 92) + "px";
+    s.style.fontSize = "10px";
+    for (const o of options) {
+        const op = document.createElement("option");
+        op.value = o;
+        op.textContent = o;
+        s.append(op);
+    }
+    s.value = REPLACE_AUDIO_POLICIES.includes(value) ? value : options[0];
+    return s;
+}
+
+function mkSmallButton(label, danger) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.className = "bd-btn";
+    b.style.cssText = `padding:3px 9px;font-size:10px;${danger ? "background:#3a2020;border-color:#e66;color:#f88;" : ""}`;
+    return b;
+}
+
+/** Numeric Start/End for the selected segment in the tiled video timeline. */
+function installSegmentBoundsBar(ed) {
+    const bar = document.createElement("div");
+    bar.dataset.r = "seg-bounds-bar";
+    bar.style.cssText =
+        "display:none;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 10px;margin:0 0 4px;"
+        + "background:#1c1f1c;border:1px solid #2c3a2c;border-radius:6px;font-size:10px;color:#aaa;";
+    const title = document.createElement("span");
+    title.textContent = "Segment bounds (tiled timeline):";
+    const startLbl = document.createElement("span");
+    startLbl.textContent = "Start";
+    const endLbl = document.createElement("span");
+    endLbl.textContent = "End";
+    const startInput = numField("", 74);
+    const endInput = numField("", 74);
+    const unit = makeUnitToggle("f", () => { refresh(false); });
+    const applyBtn = mkSmallButton("Apply");
+    const hint = document.createElement("span");
+    hint.style.color = "#888";
+    hint.textContent = "moves shared boundaries; whole clip 0..total stays tiled";
+    const onApply = () => {
+        const segs = ed.timeline && ed.timeline.segments;
+        if (!segs || !segs.length || !Number.isFinite(ed.selectedIndex)) return;
+        const fps = directorFps(ed);
+        const sf = parseBoundsInput(startInput.value, unit._unit, fps);
+        const ef = parseBoundsInput(endInput.value, unit._unit, fps);
+        if (applyTiledSegmentBounds(ed, ed.selectedIndex, sf, ef)) {
+            ed.commit();
+            ed.updateSelectionUI?.();
+            ed.scheduleRender?.();
+            refresh(false);
+        }
+    };
+    applyBtn.addEventListener("click", (e) => { stopDomEvent(e); onApply(); });
+    startInput.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); onApply(); } });
+    endInput.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); onApply(); } });
+    bar.append(title, startLbl, startInput, endLbl, endInput, unit, applyBtn, hint);
+
+    const refresh = (respectFocus) => {
+        const video = directorIsVideoMode(ed);
+        const rep = !!ed.timeline?.replaceMode;
+        const segs = ed.timeline && ed.timeline.segments;
+        const show = video && !rep && !!segs && segs.length > 0;
+        bar.style.display = show ? "flex" : "none";
+        if (!show) return;
+        const active = document.activeElement;
+        const focused = respectFocus && (active === startInput || active === endInput);
+        const idx = Number.isFinite(ed.selectedIndex) ? ed.selectedIndex : 0;
+        const seg = segs[Math.min(idx, segs.length - 1)];
+        if (!seg) return;
+        const start = Math.max(0, parseInt(seg.start, 10) || 0);
+        const len = Math.max(0, parseInt(seg.length ?? seg.frameCount, 10) || 0);
+        const end = start + len;
+        if (!focused) {
+            startInput.value = formatBoundsValue(start, unit._unit, directorFps(ed));
+            endInput.value = formatBoundsValue(end, unit._unit, directorFps(ed));
+        }
+    };
+    ed.root.insertBefore(bar, ed.mainBody);
+    ed._segBoundsBar = { refresh };
+}
+
+/** Reflow one segment's bounds in the tiled timeline (contiguous 0..total). */
+function applyTiledSegmentBounds(ed, index, startFrames, endFrames) {
+    const segs = ed.timeline && ed.timeline.segments;
+    if (!segs || index < 0 || index >= segs.length) return false;
+    const total = directorTotalFrames(ed);
+    if (total <= 0) return false;
+    const minLen = Math.max(1, MIN_SEG);
+    const seg = segs[index];
+    const curStart = Math.max(0, parseInt(seg.start, 10) || 0);
+    const curEnd = curStart + Math.max(0, parseInt(seg.length ?? seg.frameCount, 10) || 0);
+    const prev = index > 0 ? segs[index - 1] : null;
+    const next = index < segs.length - 1 ? segs[index + 1] : null;
+    const prevStart = prev ? Math.max(0, parseInt(prev.start, 10) || 0) : 0;
+    const nextStart = next ? Math.max(0, parseInt(next.start, 10) || 0) : total;
+    const nextEnd = next ? nextStart + Math.max(0, parseInt(next.length ?? next.frameCount, 10) || 0) : total;
+    const minStart = index === 0 ? 0 : prevStart + minLen;
+    const maxStart = Math.max(minStart, curEnd - minLen);
+    const maxEnd = index === segs.length - 1 ? total : Math.max(nextStart + minLen, nextEnd);
+    const minEnd = Math.min(maxEnd, curStart + minLen);
+
+    let ns = Number.isFinite(startFrames) ? clamp(Math.round(startFrames), minStart, maxStart) : curStart;
+    let ne = Number.isFinite(endFrames) ? clamp(Math.round(endFrames), minEnd, maxEnd) : curEnd;
+    if (Number.isFinite(startFrames) && Number.isFinite(endFrames) && endFrames > startFrames) {
+        // Keep the requested length when both are given and valid.
+        ns = clamp(Math.round(startFrames), minStart, maxStart);
+        ne = clamp(ns + (Math.round(endFrames) - Math.round(startFrames)), ns + minLen, maxEnd);
+    }
+    if (ne <= ns) ne = Math.min(maxEnd, ns + minLen);
+    if (ne - ns < minLen) {
+        if (ns > minStart) ns = Math.max(minStart, ne - minLen);
+        else ne = Math.min(maxEnd, ns + minLen);
+    }
+    seg.start = ns;
+    seg.length = ne - ns;
+    if (seg.frameCount != null) seg.frameCount = seg.length;
+    if (prev) {
+        prev.length = ns - prevStart;
+        if (prev.frameCount != null) prev.frameCount = prev.length;
+    }
+    if (next) {
+        next.start = ne;
+        next.length = Math.max(0, nextEnd - ne);
+        if (next.frameCount != null) next.frameCount = next.length;
+    }
+    return true;
+}
+
+/** Replace-window list editor (canvas hidden; gaps allowed). */
+function installReplaceWindowsMode(ed) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.dataset.a = "replace-mode";
+    toggle.style.marginLeft = "6px";
+    toggle.className = "bd-btn";
+    const setToggleLabel = () => {
+        toggle.textContent = ed.timeline?.replaceMode ? "Replace: ON" : "Replace: OFF";
+        toggle.style.borderColor = ed.timeline?.replaceMode ? "#4fff8f" : "#111";
+        toggle.style.color = ed.timeline?.replaceMode ? "#4fff8f" : "#e0e0e0";
+    };
+
+    const host = document.createElement("div");
+    host.dataset.r = "replace-host";
+    host.style.cssText =
+        "display:none;margin:0 0 6px;padding:8px 10px;background:#16211a;border:1px solid #2f4f3a;border-radius:6px;"
+        + "font-size:10px;color:#bcd6c4;box-sizing:border-box;";
+    const header = document.createElement("div");
+    header.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;";
+    const hTitle = document.createElement("b");
+    hTitle.textContent = "Replace windows";
+    hTitle.style.color = "#8fe3b0";
+    const hSub = document.createElement("span");
+    hSub.style.color = "#7fa08b";
+    hSub.textContent = "masked, background kept, gaps allowed. Lengths auto-snap to H3-valid (17k+5) on run.";
+    const unit = makeUnitToggle("f", () => renderRows());
+    const addBtn = mkSmallButton("+ Add window");
+    const clearHelp = document.createElement("span");
+    clearHelp.style.color = "#7fa08b";
+    header.append(hTitle, hSub, unit, addBtn);
+    host.append(header);
+
+    const rowsEl = document.createElement("div");
+    rowsEl.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+    host.append(rowsEl);
+    ed.root.insertBefore(host, ed.mainBody);
+
+    const toolbarActions = ed.root.querySelector(".bd-actions");
+    if (toolbarActions) {
+        toolbarActions.append(toggle);
+        toggle.addEventListener("click", (e) => {
+            stopDomEvent(e);
+            setReplaceMode(!ed.timeline?.replaceMode);
+        });
+    }
+    setToggleLabel();
+
+    const cfgFields = new Map(); // row root -> {segId, inputs}
+
+    function segById(id) {
+        const segs = ed.timeline && ed.timeline.segments;
+        return segs ? segs.find((s) => s.id === id) || null : null;
+    }
+
+    function commitLight() {
+        try { ed.commit(false, { syncTimeline: true }); } catch (_err) { /* noop */ }
+    }
+
+    function newWindowSeg(start, length) {
+        const fps = directorFps(ed);
+        const total = directorTotalFrames(ed);
+        let st = Number.isFinite(start) ? Math.max(0, Math.round(start)) : 0;
+        if (total > 0 && st >= total) st = Math.max(0, total - Math.max(1, length));
+        const seg = {
+            id: uid(),
+            start: st,
+            length: Math.max(1, Math.round(length || 175)),
+            frameCount: null,
+            prompt: "",
+            negativePrompt: "",
+            taskType: "",
+            refs: [],
+            refAudios: [],
+            refVideos: [],
+            genImage: { imageFile: "", fileName: "" },
+            contextLink: { schema: "previous_context_link_v1", enabled: false, visual: false, audio: false },
+        };
+        seg.frameCount = seg.length;
+        ensureReplaceConfigOnSeg(seg, { enabled: true, audio_policy: "source", dir: "", grow: 1, feather: 1.0, note: "" });
+        return seg;
+    }
+
+    function findLastEnd() {
+        const segs = ed.timeline && ed.timeline.segments;
+        let end = 0;
+        (segs || []).forEach((s) => {
+            const e = (Math.max(0, parseInt(s.start, 10) || 0)) + (Math.max(0, parseInt(s.length ?? s.frameCount, 10) || 0));
+            if (e > end) end = e;
+        });
+        return end;
+    }
+
+    addBtn.addEventListener("click", (e) => {
+        stopDomEvent(e);
+        const segs = ed.timeline && ed.timeline.segments;
+        if (!segs) return;
+        segs.push(newWindowSeg(findLastEnd(), 175));
+        commitLight();
+        renderRows();
+    });
+
+    function makeRow(seg) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;flex-direction:column;gap:3px;padding:4px 6px;background:#101a12;border:1px solid #27452f;border-radius:5px;";
+        const line1 = document.createElement("div");
+        line1.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;";
+        const enabled = document.createElement("input");
+        enabled.type = "checkbox";
+        enabled.checked = replaceConfigFromSeg(seg).enabled;
+        const label = document.createElement("span");
+        label.style.color = "#9fd9b4";
+        label.style.minWidth = "18px";
+        label.textContent = "W";
+        const startInput = numField("", 74);
+        const startLbl = document.createElement("span");
+        startLbl.textContent = "start";
+        const endInput = numField("", 74);
+        const endLbl = document.createElement("span");
+        endLbl.textContent = "end";
+        const lenSpan = document.createElement("span");
+        lenSpan.style.color = "#7fa08b";
+        const del = mkSmallButton("del", true);
+        const cfg = replaceConfigFromSeg(seg);
+        const dirInput = textField(cfg.dir, 150);
+        const dirLbl = document.createElement("span");
+        dirLbl.textContent = "mask dir";
+        const growInput = numField(cfg.grow, 40);
+        const featherInput = numField(cfg.feather, 44);
+        const policy = selectField(REPLACE_AUDIO_POLICIES, cfg.audio_policy, 78);
+        const line2 = document.createElement("div");
+        line2.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;opacity:.95;";
+        line2.append(dirLbl, dirInput);
+        const growLbl = document.createElement("span");
+        growLbl.textContent = "grow";
+        const fthLbl = document.createElement("span");
+        fthLbl.textContent = "feather";
+        line2.append(growLbl, growInput, fthLbl, featherInput);
+        const audLbl = document.createElement("span");
+        audLbl.textContent = "audio";
+        line2.append(audLbl, policy);
+        line1.append(enabled, label, startLbl, startInput, endLbl, endInput, lenSpan, del);
+        row.append(line1, line2);
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, lenSpan, dirInput, growInput, featherInput, policy } });
+        return row;
+    }
+
+    function syncRowValues(row, cfg, seg, fps) {
+        const f = cfgFields.get(row);
+        if (!f || !f.inputs || !seg) return;
+        const inp = f.inputs;
+        const active = document.activeElement;
+        const unitStr = unit._unit;
+        const start = Math.max(0, parseInt(seg.start, 10) || 0);
+        const len = Math.max(0, parseInt(seg.length ?? seg.frameCount, 10) || 0);
+        const end = start + len;
+        if (active !== inp.startInput) inp.startInput.value = formatBoundsValue(start, unitStr, fps);
+        if (active !== inp.endInput) inp.endInput.value = formatBoundsValue(end, unitStr, fps);
+        const snap = h3AlignFrameCount(len);
+        inp.lenSpan.textContent = len + (snap !== len ? " frames -> renders " + snap : " frames");
+        if (active !== inp.dirInput) inp.dirInput.value = String(cfg.dir || "");
+        if (active !== inp.growInput) inp.growInput.value = String(cfg.grow);
+        if (active !== inp.featherInput) inp.featherInput.value = String(cfg.feather);
+        if (active !== inp.policy) inp.policy.value = cfg.audio_policy;
+        inp.enabled.checked = cfg.enabled;
+    }
+
+    function bindRow(row) {
+        const f = cfgFields.get(row);
+        if (!f) return;
+        const inp = f.inputs;
+        const getSeg = () => segById(f.segId);
+        const applyBounds = () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const total = directorTotalFrames(ed);
+            const fps = directorFps(ed);
+            const sf = parseBoundsInput(inp.startInput.value, unit._unit, fps);
+            const ef = parseBoundsInput(inp.endInput.value, unit._unit, fps);
+            if (!Number.isFinite(sf) || !Number.isFinite(ef)) return;
+            let s = Math.max(0, Math.round(sf));
+            let e = Math.max(s + 1, Math.round(ef));
+            if (total > 0) {
+                s = Math.min(s, total - 1);
+                e = Math.min(e, total);
+            }
+            if (e <= s) e = Math.min(total > 0 ? total : s + 1, s + Math.max(1, total > 0 ? 1 : 1));
+            seg.start = s;
+            seg.length = e - s;
+            seg.frameCount = seg.length;
+            commitLight();
+        };
+        inp.startInput.addEventListener("change", () => applyBounds());
+        inp.endInput.addEventListener("change", () => applyBounds());
+        inp.dirInput.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            cfg.dir = inp.dirInput.value.trim();
+            ensureReplaceConfigOnSeg(seg, cfg);
+            commitLight();
+        });
+        inp.growInput.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            cfg.grow = Math.max(0, Math.round(Number(inp.growInput.value) || 0));
+            ensureReplaceConfigOnSeg(seg, cfg);
+            commitLight();
+        });
+        inp.featherInput.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            cfg.feather = Math.max(0, Number(inp.featherInput.value) || 0);
+            ensureReplaceConfigOnSeg(seg, cfg);
+            commitLight();
+        });
+        inp.policy.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            cfg.audio_policy = REPLACE_AUDIO_POLICIES.includes(inp.policy.value) ? inp.policy.value : "source";
+            ensureReplaceConfigOnSeg(seg, cfg);
+            commitLight();
+        });
+        inp.enabled.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            cfg.enabled = !!inp.enabled.checked;
+            ensureReplaceConfigOnSeg(seg, cfg);
+            commitLight();
+        });
+    }
+
+    function renderRows() {
+        const segs = ed.timeline && ed.timeline.segments;
+        const list = segs ? [...segs] : [];
+        list.sort((a, b) => (Math.max(0, parseInt(a.start, 10) || 0)) - (Math.max(0, parseInt(b.start, 10) || 0)));
+        cfgFields.clear();
+        rowsEl.innerHTML = "";
+        if (!list.length) {
+            const empty = document.createElement("div");
+            empty.style.color = "#7fa08b";
+            empty.textContent = "No windows. Click '+ Add window'. Windows only render the frames they cover; gaps are skipped.";
+            rowsEl.append(empty);
+            return;
+        }
+        const fps = directorFps(ed);
+        list.forEach((seg, i) => {
+            const row = makeRow(seg);
+            const f = cfgFields.get(row);
+            // Find the delete button inside line1.
+            const del = [...row.querySelectorAll("button")].find((b) => b.textContent === "del");
+            if (del) {
+                del.addEventListener("click", (ev) => {
+                    stopDomEvent(ev);
+                    const s = segById(f ? f.segId : seg.id);
+                    if (!s || !ed.timeline?.segments) return;
+                    ed.timeline.segments = ed.timeline.segments.filter((x) => x.id !== s.id);
+                    commitLight();
+                    renderRows();
+                });
+            }
+            const label = row.querySelector("span");
+            if (label) label.textContent = "W" + (i + 1);
+            bindRow(row);
+            syncRowValues(row, replaceConfigFromSeg(seg), seg, fps);
+            rowsEl.append(row);
+        });
+    }
+
+    function setReplaceMode(on) {
+        if (on === !!ed.timeline?.replaceMode) return;
+        if (on) {
+            ed.timeline = ed.timeline || {};
+            ed.timeline.replaceMode = true;
+            const segs = ed.timeline.segments || [];
+            for (const seg of segs) {
+                if (!seg.replace) ensureReplaceConfigOnSeg(seg, replaceConfigFromSeg(seg));
+            }
+        } else {
+            ed.timeline.replaceMode = false;
+        }
+        refreshVisibility();
+        commitLight();
+        if (ed.selectedIndex == null) ed.selectedIndex = 0;
+        renderRows();
+        ed.scheduleRender?.();
+        setToggleLabel();
+    }
+
+    function refreshVisibility() {
+        const video = directorIsVideoMode(ed);
+        const rep = video && !!ed.timeline?.replaceMode;
+        if (toggle) {
+            toggle.hidden = !video;
+            setToggleLabel();
+        }
+        host.style.display = rep ? "" : "none";
+        // Keep the output bar and the global/segment prompt+refs panels visible;
+        // hide only the stage, playback, split-edit and canvas areas.
+        if (ed.mainBody) {
+            const hideKids = (sel) => {
+                const el = ed.mainBody.querySelector(":scope > " + sel);
+                if (el) el.style.display = rep ? "none" : "";
+            };
+            hideKids(".bd-stage");
+            hideKids(".bd-controls");
+            hideKids(".bd-split-edit-bar");
+            hideKids(".bd-viewport");
+            if (ed.splitEditBarEl && rep) ed.splitEditBarEl.classList.add("hidden");
+        }
+        if (ed._segBoundsBar) ed._segBoundsBar.refresh(false);
+        // Disable tiled-timeline editing controls while replace mode is active.
+        if (ed.root) {
+            ["split", "equal", "smart-split", "del", "video-append"].forEach((a) => {
+                const btn = ed.root.querySelector(`[data-a="${a}"]`);
+                if (btn) btn.disabled = rep;
+            });
+        }
+    }
+
+    ed._refreshReplaceUI = refreshVisibility;
+
+    let raf = 0;
+    let lastMode = null;
+    const tick = () => {
+        raf = 0;
+        if (!ed.root || !ed.root.isConnected) return;
+        const video = directorIsVideoMode(ed);
+        const rep = video && !!ed.timeline?.replaceMode;
+        if (rep !== lastMode) {
+            lastMode = rep;
+            if (rep) {
+                const segs = ed.timeline.segments || [];
+                for (const seg of segs) {
+                    if (!seg.replace) ensureReplaceConfigOnSeg(seg, replaceConfigFromSeg(seg));
+                }
+            }
+            refreshVisibility();
+            if (rep) renderRows();
+        }
+        if (rep) {
+            const fps = directorFps(ed);
+            const segs = ed.timeline && ed.timeline.segments;
+            if (segs) {
+                let ensured = false;
+                segs.forEach((s) => {
+                    if (s && !s.replace) {
+                        ensureReplaceConfigOnSeg(s, undefined);
+                        ensured = true;
+                    }
+                });
+                if (ensured) commitLight();
+                if (segs.length !== rowsEl.children.length) renderRows();
+            }
+            if (segs && rowsEl.children.length) {
+                [...rowsEl.children].forEach((row) => {
+                    const f = cfgFields.get(row);
+                    if (f) {
+                        const seg = segById(f.segId);
+                        if (seg) syncRowValues(row, replaceConfigFromSeg(seg), seg, fps);
+                    }
+                });
+            }
+        } else if (ed._segBoundsBar) {
+            ed._segBoundsBar.refresh(true);
+        }
+        requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    setToggleLabel();
+    // Show the replace editor immediately if the timeline already has the flag.
+    if (ed.timeline?.replaceMode && directorIsVideoMode(ed)) {
+        refreshVisibility();
+        renderRows();
+    }
+}
+
 class MiniMaxH3MotionDirectorEditor {
     constructor(node, container, domWidget) {
         this.node = node;
@@ -3681,6 +4340,10 @@ class MiniMaxH3MotionDirectorEditor {
         this.segNegative.oninput = () => this.onNegativePrompt(this.segNegative.value);
 
         this._promptMentionControllers = mountPromptImageMentions(this);
+
+        // Character Replace window editor + numeric segment bounds (Slice F).
+        installSegmentBoundsBar(this);
+        installReplaceWindowsMode(this);
 
         this.outMode.onchange = () => this.onOutputField("mode", this.outMode.value);
         if (this.outAspect) {
