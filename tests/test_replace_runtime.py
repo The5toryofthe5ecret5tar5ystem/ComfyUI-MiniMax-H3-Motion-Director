@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import torch
+from PIL import Image
 
 from mmx_pkg.director.replace_runtime import (
     build_replace_noise_mask,
     prepare_masked_replace_state,
+    prepare_replace_window,
     sanitized_reference_frames,
 )
 from mmx_pkg.director.replace_spec import ReplaceMaskSpec, ReplaceSpec
@@ -18,6 +21,99 @@ def _mask(t: int = 4, h: int = 8, w: int = 8) -> torch.Tensor:
     mask = torch.zeros(t, h, w)
     mask[:, h // 2 :, :] = 1.0
     return mask
+
+
+def _write_mask_frames(root, count: int, *, h: int = 8, w: int = 8) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    for frame_index in range(count):
+        img = np.full((h, w), 0, dtype=np.uint8)
+        if frame_index % 2 == 0:
+            img[h // 2 :, :] = 255
+        Image.fromarray(img, mode="L").save(root / f"frame_{frame_index:08d}.png")
+
+
+def test_prepare_replace_window_sanitizes_and_aligns(tmp_path):
+    _write_mask_frames(tmp_path, 4)
+    torch.manual_seed(3)
+    visible = torch.rand(4, 8, 8, 3)
+    reference = torch.rand(6, 8, 8, 3)  # longer: aligned/padded motion clip
+    mask_spec = {"kind": "frames", "dir": str(tmp_path), "offset": 0}
+    prepared = prepare_replace_window(
+        mask_spec=mask_spec,
+        start_frame=0,
+        nominal_length=4,
+        visible_frames=visible,
+        reference_frames=reference,
+        grow=1,
+        feather=0.5,
+    )
+    assert prepared is not None
+    assert tuple(prepared["sanitized_reference"].shape) == (6, 8, 8, 3)
+    assert tuple(prepared["mask_vis"].shape) == (4, 8, 8)
+    assert prepared["grow"] == 1
+    assert prepared["feather"] == 0.5
+    # Background rows (mask=0) survive exactly; subject rows are destroyed.
+    assert torch.allclose(
+        prepared["sanitized_reference"][:, :4, :, :],
+        reference[:, :4, :, :],
+        atol=1e-5,
+    )
+    # Sanitized clip never equals the original subject rows anywhere.
+    assert not torch.allclose(
+        prepared["sanitized_reference"][:, 4:, :, :],
+        reference[:, 4:, :, :],
+        atol=1e-5,
+    )
+
+
+def test_prepare_replace_window_aligned_offsets(tmp_path):
+    # Mask set rebased at source frame 10; window starts at frame 10.
+    _write_mask_frames(tmp_path, 3)
+    visible = torch.rand(3, 8, 8, 3)
+    reference = torch.rand(3, 8, 8, 3)
+    mask_spec = {"kind": "frames", "dir": str(tmp_path), "offset": 10}
+    prepared = prepare_replace_window(
+        mask_spec=mask_spec,
+        start_frame=10,
+        nominal_length=3,
+        visible_frames=visible,
+        reference_frames=reference,
+    )
+    assert prepared is not None
+    # Even frames in the written set are subject = regenerate; frame 0 of the
+    # window is even -> bottom rows masked.
+    assert prepared["mask_vis"][0, 7, 0].item() == 1.0
+    assert prepared["mask_vis"][1, 0, 0].item() == 0.0
+
+
+def test_prepare_replace_window_missing_mask_returns_none(tmp_path):
+    _write_mask_frames(tmp_path, 2)  # not enough frames for nominal_length=4
+    frames = torch.rand(4, 8, 8, 3)
+    mask_spec = {"kind": "frames", "dir": str(tmp_path), "offset": 0}
+    assert (
+        prepare_replace_window(
+            mask_spec=mask_spec,
+            start_frame=0,
+            nominal_length=4,
+            visible_frames=frames,
+            reference_frames=frames,
+        )
+        is None
+    )
+    assert (
+        prepare_replace_window(
+            mask_spec={"kind": "none", "dir": "/nope"},
+            start_frame=0,
+            nominal_length=4,
+            visible_frames=frames,
+            reference_frames=frames,
+        )
+        is None
+    )
+    assert prepare_replace_window(
+        mask_spec=mask_spec, start_frame=0, nominal_length=4,
+        visible_frames=None, reference_frames=frames,
+    ) is None
 
 
 def test_sanitized_reference_invert_keeps_background():

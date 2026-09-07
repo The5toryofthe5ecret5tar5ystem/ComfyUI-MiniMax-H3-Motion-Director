@@ -149,6 +149,13 @@ from .segment_continuity import (
     resolve_prev_segment_output,
 )
 from .vram_cleanup import cleanup_segment_vram
+from .replace_engine import resolve_segment_audio_policy
+from .replace_runtime import (
+    assemble_masked_replace_latent,
+    build_replace_noise_mask,
+    encode_source_video,
+    prepare_replace_window,
+)
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director.core")
 
@@ -322,6 +329,22 @@ def _ref_video_audios_to_dict(items) -> dict | None:
 
 def _color_anchor_label(anchor: dict[str, Any] | None) -> str:
     return str((anchor or {}).get("source") or "none")
+
+
+def _extract_window_source_audio(plan, seg, fps: float) -> dict[str, Any] | None:
+    """Best-effort extraction of the original track for one replace window."""
+    try:
+        from ..lib.audio_io import extract_timeline_audio
+
+        return extract_timeline_audio(
+            (getattr(plan, "raw", None) or {}),
+            int(getattr(seg, "start_frame", 0) or 0),
+            int(getattr(seg, "end_frame", 0) or 0),
+            float(fps or 24.0),
+        )
+    except Exception as exc:
+        log.debug("Replace source-audio extraction failed: %s", exc)
+        return None
 
 
 def execute_director_plan_core(
@@ -604,11 +627,41 @@ def execute_director_plan_core(
             "actual_frames": 0,
             "legacy": not context_link.explicit,
         }
+        # ---- Character Replace window (Phase 1) ---------------------------
+        # A replace segment is a standalone masked window: Previous Context /
+        # Motion Context are disabled (the source background is the continuity)
+        # and the window re-anchors on its own source frame range.
+        replace_spec = getattr(seg, "replace", None)
+        replace_active = bool(
+            replace_spec is not None
+            and getattr(replace_spec, "enabled", False)
+            and seg.task_key in {"v2v", "rv2v"}
+        )
+        replace_policy = resolve_segment_audio_policy(
+            audio_mode, replace_spec if replace_active else None
+        )
+        replace_decode_audio = bool(decode_audio)
+        replace_state = None
+        replace_masked = False
+        replace_fallback_reason = ""
+        if replace_active:
+            replace_decode_audio = replace_policy == "generate"
+            apply_visual_context = False
+            apply_audio_context = False
+            boundary_diagnostics[timeline_slot]["visual"] = False
+            boundary_diagnostics[timeline_slot]["audio"] = False
+            boundary_diagnostics[timeline_slot]["visual_reason"] = "Character Replace standalone window"
+            boundary_diagnostics[timeline_slot]["audio_reason"] = "Character Replace standalone window"
+            reports.append(
+                f"Segment {timeline_slot + 1}: CHARACTER REPLACE - standalone masked window; "
+                f"Previous Context OFF (the source background owns continuity); "
+                f"audio policy = {replace_policy}."
+            )
         if not context_link.explicit:
             warning_messages.append(f"S{timeline_slot + 1}: legacy workflow fallback is being used")
-        if context_link.requested_audio and not apply_audio_context:
+        if context_link.requested_audio and not apply_audio_context and not replace_active:
             warning_messages.append(f"S{timeline_slot + 1}: Audio inherit requested but {context_link.audio_reason}")
-        if context_link.requested_visual and not apply_visual_context:
+        if context_link.requested_visual and not apply_visual_context and not replace_active:
             warning_messages.append(
                 f"S{timeline_slot + 1}: Visual inherit disabled because {context_link.visual_reason}"
             )
@@ -808,6 +861,42 @@ def execute_director_plan_core(
         if visible_clip_frames is not None and visible_clip_frames.shape[0] > 0:
             ctx_h = int(visible_clip_frames.shape[1])
             ctx_w = int(visible_clip_frames.shape[2])
+        if (
+            replace_active
+            and replace_state is None
+            and reference_clip_frames is not None
+            and visible_clip_frames is not None
+        ):
+            try:
+                prepared = prepare_replace_window(
+                    mask_spec=replace_spec.mask.to_json(),
+                    start_frame=int(getattr(seg, "start_frame", 0) or 0),
+                    nominal_length=int(target_len),
+                    visible_frames=visible_clip_frames,
+                    reference_frames=reference_clip_frames,
+                    grow=int(getattr(replace_spec.mask, "grow", 0) or 0),
+                    feather=float(getattr(replace_spec.mask, "feather", 0.0) or 0.0),
+                )
+                if prepared is None:
+                    replace_fallback_reason = "mask window unavailable for this segment"
+                else:
+                    replace_state = prepared
+                    reference_clip_frames = prepared["sanitized_reference"]
+            except Exception as exc:
+                replace_state = None
+                replace_fallback_reason = f"mask prepare failed: {exc}"
+            if replace_state is None:
+                warning_messages.append(
+                    f"S{timeline_slot + 1}: Character Replace fell back to a plain "
+                    f"{seg.task_key.upper()} window ({replace_fallback_reason})."
+                )
+            else:
+                reports.append(
+                    f"Segment {timeline_slot + 1}: masked replace ready - "
+                    f"{int(replace_state['mask_vis'].shape[0])} frame mask, "
+                    f"echo-free motion reference, grow={replace_state['grow']}, "
+                    f"feather={replace_state['feather']:g}."
+                )
         report_director_progress(
             node_id, segment_index=progress_index, segment_total=seg_total,
             phase="prepare", phase_value=1, phase_max=1, **meta,
@@ -872,6 +961,73 @@ def execute_director_plan_core(
             first_frame=first_frame, last_frame=last_frame, ref_images=ref_images,
             ref_videos=ref_videos, ref_video_audios=ref_video_audios, ref_audios=ref_audios,
         )
+
+        if replace_active and replace_state is not None:
+            if visible_clip_frames is None or int(visible_clip_frames.shape[0]) != int(num_frames):
+                replace_state = None
+                replace_masked = False
+                replace_fallback_reason = (
+                    "source window length does not match the H3 sample length "
+                    "(use an H3-valid window length: frames % 17 == 5)"
+                )
+                warning_messages.append(
+                    f"S{timeline_slot + 1}: Character Replace disabled "
+                    f"({replace_fallback_reason}); rendering a plain window."
+                )
+            else:
+                try:
+                    from .refine_sampling import _split_av
+
+                    source_video_latent = encode_source_video(vae, visible_clip_frames)
+                    source_video_t = (
+                        source_video_latent.get("samples")
+                        if isinstance(source_video_latent, dict)
+                        else source_video_latent
+                    )
+                    if source_video_t is None:
+                        raise RuntimeError("VAE source encode returned no samples")
+                    _template_video_latent, audio_latent = _split_av(latent)
+                    audio_t = (
+                        audio_latent.get("samples")
+                        if isinstance(audio_latent, dict)
+                        else audio_latent
+                    )
+                    if audio_t is None:
+                        raise RuntimeError("conditioning latent has no audio stream")
+                    noise_mask = build_replace_noise_mask(
+                        source_video_t,
+                        audio_t,
+                        replace_state["mask_vis"],
+                        grow=replace_state["grow"],
+                        feather=replace_state["feather"],
+                        audio_policy=replace_policy,
+                    )
+                    latent = assemble_masked_replace_latent(
+                        latent,
+                        source_video_latent=source_video_latent,
+                        video_latent=source_video_t,
+                        audio_latent=audio_t,
+                        mask=noise_mask,
+                    )
+                    replace_masked = True
+                except Exception as exc:
+                    replace_state = None
+                    replace_masked = False
+                    replace_fallback_reason = f"masked latent assembly failed: {exc}"
+                    warning_messages.append(
+                        f"S{timeline_slot + 1}: Character Replace fell back to a plain "
+                        f"{seg.task_key.upper()} window ({replace_fallback_reason})."
+                    )
+        if replace_masked:
+            reports.append(
+                f"Segment {timeline_slot + 1}: sampling a masked replace latent "
+                "(subject region regenerated; source background kept pixel-exact)."
+            )
+        elif replace_active:
+            # Masked replace did not engage (missing mask / bad window / encode
+            # failure): return audio handling to the job-level default so the
+            # plain fallback window behaves like any other segment.
+            replace_decode_audio = bool(decode_audio)
 
         motion_info = None
         if context_entry is not None:
@@ -1003,6 +1159,9 @@ def execute_director_plan_core(
             ),
             preview_every=int(preview_config["preview_every"]),
             preserve_noise_mask=context_span > 0,
+            force_skip_reason=(
+                "Character Replace masked window keeps first pass" if replace_masked else ""
+            ),
         )
         global_refine_outcomes[timeline_slot] = global_outcome
         samples = global_outcome.samples
@@ -1021,7 +1180,9 @@ def execute_director_plan_core(
             phase="decode", phase_value=0, phase_max=1, **meta,
         )
         _decode_started = time.perf_counter()
-        decoded, audio_dict = _decode_av_latent(samples, vae, audio_vae, decode_audio=decode_audio)
+        decoded, audio_dict = _decode_av_latent(
+            samples, vae, audio_vae, decode_audio=replace_decode_audio
+        )
         stage_times["av_decode"] = time.perf_counter() - _decode_started
         report_director_progress(
             node_id, segment_index=progress_index, segment_total=seg_total,
@@ -1032,6 +1193,22 @@ def execute_director_plan_core(
         decoded, audio_dict = trim_segment_av(
             decoded, audio_dict, head_frames=context_span, target_frames=target_len, fps=fps,
         )
+        if replace_active and replace_state is not None and replace_policy != "generate":
+            if replace_policy == "none" or audio_mode == AUDIO_MODE_MUTE:
+                audio_dict = empty_audio_dict()
+            else:  # source: deliver the original track for this window
+                source_audio = _extract_window_source_audio(plan, seg, fps)
+                if source_audio is not None and audio_has_samples(source_audio):
+                    audio_dict = {
+                        "waveform": source_audio["waveform"].detach().cpu(),
+                        "sample_rate": int(source_audio["sample_rate"] or 44100),
+                    }
+                else:
+                    audio_dict = empty_audio_dict()
+                    warning_messages.append(
+                        f"S{timeline_slot + 1}: replace audio policy 'source' but no source "
+                        "audio was extractable for this window; segment audio is silent."
+                    )
         seam_color_applied = False
         if (
             color_reanchor_requested and apply_visual_context and not source_bridge_active

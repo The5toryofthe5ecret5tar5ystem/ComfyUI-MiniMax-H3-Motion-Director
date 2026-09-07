@@ -40,6 +40,7 @@ from .gen_timeline import (
     build_gen_director_plan,
     is_gen_timeline,
 )
+from .replace_engine import snap_window_length
 from .replace_spec import ReplaceSpec, parse_replace_spec
 from .context_links import ContextLink, parse_context_link
 
@@ -710,6 +711,19 @@ def build_director_plan(
         seg_ref_audios = segment_ref_audios_for_context(seg_task_key, seg_ref_audios)
         ref_start = start if continuous_ref and seg_task_key == "ads2v" else 0
 
+        # Character Replace windows are standalone masked edits; snap their
+        # length to an H3-valid frame count (17k+5) so the fitted source
+        # window, the motion reference and the sampling length all line up
+        # (the masked latent needs every stream at the same frame count).
+        replace_spec_for_seg = parse_replace_spec(seg_data)
+        if (
+            replace_spec_for_seg.enabled
+            and seg_task_key in {"v2v", "rv2v"}
+            and end > start
+        ):
+            snapped_end = start + snap_window_length(max(0, int(end) - int(start)))
+            end = min(max(start + 1, snapped_end), max(start + 1, total))
+
         segments.append(
             SegmentPlan(
                 index=idx,
@@ -725,7 +739,7 @@ def build_director_plan(
                 reference_video_start_frame=ref_start,
                 context_link=parse_context_link(seg_data, idx),
                 reground=bool(seg_data.get("reground") or seg_data.get("regroundSegment") or False),
-                replace=parse_replace_spec(seg_data),
+                replace=replace_spec_for_seg,
             )
         )
 
