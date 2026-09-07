@@ -2096,9 +2096,41 @@ function patchDirectorDomWidgetLayout() {
         for (const node of graph?._nodes ?? graph?.nodes ?? []) {
             if (node._minimaxEditor?.isPlaying) continue;
             ensureDirectorDomWidgetWidth(node);
+            // The ComfyUI DOM-widget manager can inflate this node's height into a
+            // large empty area below the compact launcher (it regrows within a
+            // fraction of a second after every load / tab switch, and the bloated
+            // size gets persisted). Keep the node pinned to its real widget
+            // content height so it can never balloon.
+            pinDirectorNodeHeight(node);
         }
         return prev?.apply(this, arguments);
     };
+}
+
+/**
+ * Shrink-only height keeper for the Director node. LiteGraph's content height
+ * (computeSize) reflects the real stacked widgets + the 34px launcher. If the
+ * node is ever taller than that (empty space below the launcher), snap it back
+ * to content height. Guarded by a short interval so it can never fight the
+ * DOM-widget manager into a per-frame resize loop; growth is only ever removed,
+ * never added here.
+ */
+function pinDirectorNodeHeight(node) {
+    if (!node?.size || typeof node.computeSize !== "function") return;
+    const now = performance.now();
+    // Only correct the pathological post-load bloat. Once the settle window has
+    // passed, leave the node height alone so the user can resize it freely.
+    if (!node._mmxPinUntil || now > node._mmxPinUntil) return;
+    if (node._mmxPinHAt && now - node._mmxPinHAt < 120) return;
+    let content;
+    try { content = node.computeSize(); } catch (_e) { return; }
+    const contentH = content?.[1];
+    const currentH = node.size[1];
+    if (!contentH || contentH <= 0 || !Number.isFinite(currentH)) return;
+    if (currentH > contentH + 8) {
+        node._mmxPinHAt = now;
+        node.setSize([node.size[0], contentH]);
+    }
 }
 
 function stopDomEvent(e) {
@@ -2416,6 +2448,9 @@ class MiniMaxH3MotionDirectorEditor {
                 this.outputUi?.setPageVisibility?.(
                     page,
                 );
+            },
+            onStartRun: () => {
+                this.queueDirectorRun?.();
             },
         });
         this._directorModalOverlay = this._directorModalController.overlay;
@@ -10147,6 +10182,30 @@ class MiniMaxH3MotionDirectorEditor {
         }
     }
 
+    /**
+     * Top-bar "Start run": commit the live timeline / run selection into the
+     * node widgets, jump to the Live page so run status + preview are visible,
+     * then queue the graph exactly like ComfyUI's Run button. app.queuePrompt is
+     * patched by this extension to flush every Director before the native queue
+     * runs.
+     */
+    queueDirectorRun() {
+        if (this._destroyed) return;
+        try {
+            if (typeof this.commit === "function") {
+                this.commit(true, { syncTimeline: false });
+            }
+            this.ensureRunSelectionSerialized?.();
+            this.flushTimelineSync?.();
+        } catch (error) {
+            console.error("[MiniMax H3 Motion Director] Start run flush failed:", error);
+        }
+        this._directorModalController?.setPage?.("live");
+        if (typeof app?.queuePrompt === "function") {
+            app.queuePrompt();
+        }
+    }
+
     setRunProgress(detail) {
         if (!this.runStatusEl) return;
         this.outputUi?.setPipelineStatus?.(detail);
@@ -11085,6 +11144,7 @@ app.registerExtension({
     async loadedGraphNode(node) {
         if (!isMiniMaxH3MotionDirectorNode(node)) return;
         normalizeDirectorOutputs(node);
+        node._mmxPinUntil = performance.now() + 4000;
         if (!node._minimaxDomWidget) return;
         finalizeDirectorWidgetOrder(node);
         ensureDirectorDomWidgetWidth(node);
@@ -11150,6 +11210,10 @@ app.registerExtension({
             queueMicrotask(() => applyDirectorWidgetLabels(this));
             setTimeout(() => applyDirectorWidgetLabels(this), 0);
             this.size = [620, 420];
+            // The DOM-widget manager can bloat this node right after load/tab-switch.
+            // Only auto-correct within this settle window; after it we never touch
+            // the height so the user can resize the node freely.
+            this._mmxPinUntil = performance.now() + 4000;
 
             // Idempotent: avoid a second DOM stack if onNodeCreated is wrapped twice.
             if (this._minimaxDomWidget?.element) {

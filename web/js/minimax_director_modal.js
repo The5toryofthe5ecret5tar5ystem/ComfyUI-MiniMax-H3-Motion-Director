@@ -67,6 +67,10 @@ function ensureStyles() {
 .mmx-director-page-navigation{display:flex;align-items:center;justify-content:center;gap:6px}
 .mmx-director-page-arrow,.mmx-director-page-tab{height:30px;border:1px solid #393939;border-radius:6px;background:#222;color:#bbb;cursor:pointer}
 .mmx-director-page-arrow{width:34px;font-size:17px}
+.mmx-director-page-start{height:30px;flex:0 0 auto;border:1px solid #2f7a4f;border-radius:6px;background:#1c3a2a;color:#4fff8f;font-size:12px;font-weight:700;padding:0 14px;cursor:pointer;white-space:nowrap}
+.mmx-director-page-start:hover{border-color:#4fff8f;background:#245a3a;color:#c8ffdf}
+.mmx-director-page-start:disabled{opacity:.45;cursor:default;border-color:#393939;background:#222;color:#888}
+.mmx-director-page-start[hidden]{display:none!important}
 .mmx-director-page-tab{min-width:104px;padding:0 14px;font-size:12px;font-weight:650}
 .mmx-director-page-tab.active{border-color:#4fff8f;background:#163723;color:#4fff8f}
 .mmx-director-page-actions{display:flex;justify-content:flex-end}
@@ -95,6 +99,7 @@ export function createDirectorModal({
     onClose,
     onResize,
     onPageChange,
+    onStartRun,
 }) {
     if (!launcherHost) throw new Error("Director launcher host is required");
     directorModalByHost.get(launcherHost)?.destroy?.();
@@ -141,6 +146,11 @@ export function createDirectorModal({
     previousButton.className = "mmx-director-page-arrow";
     previousButton.dataset.a = "page-previous";
     previousButton.textContent = "◀";
+    const startRunButton = document.createElement("button");
+    startRunButton.type = "button";
+    startRunButton.className = "mmx-director-page-start";
+    startRunButton.dataset.a = "start-run";
+    startRunButton.hidden = typeof onStartRun !== "function";
     const pageTabs = DIRECTOR_PAGES.map((page) => {
         const button = document.createElement("button");
         button.type = "button";
@@ -153,7 +163,7 @@ export function createDirectorModal({
     nextButton.className = "mmx-director-page-arrow";
     nextButton.dataset.a = "page-next";
     nextButton.textContent = "▶";
-    navigation.append(previousButton, ...pageTabs, nextButton);
+    navigation.append(startRunButton, previousButton, ...pageTabs, nextButton);
 
     const closeButton = document.createElement("button");
     closeButton.type = "button";
@@ -207,6 +217,9 @@ export function createDirectorModal({
         pageTabs.forEach((button) => { button.textContent = labels[button.dataset.page]; });
         previousButton.title = translate("modal.page.previous");
         nextButton.title = translate("modal.page.next");
+        startRunButton.textContent = translate("modal.startRun") || "Start run";
+        startRunButton.title = translate("modal.startRunTitle") || startRunButton.textContent;
+        startRunButton.hidden = typeof onStartRun !== "function";
     };
 
     const scheduleResize = () => {
@@ -231,6 +244,7 @@ export function createDirectorModal({
         pages,
         pageTabs,
         previousButton,
+        startRunButton,
         nextButton,
         overlayLayer,
         closeButton,
@@ -312,6 +326,7 @@ export function createDirectorModal({
             languageButton.removeEventListener("click", handleLanguageClick);
             closeButton.removeEventListener("click", handleCloseClick);
             previousButton.removeEventListener("click", handlePreviousPage);
+            startRunButton.removeEventListener("click", handleStartRun);
             nextButton.removeEventListener("click", handleNextPage);
             pageTabs.forEach((button) => button.removeEventListener("click", handlePageTab));
             overlay.removeEventListener("click", handleBackdropClick);
@@ -330,6 +345,11 @@ export function createDirectorModal({
     const stopLauncherEvent = (event) => {
         event.preventDefault();
         event.stopPropagation();
+    };
+    const handleStartRun = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onStartRun?.();
     };
     const handleOpenClick = (event) => {
         stopLauncherEvent(event);
@@ -378,6 +398,7 @@ export function createDirectorModal({
     languageButton.addEventListener("click", handleLanguageClick);
     closeButton.addEventListener("click", handleCloseClick);
     previousButton.addEventListener("click", handlePreviousPage);
+    startRunButton.addEventListener("click", handleStartRun);
     nextButton.addEventListener("click", handleNextPage);
     pageTabs.forEach((button) => button.addEventListener("click", handlePageTab));
     overlay.addEventListener("click", handleBackdropClick);
