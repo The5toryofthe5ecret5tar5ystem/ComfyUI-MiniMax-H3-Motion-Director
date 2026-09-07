@@ -36,6 +36,8 @@ const ZH = {
     "modal.page.results": "结果",
     "modal.page.previous": "上一页",
     "modal.page.next": "下一页",
+    "modal.startRun": "开始运行",
+    "modal.startRunTitle": "立即将当前 Director 计划加入队列执行",
     "postprocess.global": "全局精修",
     "postprocess.face": "人脸精修",
 
@@ -478,6 +480,8 @@ const EN = {
     "modal.page.results": "Results",
     "modal.page.previous": "Previous page",
     "modal.page.next": "Next page",
+    "modal.startRun": "Start run",
+    "modal.startRunTitle": "Queue the current Director plan now",
     "postprocess.global": "Global Refine",
     "postprocess.face": "Face Refine",
 
