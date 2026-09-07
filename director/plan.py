@@ -40,6 +40,7 @@ from .gen_timeline import (
     build_gen_director_plan,
     is_gen_timeline,
 )
+from .replace_spec import ReplaceSpec, parse_replace_spec
 from .context_links import ContextLink, parse_context_link
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director")
@@ -107,6 +108,9 @@ class SegmentPlan:
     # root's exported tail instead of the immediately-previous segment, so
     # accumulated look/audio drift is reset to the canonical baseline here.
     reground: bool = False
+    # Character Replace (masked, background-true) spec for this segment, when
+    # it is a replace window on the shared source video.
+    replace: ReplaceSpec | None = None
 
     @property
     def frame_count(self) -> int:
@@ -721,6 +725,7 @@ def build_director_plan(
                 reference_video_start_frame=ref_start,
                 context_link=parse_context_link(seg_data, idx),
                 reground=bool(seg_data.get("reground") or seg_data.get("regroundSegment") or False),
+                replace=parse_replace_spec(seg_data),
             )
         )
 
