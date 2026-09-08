@@ -325,6 +325,10 @@ def run_window_auto_mask(
             items.append((pf, relaxed, None))
 
     attempted: list[str] = []
+    # A mask that only covers a handful of frames (e.g. just the prompt frame)
+    # is not a usable window mask - require a meaningful temporal footprint so
+    # a 1-frame seed is never reported as success.
+    usable_min = max(5, int(total * 0.03))
     chosen = None
     chosen_relaxed = False
     chosen_pf = -1
@@ -363,7 +367,7 @@ def run_window_auto_mask(
                 f"{'box' if attempt_box is not None else 'pf'}="
                 f"{pf}{'/relaxed' if relaxed else ''}:{regen}"
             )
-            if regen > 0:
+            if regen >= usable_min:
                 chosen = mask_hi
                 chosen_pf = pf
                 chosen_relaxed = relaxed
@@ -442,6 +446,33 @@ def _merge_mask_outputs(outputs: dict[str, Any] | None):
     return np.any(arr, axis=0)
 
 
+def _fit_mask_arr(mask_bool, h: int, w: int):
+    """Return a [H, W] bool mask, upscaling/downscaling SAM3's grid when needed.
+
+    SAM3 can return masks at its internal inference resolution rather than the
+    source frame size; dropping those silently made a valid mask look like
+    "no subject detected" (0 responses, all-zero). Returns None when the mask
+    cannot be fitted.
+    """
+    import numpy as np
+
+    if mask_bool is None or mask_bool.ndim != 2 or int(mask_bool.shape[0]) <= 0 or int(mask_bool.shape[1]) <= 0:
+        return None
+    if mask_bool.shape == (h, w):
+        return mask_bool
+    try:
+        from PIL import Image
+
+        _img = Image.fromarray((mask_bool.astype(np.uint8) * 255))
+        _img = _img.resize((int(w), int(h)), Image.LANCZOS)
+        _arr = np.asarray(_img, dtype=np.uint8) > 127
+        if _arr.shape == (h, w):
+            return _arr
+    except Exception:
+        pass
+    return None
+
+
 def segment_window_frames(
     frames,
     *,
@@ -477,7 +508,7 @@ def segment_window_frames(
         return None
     box = _sanitize_box(boxes) if boxes is not None else None
     text_prompts = [str(p).strip() for p in (prompts or []) if str(p).strip()]
-    if not text_prompts and box is None:
+    if not text_prompts:
         text_prompts = [SAM3_DEFAULT_PROMPT]
     try:
         ckpt, predictor = _acquire_predictor(checkpoint)
@@ -501,20 +532,32 @@ def segment_window_frames(
             return None
         pf = max(0, min(int(prompt_frame or 0), len(pils) - 1))
         start_obj = int(obj_id or SAM3_OBJ_ID_DEFAULT)
+        seed_immediate = None
         with torch.autocast("cuda", dtype=torch.float32):
             if box is not None:
-                # Visual (box) prompt: exact geometry, no text grounding.
-                predictor.handle_request(
+                # Text + box together: the text grounds the object class while
+                # the box localizes it. A box-only prompt on this SAM3 build
+                # produced no masklet at all (0 propagation responses), so the
+                # text is required to seed the semantic path. We also keep the
+                # immediate prompt-frame mask SAM3 returns from add_prompt so a
+                # quiet propagation cannot wipe out a valid seed.
+                add_resp = predictor.handle_request(
                     dict(
                         type="add_prompt",
                         session_id=sid,
                         frame_index=pf,
-                        text=None,
+                        text=text_prompts[0],
                         bounding_boxes=[box],
                         bounding_box_labels=[1],
                         obj_id=start_obj,
                     )
                 )
+                try:
+                    seed_immediate = _merge_mask_outputs(
+                        (add_resp or {}).get("outputs", {}) or {}
+                    )
+                except Exception:
+                    seed_immediate = None
             else:
                 for i, text in enumerate(text_prompts):
                     predictor.handle_request(
@@ -549,7 +592,7 @@ def segment_window_frames(
                     predictor.handle_request(dict(type="close_session", session_id=sid))
                 except Exception:
                     pass
-        if not masks_by_frame:
+        if not masks_by_frame and seed_immediate is None:
             log.warning("SAM3 auto-mask: no mask responses for the window")
             return None
         # Assemble [T,H,W] bool at the source frame resolution. Frames with no
@@ -561,42 +604,37 @@ def segment_window_frames(
         shape_ok = 0
         shape_resized = 0
         shape_dropped = 0
+        if seed_immediate is not None:
+            fitted = _fit_mask_arr(seed_immediate, h, w)
+            if fitted is not None and pf < len(out):
+                out[pf] = fitted
         for frame_idx, merged in masks_by_frame.items():
             if merged is None:
                 continue
             responses += 1
-            if merged.shape != (h, w):
-                # SAM3 can return masks on its internal grid rather than the
-                # source frame size; upscale them instead of silently dropping
-                # the whole window (which looked like "no subject detected").
-                if merged.ndim == 2 and merged.shape[0] > 0 and merged.shape[1] > 0:
-                    try:
-                        from PIL import Image
-
-                        _img = Image.fromarray((merged.astype(np.uint8) * 255))
-                        _img = _img.resize((w, h), Image.LANCZOS)
-                        _arr = np.asarray(_img, dtype=np.uint8) > 127
-                        if _arr.shape == (h, w) and frame_idx < len(pils):
-                            out[frame_idx] = _arr
-                            shape_resized += 1
-                            continue
-                    except Exception:
-                        pass
+            fitted = _fit_mask_arr(merged, h, w)
+            if fitted is None:
                 shape_dropped += 1
                 continue
-            shape_ok += 1
-            if frame_idx < len(pils):
-                out[frame_idx] = merged
-        if box is not None or shape_resized or shape_dropped:
+            if merged.shape == (h, w):
+                shape_ok += 1
+            else:
+                shape_resized += 1
+            if frame_idx < len(out):
+                out[frame_idx] = fitted
+        if box is not None or shape_resized or shape_dropped or responses == 0:
             try:
                 nonzero = int(np.count_nonzero(out.any(axis=(1, 2))))
                 log.info(
-                    "SAM3 mask assembly%s: prompt_frame=%d box=%s responses=%d "
-                    "ok=%d resized=%d dropped=%d nonzero_frames=%d/%d seed_frame_has_mask=%s",
+                    "SAM3 mask assembly%s: prompt_frame=%d box=%s text=%r responses=%d "
+                    "seed_immediate=%s ok=%d resized=%d dropped=%d nonzero_frames=%d/%d seed_frame_has_mask=%s",
                     " (box seed)" if box is not None else "",
                     pf,
                     [round(float(v), 3) for v in box] if box is not None else None,
-                    responses, shape_ok, shape_resized, shape_dropped,
+                    str(text_prompts[0]) if box is not None and text_prompts else None,
+                    responses,
+                    bool(seed_immediate is not None and seed_immediate.any()),
+                    shape_ok, shape_resized, shape_dropped,
                     nonzero, len(pils),
                     bool(out[pf].any()) if pf < len(out) else False,
                 )
