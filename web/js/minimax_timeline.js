@@ -3300,12 +3300,14 @@ function installReplaceWindowsMode(ed) {
                 payload.box = pick.box;
                 if (Number.isFinite(Number(pick.frame))) payload.pickFrame = Number(pick.frame);
             }
+            // Quick sanity check: only run SAM3 over the first ~48 window frames.
+            payload.testFrames = 48;
             inp.testBtn.disabled = true;
             const oldLabel = inp.testBtn.textContent;
             inp.testBtn.textContent = "masking...";
             inp.testStatus.textContent = pick && pick.box
-                ? "Running SAM3 with your box (can take ~1-2 min)..."
-                : "Running SAM3 over this window (can take a couple of minutes)...";
+                ? "Running SAM3 on the first 48 frames with your box (fast check, ~30-60s)..."
+                : "Running SAM3 on the first 48 frames (fast check, ~30-60s)...";
             inp.testImg.style.display = "none";
             inp.testImg.removeAttribute("src");
             try {
