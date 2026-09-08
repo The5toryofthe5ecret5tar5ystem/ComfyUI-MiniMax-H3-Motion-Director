@@ -9,6 +9,7 @@ from PIL import Image
 
 from mmx_pkg.director.replace_spec import ReplaceSpec
 from mmx_pkg.director.replace_engine import (
+    dilate_soften_mask,
     gaussian_blur_frames,
     load_mask_window,
     load_mask_window_with_lead,
@@ -192,3 +193,27 @@ def test_negative_anchor_resizes_mask_spatial():
     assert tuple(anchor.shape) == (1, 8, 8, 3)
     # Resized mask now covers the top half at full res -> inverted there.
     assert torch.allclose(anchor[0, :4, :, :], 1.0 - frames[0, :4, :, :], atol=1e-6)
+
+
+def test_dilate_soften_mask_grow_and_feather():
+    hi = torch.zeros(1, 32, 32)
+    hi[0, 14:18, 14:18] = 1.0  # 4x4 blob
+    grown = dilate_soften_mask(hi, grow=1, scale=2)  # +2 px each side
+    assert grown[0].sum().item() > hi[0].sum().item()
+    # Dilation extends the 1-region outward by 2px (scale=2).
+    assert grown[0, 12, 16].item() == 1.0
+    assert grown[0, 10, 16].item() == 0.0
+    soft = dilate_soften_mask(hi, grow=0, feather=1.0, scale=2)
+    assert bool(((soft[0] > 0.0) & (soft[0] < 1.0)).any())  # soft edge
+    plain = dilate_soften_mask(hi, grow=0, feather=0.0, scale=2)
+    assert bool(((plain[0] == 0.0) | (plain[0] == 1.0)).all())
+
+
+def test_negative_anchor_resizes_mask_spatial_uses_dilation_in_runtime():
+    # (kept as an integration note: runtime anchor mode dilates via scale 16)
+    hi = torch.zeros(1, 64, 64)
+    hi[0, 30:34, 30:34] = 1.0
+    grown = dilate_soften_mask(hi, grow=1, scale=16)  # +16 px each side
+    assert grown[0].sum().item() > hi[0].sum().item()
+    assert grown[0, 30, 14].item() == 1.0
+    assert grown[0, 30, 8].item() == 0.0

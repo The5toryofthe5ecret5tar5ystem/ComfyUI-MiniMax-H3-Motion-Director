@@ -294,6 +294,39 @@ def to_latent_mask(
     return mask[:, 0].clamp(0.0, 1.0).contiguous()
 
 
+def dilate_soften_mask(
+    mask_hi: torch.Tensor,
+    *,
+    grow: int = 0,
+    feather: float = 0.0,
+    scale: int = 16,
+) -> torch.Tensor:
+    """Pixel-space dilation + edge softening of a [T, H, W] 0..1 mask.
+
+    Mirrors the latent-token grow/feather of :func:`to_latent_mask` but in
+    pixels: ``grow`` (int, latent tokens) dilates the 1-region by ``grow*scale``
+    pixels (max-pool); ``feather`` (float, latent tokens) blurs the edges with
+    sigma ``feather*scale`` pixels (0 = hard). ``scale`` is the pixels per VAE
+    latent cell (H3 uses 16). Used by the negative-anchor render path where
+    there is no latent noise mask to apply them to.
+    """
+    mask = mask_hi.float()
+    if mask.ndim == 3:
+        mask = mask.unsqueeze(1)
+    if mask.ndim != 4:
+        raise ValueError(f"mask must be [T,H,W], got {tuple(mask_hi.shape)}")
+    scale = max(1, int(scale))
+    grow = max(0, int(grow))
+    if grow > 0:
+        radius = grow * scale
+        kernel = 2 * radius + 1
+        mask = F.max_pool2d(mask, kernel_size=kernel, stride=1, padding=radius)
+    feather = max(0.0, float(feather))
+    if feather > 0:
+        mask = gaussian_blur_frames(mask, float(feather) * scale)
+    return mask[:, 0].clamp(0.0, 1.0).contiguous()
+
+
 def negative_anchor_frames(
     frames: torch.Tensor, mask_hi: torch.Tensor
 ) -> torch.Tensor:
