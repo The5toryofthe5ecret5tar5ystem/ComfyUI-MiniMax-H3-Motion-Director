@@ -140,18 +140,24 @@ def resolve_segment_audio_policy(default_policy: str, spec: ReplaceSpec | None) 
     return policy
 
 
-def _gaussian_kernel_2d(radius: int, sigma: float) -> torch.Tensor:
+def _gaussian_kernel_1d(radius: int, sigma: float) -> torch.Tensor:
     radius = max(1, int(radius))
     sigma = max(0.1, float(sigma))
     coords = torch.arange(-radius, radius + 1, dtype=torch.float32)
-    kernel_1d = torch.exp(-(coords ** 2) / (2.0 * sigma * sigma))
-    kernel_1d = kernel_1d / kernel_1d.sum()
-    kernel = kernel_1d[:, None] * kernel_1d[None, :]
-    return kernel / kernel.sum()
+    kernel = torch.exp(-(coords ** 2) / (2.0 * sigma * sigma))
+    return (kernel / kernel.sum()).view(1, 1, -1, 1)  # [1,1,k,1] (vertical)
 
 
 def gaussian_blur_frames(frames: torch.Tensor, sigma: float) -> torch.Tensor:
-    """Spatial gaussian blur of [T, C, H, W] (or [T, H, W] treated as 1 channel)."""
+    """Spatial gaussian blur of [T, C, H, W] (or [T, H, W] treated as 1 channel).
+
+    Two-pass separable depthwise convolution: a 2D gaussian is the outer
+    product of two 1D gaussians, so blurring horizontally then vertically with
+    the 1D kernel is mathematically identical to one big 2D kernel, at ~2*k
+    multiply-adds per pixel instead of ~k*k. For the inpaint echo-free
+    reference (sigma 14 -> 85-tap kernel over hundreds of RGB frames) this
+    turns a multi-minute CPU stall into a few seconds.
+    """
     if sigma <= 0.0:
         return frames.clone()
     source = frames
@@ -159,18 +165,15 @@ def gaussian_blur_frames(frames: torch.Tensor, sigma: float) -> torch.Tensor:
         source = frames.unsqueeze(1)
     if source.ndim != 4:
         raise ValueError(f"gaussian blur expects 3D/4D frames, got {tuple(frames.shape)}")
-    t, c, h, w = source.shape
+    c = int(source.shape[1])
     radius = max(1, int(round(sigma * 3)))
-    kernel = _gaussian_kernel_2d(radius, sigma)  # [2r+1, 2r+1]
-    k = int(kernel.shape[0])
+    kernel_v = _gaussian_kernel_1d(radius, sigma)  # [1,1,k,1]
+    kernel_h = kernel_v.transpose(2, 3)            # [1,1,1,k]
     # Depthwise: one shared kernel per channel, groups=c.
-    weight = kernel.view(1, 1, k, k).repeat(c, 1, 1, 1)
-    blurred = F.conv2d(
-        source,
-        weight,
-        padding=k // 2,
-        groups=c,
-    )
+    weight_v = kernel_v.repeat(c, 1, 1, 1)
+    weight_h = kernel_h.repeat(c, 1, 1, 1)
+    blurred = F.conv2d(source, weight_h, padding=(0, radius), groups=c)
+    blurred = F.conv2d(blurred, weight_v, padding=(radius, 0), groups=c)
     return blurred.squeeze(1) if frames.ndim == 3 else blurred
 
 
