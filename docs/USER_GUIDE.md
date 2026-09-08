@@ -278,7 +278,67 @@ Source Video provides motion/timing structure; Identity/Reference media provide 
 
 ---
 
-## 12. Mixed Mode: combine generation methods on one timeline
+## 12. Character Replace (ref2va + SAM3): VRAM settings guide (16 / 24 / 32 GB)
+
+**Character Replace** re-renders one or more **windows** of a Source Video with a referenced character. Each window gets an automatic subject mask (SAM3, by prompt) and is rendered as an independent masked clip: the subject region is re-generated from your identity references while the window keeps its real source background. A full how-to and per-VRAM settings matrix follow.
+
+### 12.1 Prerequisites and the recommended runbook
+
+Character Replace needs the RV2V family of inputs, so set the node up as you would for RV2V first:
+
+1. Give the Director a **Source Video** (this is the footage whose performer you replace).
+2. Add the replacement character in **Common References**: **Picture 1 = face** (headshot) and **Picture 2 = character sheet** (front/side/back) - see sections 7 and 11.
+3. Set **Replace: ON** on the timeline (the toggle appears when a source video is loaded).
+4. **Add windows** with the `+ Add after` / `+ Add at playhead` buttons (default 5 s each, up to 20 s; lengths auto-snap to the H3 frame grid). Rows may overlap or be out of order - list order is render/output order.
+5. On each window row choose:
+   - **kind = sam3** (auto mask from a text prompt - no mask files needed) or **frames** (pre-made per-frame mask PNGs).
+   - **render = anchor** (recommended: full re-render, subject drawn as a photographic negative in the motion reference - strongest identity) or **inpaint** (pixel-exact background, but identity is weaker on this stack).
+   - **SAM3 prompt** (describe the source person, e.g. `the woman, full body from head to toe, including every strand of her hair`).
+   - **grow** / **feather** / **lead** (pre-roll frames) / **audio policy**.
+6. **Generate.** During the prepare phase the **Live Preview** page shows a **Mask check** card under Preview Settings (source | red subject overlay | motion reference) so you can abort before sampling if the mask is wrong.
+7. Inspect per-window results, then export (per clip, or ordered concatenation). **Resume** reuses finished windows from cache and does not re-run SAM3 on cached windows.
+
+If SAM3 cannot run, misses the subject, or OOMs, that window **automatically falls back to a plain RV2V re-render** - never a hard failure.
+
+### 12.2 What actually costs VRAM
+
+In priority order:
+
+1. **Working resolution** (aspect + megapixels in the Generate panel; default 0.4 MP = 864x480 @ 16:9).
+2. **Window length** (frames live in the video latent, and the source window is held in RAM while a window renders).
+3. **Model residency**: the H3 DiT (int8 convrot, ~10.5 GB) plus text encoder (nvfp4, ~5 GB) with the VAEs offloaded is roughly a **15 GB resident** envelope. SAM3 (video predictor) runs **on top of that** while the window mask is built, then is released before sampling.
+
+Steps/sampler change time (and slightly, intermediate buffers), not the resident model size. Grow/feather and the pre-roll lead are cheap.
+
+### 12.3 Settings by VRAM tier
+
+| Setting | 16 GB (borderline) | 24 GB (sweet spot, validated on RTX 3090) | 32 GB (comfortable) |
+|---|---|---|---|
+| Overall | Runs only with aggressive offload, small windows, and **no in-run SAM3**. Prefer mask **frames** assets. | Recommended minimum for full experience incl. in-run SAM3 auto-mask. | Model fully resident; fastest iteration; largest windows/resolutions. |
+| Working resolution (16:9 example) | 0.2-0.3 MP (e.g. 640x360, up to 736x416) | 0.4 MP default (864x480); up to ~0.7 MP (960x544 / 1136x640) for windows <= 5 s | 0.4-1.3 MP (864x480 up to 1216x672 / 1280x720) |
+| Max window length | <= 5 s (124 f) | 5-10 s typical (124-243 f); 15 s (362 f) only if resolution is <= 0.4 MP | Up to 15-20 s (362-481 f); drop MP if you also go long |
+| SAM3 auto-mask (kind = sam3) | Avoid: SAM3 overlaps the resident H3 stack and will likely OOM. Use kind = frames / a mask asset. | Works. Plan ~3 min/window: ~7 s predictor build + propagation (~1.5 it/s); SAM3 is released before sampling. | Works and is fastest; mask cache means Resume does not re-run SAM3 on finished windows. |
+| Render mode | anchor | anchor (recommended); inpaint only when the background must stay pixel-exact and you accept weaker identity | anchor; inpaint also fine |
+| grow / feather | 1 / 1.0 | 1 / 1.0 by default; try grow = 2 if a fine-hair halo remains | 1 / 1.0, grow up to 2-3 for stubborn wispy hair (each grow step reclaims roughly one 32 px token ring) |
+| Pre-roll lead | 12 frames | 12 (default) | 12 (more only adds a little RAM, not VRAM) |
+| Steps / sampler | res_multistep + simple; drop to ~10-14 steps to shorten runs | Default 25 is fine; 14 is a good time/quality trade | Keep 14-25. If a REF2V turbo LoRA is wired in the model subgraph, 4-6 steps work on every tier |
+| Audio policy | source (reuse original track) only | source recommended; generate OK for short windows | source or generate |
+| Clear VRAM Between Segments | ON (mandatory) | ON when SAM3 is in use (keeps SAM3 and DiT from peaking together); OFF only for plain non-SAM3 runs | OFF for max throughput (keeps the model resident); per-segment reload is the main cost of leaving it ON |
+| Model variants | DiT int8 convrot + text encoder nvfp4 (smallest footprint); VAEs offloaded | Same int8/nvfp4 pair; text encoder may briefly page to RAM during encode - normal | Same int8/nvfp4 pair keeps headroom for SAM3 and large latents |
+| ComfyUI launch flags | `--lowvram` (dynamic VRAM low) strongly recommended | Default, or `--reserve-vram 2` | Default; no reserve needed |
+| Live Preview max resolution | Keep small (<= 480) and jpeg quality ~70 (encode CPU) | 640-768 | Up to 1024 |
+| Mask check card | Free (a small JPEG) on every tier | Same | Same |
+
+### 12.4 Fastest iteration path
+
+1. Smoke-test **one short window first** (3-5 s, low MP, one segment) and watch the **Mask check** card: red overlay should hug the person you are replacing (hair included), and the motion-reference panel should show the subject as a dark/negative silhouette in anchor mode.
+2. Abort immediately if the red region misses hair, covers background, or is absent (`no subject mask!`) - fix the SAM3 prompt or the window first.
+3. Only when one window looks right, add the rest and run in small batches, then **Resume** the remainder.
+4. Keep expensive Global Refine / Face Refine / upscale for after the replacement windows are locked (section 16).
+
+---
+
+## 13. Mixed Mode: combine generation methods on one timeline
 
 ![Mixed Mode controls](images/tutorial/03-mixed-mode.webp)
 
@@ -345,7 +405,7 @@ Enable continuity for a continuing scene; reset a boundary when deliberately cha
 
 ---
 
-## 13. Selective Run: reroll only the bad shot
+## 14. Selective Run: reroll only the bad shot
 
 The expensive mistake in a long project is rerunning every shot because one shot failed.
 
@@ -362,7 +422,7 @@ This is also why a low-resolution first pass is efficient: spend upscale/refine 
 
 ---
 
-## 14. Resume, Stop and Start Over
+## 15. Resume, Stop and Start Over
 
 Long jobs are expensive, so the run bar is built around stopping and continuing instead of always re-rendering everything:
 
@@ -404,7 +464,7 @@ Segment caches live under your ComfyUI output directory in `minimax_seg_cache/<n
 
 ---
 
-## 15. Postprocess: Global Refine, Upscale and Face Refine
+## 16. Postprocess: Global Refine, Upscale and Face Refine
 
 ![Post-processing](images/tutorial/08-postprocess.webp)
 
@@ -432,7 +492,7 @@ If Global Refine fails, the completed first-pass result is retained. If Face Ref
 
 ---
 
-## 16. Live Preview: see what the pipeline is doing
+## 17. Live Preview: see what the pipeline is doing
 
 ![Live Preview](images/tutorial/09-live-preview.webp)
 
@@ -448,7 +508,7 @@ Live Preview is observational; it does not change the prompt or generation resul
 
 ---
 
-## 17. Results: inspect and save the final video
+## 18. Results: inspect and save the final video
 
 ![Results](images/tutorial/10-results.webp)
 
@@ -477,7 +537,7 @@ The three result levels are:
 
 ---
 
-## 18. Common workflows you can follow directly
+## 19. Common workflows you can follow directly
 
 ### A. Three continuous text-generated shots
 
@@ -545,6 +605,8 @@ RV2V
 → Generate
 ```
 
+For per-window **Character Replace** with SAM3 auto-masks (masking + identity settings and the 16/24/32 GB VRAM guide), follow **section 12** instead.
+
 ### G. Five shots using different methods
 
 ```text
@@ -574,7 +636,7 @@ R2V / RV2V
 
 ---
 
-## 19. Concepts that are easy to confuse
+## 20. Concepts that are easy to confuse
 
 | Concept | Meaning |
 |---|---|
@@ -591,7 +653,7 @@ R2V / RV2V
 
 ---
 
-## 20. Pre-run checklist
+## 21. Pre-run checklist
 
 Before a long generation, verify:
 
