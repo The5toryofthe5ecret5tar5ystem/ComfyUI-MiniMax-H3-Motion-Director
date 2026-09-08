@@ -2763,6 +2763,18 @@ function installReplaceWindowsMode(ed) {
         return end;
     }
 
+    function reorderSegment(fromId, toId) {
+        const segs = ed.timeline && ed.timeline.segments;
+        if (!segs || fromId === toId) return;
+        const from = segs.findIndex((s) => String(s.id) === String(fromId));
+        const to = segs.findIndex((s) => String(s.id) === String(toId));
+        if (from < 0 || to < 0 || from === to) return;
+        const [moved] = segs.splice(from, 1);
+        segs.splice(to, 0, moved);
+        commitLight();
+        renderRows();
+    }
+
     function addLengthFrames() {
         const fps = directorFps(ed) || 24;
         const raw = String(addLenInput.value || "").trim();
@@ -2812,11 +2824,38 @@ function installReplaceWindowsMode(ed) {
     function makeRow(seg) {
         const row = document.createElement("div");
         row.style.cssText = "display:flex;flex-direction:column;gap:3px;padding:4px 6px;background:#101a12;border:1px solid #27452f;border-radius:5px;";
+        row.dataset.seg = String(seg.id);
         const line1 = document.createElement("div");
         line1.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;";
         const enabled = document.createElement("input");
         enabled.type = "checkbox";
         enabled.checked = replaceConfigFromSeg(seg).enabled;
+        // Drag handle: HTML5 drag-drop reorders the user's window list.
+        const handle = mkSmallButton("&#8801;".replace("&#8801;", "\u2261"));
+        handle.textContent = "\u2261";
+        handle.draggable = true;
+        handle.title = "Drag to reorder this window in the list (user order is kept for run + export).";
+        handle.style.cursor = "grab";
+        handle.addEventListener("dragstart", (e) => {
+            e.dataTransfer.setData("text/plain", String(seg.id));
+            e.dataTransfer.effectAllowed = "move";
+            handle.style.opacity = "0.5";
+        });
+        handle.addEventListener("dragend", () => { handle.style.opacity = "1"; });
+        row.addEventListener("dragover", (e) => {
+            if (!e.dataTransfer || !e.dataTransfer.types.includes("text/plain")) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            row.style.borderColor = "#4fff8f";
+        });
+        row.addEventListener("dragleave", () => { row.style.borderColor = "#27452f"; });
+        row.addEventListener("drop", (e) => {
+            if (!e.dataTransfer) return;
+            e.preventDefault();
+            row.style.borderColor = "#27452f";
+            const fromId = String(e.dataTransfer.getData("text/plain") || "");
+            if (fromId && fromId !== String(seg.id)) reorderSegment(fromId, String(seg.id));
+        });
         const label = document.createElement("span");
         label.style.color = "#9fd9b4";
         label.style.minWidth = "18px";
@@ -2872,7 +2911,7 @@ function installReplaceWindowsMode(ed) {
         const audLbl = document.createElement("span");
         audLbl.textContent = "audio";
         line2.append(audLbl, policy);
-        line1.append(enabled, label, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
+        line1.append(handle, enabled, label, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
         row.append(line1, line2);
         cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy } });
         return row;
@@ -3040,8 +3079,9 @@ function installReplaceWindowsMode(ed) {
 
     function renderRows() {
         const segs = ed.timeline && ed.timeline.segments;
+        // Replace windows keep their USER order (drag-to-reorder): never
+        // re-sort by start here or the dragged arrangement would be lost.
         const list = segs ? [...segs] : [];
-        list.sort((a, b) => (Math.max(0, parseInt(a.start, 10) || 0)) - (Math.max(0, parseInt(b.start, 10) || 0)));
         cfgFields.clear();
         rowsEl.innerHTML = "";
         if (!list.length) {
