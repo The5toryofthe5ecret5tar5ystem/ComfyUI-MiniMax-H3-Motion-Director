@@ -407,7 +407,12 @@ def _segment_ranges_from_timeline(timeline: dict, total: int) -> list[tuple[int,
     segments = timeline.get("segments") or []
     if segments and ("length" in segments[0] or "end" in segments[0]):
         ranges: list[tuple[int, int, dict]] = []
-        for raw in sorted(segments, key=lambda s: int(s.get("start", 0))):
+        # Replace windows are user-authored in the order shown in the editor
+        # (drag-to-reorder) - keep that list order for run + export. Normal
+        # tiled timelines stay sorted by start frame.
+        ordered = bool(timeline.get("replaceMode"))
+        iterator = segments if ordered else sorted(segments, key=lambda s: int(s.get("start", 0)))
+        for raw in iterator:
             start = int(raw.get("start", 0))
             if "end" in raw:
                 end = int(raw["end"])
