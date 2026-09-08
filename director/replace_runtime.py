@@ -25,6 +25,7 @@ import torch.nn.functional as F
 from .replace_engine import (
     MASK_KEEP,
     MASK_REGENERATE,
+    dilate_soften_mask,
     load_mask_window_with_lead,
     negative_anchor_frames,
     pool_mask_to_latent_time,
@@ -147,7 +148,19 @@ def prepare_replace_window(
         _resize_mask_spatial(mask_body, rh, rw), int(reference_frames.shape[0])
     )
     if str(render_mode or "").strip().lower() == "anchor":
-        motion_reference = negative_anchor_frames(reference_frames, mask_ref)
+        # grow/feather have no latent noise mask to act on in anchor mode, so
+        # apply them in pixel space to the mask before drawing the negative:
+        # grow expands the negated (regenerate) region by ~grow*16 px so no
+        # sliver of the original performer survives at the boundary; feather
+        # softens the negative's edge (0 = hard cut).
+        _g = max(0, int(grow or 0))
+        _f = max(0.0, float(feather or 0.0))
+        _anchor_mask = mask_ref
+        if _g or _f:
+            _anchor_mask = dilate_soften_mask(
+                mask_ref, grow=_g, feather=_f
+            )
+        motion_reference = negative_anchor_frames(reference_frames, _anchor_mask)
     else:
         motion_reference = sanitized_reference_frames(
             reference_frames,
