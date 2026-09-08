@@ -39,6 +39,25 @@ SAM3_DEFAULT_PROMPT = (
 )
 SAM3_OBJ_ID_DEFAULT = 1
 
+# Detection profiles applied to the predictor model around each session.
+# Defaults mirror the proven standalone sam3_scene_mask.py. The relaxed
+# profile is only used as a retry when a window comes back empty: it accepts
+# weaker detections so a clearly visible but lower-confidence subject can seed
+# a track (at the cost of a higher chance of a sloppy mask, which is why the
+# normal profile is always tried first).
+_DETECTION_DEFAULTS = {
+    "score_threshold_detection": 0.5,
+    "new_det_thresh": 0.7,
+    "assoc_iou_thresh": 0.1,
+    "det_nms_thresh": 0.1,
+}
+_DETECTION_RELAXED = {
+    "score_threshold_detection": 0.35,
+    "new_det_thresh": 0.45,
+    "assoc_iou_thresh": 0.1,
+    "det_nms_thresh": 0.15,
+}
+
 _PREDICTOR_CACHE: dict[str, Any] = {}
 _SAM3_PACK_INSERTED = False
 
@@ -163,6 +182,61 @@ def release_sam3(checkpoint: str | None = None) -> None:
         pass
 
 
+def _apply_detection_profile(predictor, *, relaxed: bool) -> dict[str, Any]:
+    """Apply a detection profile to the cached predictor; return the old values."""
+    profile = _DETECTION_RELAXED if relaxed else _DETECTION_DEFAULTS
+    previous: dict[str, Any] = {}
+    model = getattr(predictor, "model", None)
+    if model is None:
+        return previous
+    for key, value in profile.items():
+        if hasattr(model, key):
+            previous[key] = getattr(model, key)
+            try:
+                setattr(model, key, value)
+            except Exception:
+                previous.pop(key, None)
+    return previous
+
+
+def _restore_detection_profile(predictor, previous: dict[str, Any]) -> None:
+    """Put back previously saved detection attribute values."""
+    if not previous:
+        return
+    model = getattr(predictor, "model", None)
+    if model is None:
+        return
+    for key, value in previous.items():
+        try:
+            setattr(model, key, value)
+        except Exception:
+            pass
+
+
+def candidate_prompt_frames(total: int, lead: int = 0) -> list[int]:
+    """Anchor frame indices to try for a window mask, best first.
+
+    Returns [0, true window start, middle, last] (clamped, de-duplicated):
+    - frame 0 keeps the historical behaviour and also masks the pre-roll lead
+      head when the lead frames belong to the same shot;
+    - the true window start (index ``lead``) and the window middle cover the
+      common failure where the pre-roll head (or the very first frame) is a
+      different shot, a cut, or a moment when the subject is off-frame even
+      though she is clearly visible for the rest of the window.
+    """
+    total = max(0, int(total))
+    lead = max(0, int(lead))
+    if total <= 0:
+        return []
+    mid = lead + max(0, (total - lead) // 2)
+    out: list[int] = []
+    for idx in (0, lead, mid, total - 1):
+        idx = max(0, min(int(idx), total - 1))
+        if idx not in out:
+            out.append(idx)
+    return out
+
+
 def frames_to_pils(frames):
     """Convert torch float [T,H,W,3] (0..1) source frames into RGB PIL images."""
     import numpy as np
@@ -199,6 +273,7 @@ def segment_window_frames(
     checkpoint: str | None = None,
     obj_id: int | None = None,
     prompt_frame: int = 0,
+    relaxed: bool = False,
 ) -> "torch.Tensor | None":
     """Segment ``frames`` [T,H,W,3] by text prompt into a [T,H,W] 0..1 mask.
 
@@ -207,6 +282,11 @@ def segment_window_frames(
     ``prompts`` is a list of text prompts (each becomes one tracked object; all
     are merged with OR). An empty prompt list falls back to
     :data:`SAM3_DEFAULT_PROMPT`.
+
+    ``prompt_frame`` chooses which frame index the text prompt is anchored on
+    (the first frame of the window is the default). ``relaxed`` applies the
+    relaxed detection profile (lower score/new-detect thresholds) for this
+    session only; the cached predictor's attributes are restored afterwards.
     """
     import torch
 
@@ -228,7 +308,9 @@ def segment_window_frames(
     pils = frames_to_pils(frames)
     if not pils:
         return None
+    previous = None
     try:
+        previous = _apply_detection_profile(predictor, relaxed=bool(relaxed))
         resp = predictor.handle_request(
             dict(type="start_session", resource_path=pils)
         )
@@ -294,11 +376,18 @@ def segment_window_frames(
         except Exception:
             pass
         return None
+    finally:
+        if previous:
+            try:
+                _restore_detection_profile(predictor, previous)
+            except Exception:
+                pass
 
 
 __all__ = [
     "SAM3_DEFAULT_PROMPT",
     "SAM3_OBJ_ID_DEFAULT",
+    "candidate_prompt_frames",
     "frames_to_pils",
     "release_sam3",
     "resolve_sam3_checkpoint",

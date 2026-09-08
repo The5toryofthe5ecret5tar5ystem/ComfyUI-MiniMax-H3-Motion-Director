@@ -14,11 +14,74 @@ import mmx_pkg.director.sam3_auto as sam3_auto
 from mmx_pkg.director.sam3_auto import (
     SAM3_DEFAULT_PROMPT,
     SAM3_OBJ_ID_DEFAULT,
+    _apply_detection_profile,
     _merge_mask_outputs,
+    _restore_detection_profile,
+    candidate_prompt_frames,
     frames_to_pils,
     resolve_sam3_checkpoint,
     segment_window_frames,
 )
+
+
+def test_candidate_prompt_frames_starts_at_zero_and_includes_real_window():
+    # 12-frame pre-roll head over a 250-frame mask window -> 238 real frames.
+    frames = candidate_prompt_frames(250, lead=12)
+    assert frames[0] == 0
+    assert 12 in frames  # true window start
+    assert 0 < frames[2] < 249  # a mid-window anchor
+    assert frames[-1] == 249
+    assert frames == sorted(set(frames))
+
+
+def test_candidate_prompt_frames_without_lead_and_clamped():
+    frames = candidate_prompt_frames(238, lead=0)
+    assert frames[0] == 0
+    assert 0 in frames
+    assert frames[-1] == 237
+    # Mid anchor sits inside the window.
+    assert 0 < frames[1] < 237
+    assert candidate_prompt_frames(0, lead=0) == []
+    assert candidate_prompt_frames(10, lead=99)[0] == 0
+    assert all(0 <= f < 10 for f in candidate_prompt_frames(10, lead=99))
+
+
+def test_detection_profile_applies_and_restores():
+    class _FakeModel:
+        score_threshold_detection = 0.5
+        new_det_thresh = 0.7
+        assoc_iou_thresh = 0.1
+        det_nms_thresh = 0.1
+
+    class _FakePredictor:
+        model = _FakeModel()
+
+    pred = _FakePredictor()
+    prev = _apply_detection_profile(pred, relaxed=True)
+    # Relaxed profile is actually more permissive.
+    assert prev["score_threshold_detection"] == 0.5
+    assert prev["new_det_thresh"] == 0.7
+    assert pred.model.score_threshold_detection < 0.5
+    assert pred.model.new_det_thresh < 0.7
+    _restore_detection_profile(pred, prev)
+    assert pred.model.score_threshold_detection == 0.5
+    assert pred.model.new_det_thresh == 0.7
+
+
+def test_detection_profile_normal_is_noop_values():
+    class _FakeModel:
+        score_threshold_detection = 0.9
+        new_det_thresh = 0.9
+
+    class _FakePredictor:
+        model = _FakeModel()
+
+    pred = _FakePredictor()
+    prev = _apply_detection_profile(pred, relaxed=False)
+    assert pred.model.score_threshold_detection == 0.5
+    assert pred.model.new_det_thresh == 0.7
+    _restore_detection_profile(pred, prev)
+    assert pred.model.score_threshold_detection == 0.9
 
 
 def test_frames_to_pils_converts_float_rgb():
