@@ -247,6 +247,24 @@ def sample_single_stage(
         latent.get("batch_index", None),
     )
     noise_mask = latent.get("noise_mask", None)
+    if noise_mask is not None:
+        # [DIAG] confirm the nested mask really reaches the sampler and with
+        # which polarity/coverage (remove or keep as an info log).
+        try:
+            def _mask_summary(tag, m):
+                if getattr(m, "is_nested", False):
+                    for i, part in enumerate(m.unbind()):
+                        _mask_summary(f"{tag}[{i}]", part)
+                    return
+                t = m.float()
+                log.info(
+                    "[mask] %s shape=%s mean=%.4g frac>0.5=%.4g",
+                    tag, tuple(t.shape), float(t.mean()),
+                    float((t > 0.5).float().mean()),
+                )
+            _mask_summary("noise_mask", noise_mask)
+        except Exception:
+            pass
 
     every = max(1, int(preview_every))
     model_for_sampling, preview_wrapped = _install_preview_outer_wrapper(
