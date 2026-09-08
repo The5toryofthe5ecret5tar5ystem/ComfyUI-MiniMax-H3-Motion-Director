@@ -65,5 +65,7 @@ def test_resolve_checkpoint_never_raises():
 
 
 def test_defaults_contract():
-    assert SAM3_DEFAULT_PROMPT == "the woman"
+    # Default prompt should request the full figure + hair coverage.
+    assert "full body" in SAM3_DEFAULT_PROMPT
+    assert "every strand" in SAM3_DEFAULT_PROMPT
     assert SAM3_OBJ_ID_DEFAULT == 1
