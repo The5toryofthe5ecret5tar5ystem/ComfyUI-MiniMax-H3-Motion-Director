@@ -25,7 +25,7 @@ import torch.nn.functional as F
 from .replace_engine import (
     MASK_KEEP,
     MASK_REGENERATE,
-    load_mask_window,
+    load_mask_window_with_lead,
     pool_mask_to_latent_time,
     sanitize_source_frames,
     to_latent_mask,
@@ -83,6 +83,7 @@ def prepare_replace_window(
     reference_frames: torch.Tensor,
     grow: int = 0,
     feather: float = 0.0,
+    lead_frames: int = 0,
     method: str = "blur",
     blur_sigma: float = 14.0,
 ) -> dict[str, Any] | None:
@@ -92,6 +93,8 @@ def prepare_replace_window(
     keyed to the source video; the window begins at ``start_frame`` and spans
     ``nominal_length`` frames (Phase-1 constraint: timeline frames == source
     frames, i.e. a straight single-clip source at matching fps).
+    ``lead_frames`` extends the returned mask backward over the pre-roll runway
+    (real asset frames when present, else a first-frame-silhouette repeat).
 
     Returns None when the mask cannot be loaded (caller falls back to a plain
     RV2V window). On success returns::
@@ -109,7 +112,12 @@ def prepare_replace_window(
     if visible_frames.ndim != 4 or reference_frames.ndim != 4:
         return None
     nominal_length = max(1, int(nominal_length))
-    mask_hi = load_mask_window(mask_spec, int(start_frame), nominal_length)
+    mask_hi = load_mask_window_with_lead(
+        mask_spec,
+        start_frame=int(start_frame),
+        nominal_length=nominal_length,
+        lead_frames=int(lead_frames or 0),
+    )
     if mask_hi is None:
         return None
     vh, vw = int(visible_frames.shape[1]), int(visible_frames.shape[2])

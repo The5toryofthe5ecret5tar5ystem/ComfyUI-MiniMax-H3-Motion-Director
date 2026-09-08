@@ -2362,6 +2362,10 @@ function parseTimeline(raw, totalFrames, fps) {
  * ========================================================================= */
 
 const REPLACE_AUDIO_POLICIES = ["source", "generate", "none"];
+// Default replace pre-roll ("lead") in source frames: render this many frames
+// before the window's nominal start so the regenerated subject settles into the
+// opening pose; the runway head is trimmed before export. Set 0 to disable.
+const DEFAULT_REPLACE_LEAD_FRAMES = 12;
 
 function directorIsVideoMode(ed) {
     try {
@@ -2394,6 +2398,7 @@ function replaceConfigFromSeg(seg) {
     return {
         enabled: !!r.enabled,
         audio_policy: policy,
+        lead: Number.isFinite(Number(r.lead)) ? Math.max(0, Math.round(Number(r.lead))) : DEFAULT_REPLACE_LEAD_FRAMES,
         dir: String(m.dir || ""),
         grow: Number.isFinite(Number(m.grow)) ? Math.max(0, Math.round(Number(m.grow))) : 1,
         feather: Number.isFinite(Number(m.feather)) ? Math.max(0, Number(m.feather)) : 1.0,
@@ -2406,6 +2411,7 @@ function ensureReplaceConfigOnSeg(seg, cfg) {
     seg.replace = {
         enabled: !!c.enabled,
         audio_policy: c.audio_policy,
+        lead: Number.isFinite(Number(c.lead)) ? Math.max(0, Math.round(Number(c.lead))) : DEFAULT_REPLACE_LEAD_FRAMES,
         mask: {
             kind: "frames",
             dir: String(c.dir || ""),
@@ -2651,7 +2657,7 @@ function installReplaceWindowsMode(ed) {
     hTitle.style.color = "#8fe3b0";
     const hSub = document.createElement("span");
     hSub.style.color = "#7fa08b";
-    hSub.textContent = "masked, background kept, gaps allowed. Lengths auto-snap to H3-valid (17k+5) on run.";
+    hSub.textContent = "masked, background kept, gaps allowed. Lengths auto-snap to H3-valid (17k+5) on run. lead = frames rendered before start (pose runway, 0 = off).";
     const unit = makeUnitToggle("f", () => renderRows());
     const addBtn = mkSmallButton("+ Add window");
     const clearHelp = document.createElement("span");
@@ -2755,6 +2761,7 @@ function installReplaceWindowsMode(ed) {
         dirLbl.textContent = "mask dir";
         const growInput = numField(cfg.grow, 40);
         const featherInput = numField(cfg.feather, 44);
+        const leadInput = numField(cfg.lead, 44);
         const policy = selectField(REPLACE_AUDIO_POLICIES, cfg.audio_policy, 78);
         const line2 = document.createElement("div");
         line2.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;opacity:.95;";
@@ -2763,13 +2770,18 @@ function installReplaceWindowsMode(ed) {
         growLbl.textContent = "grow";
         const fthLbl = document.createElement("span");
         fthLbl.textContent = "feather";
+        const leadLbl = document.createElement("span");
+        leadLbl.textContent = "lead";
         line2.append(growLbl, growInput, fthLbl, featherInput);
+        leadInput.title = "Pre-roll frames rendered before this window start (pose runway); trimmed before export. 0 = off.";
+        leadInput.style.background = "#141d16";
+        line2.append(leadLbl, leadInput);
         const audLbl = document.createElement("span");
         audLbl.textContent = "audio";
         line2.append(audLbl, policy);
         line1.append(enabled, label, startLbl, startInput, endLbl, endInput, lenSpan, del);
         row.append(line1, line2);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, lenSpan, dirInput, growInput, featherInput, policy } });
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, lenSpan, dirInput, growInput, featherInput, leadInput, policy } });
         return row;
     }
 
@@ -2789,6 +2801,7 @@ function installReplaceWindowsMode(ed) {
         if (active !== inp.dirInput) inp.dirInput.value = String(cfg.dir || "");
         if (active !== inp.growInput) inp.growInput.value = String(cfg.grow);
         if (active !== inp.featherInput) inp.featherInput.value = String(cfg.feather);
+        if (active !== inp.leadInput) inp.leadInput.value = String(cfg.lead);
         if (active !== inp.policy) inp.policy.value = cfg.audio_policy;
         inp.enabled.checked = cfg.enabled;
     }
@@ -2841,6 +2854,15 @@ function installReplaceWindowsMode(ed) {
             if (!seg) return;
             const cfg = replaceConfigFromSeg(seg);
             cfg.feather = Math.max(0, Number(inp.featherInput.value) || 0);
+            ensureReplaceConfigOnSeg(seg, cfg);
+            commitLight();
+        });
+        inp.leadInput.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            const v = Number(inp.leadInput.value);
+            cfg.lead = Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
             ensureReplaceConfigOnSeg(seg, cfg);
             commitLight();
         });

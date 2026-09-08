@@ -232,3 +232,57 @@ def test_prepare_state_rejects_bad_shapes():
             source_frames=frames, reference_frames=frames, mask_hi=short_mask,
             spec=ReplaceSpec(enabled=True),
         )
+
+
+def _write_frames_mapping(root, mapping) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    for frame_index, value in mapping.items():
+        img = np.full((8, 8), 0, dtype=np.uint8)
+        if value:
+            img[4:, :] = 255
+        Image.fromarray(img, mode="L").save(root / f"frame_{frame_index:08d}.png")
+
+
+def test_prepare_replace_window_lead_reuses_real_head(tmp_path):
+    # Asset covers frames 0..3 (even = subject); nominal window is 2..4.
+    _write_mask_frames(tmp_path, 4)
+    visible = torch.rand(5, 8, 8, 3)
+    reference = torch.rand(5, 8, 8, 3)
+    prepared = prepare_replace_window(
+        mask_spec={"kind": "frames", "dir": str(tmp_path), "offset": 0},
+        start_frame=2,
+        nominal_length=2,
+        visible_frames=visible,
+        reference_frames=reference,
+        lead_frames=2,
+    )
+    assert prepared is not None
+    # Mask covers lead+nominal and is then aligned to the visible length.
+    assert tuple(prepared["mask_vis"].shape) == (5, 8, 8)
+    # Lead head used the real earlier asset frame (frame 0 even -> subject).
+    assert prepared["mask_vis"][0, 7, 0].item() == 1.0
+    assert prepared["mask_vis"][1, 0, 0].item() == 0.0  # frame 1 odd -> bg
+    assert tuple(prepared["sanitized_reference"].shape) == (5, 8, 8, 3)
+
+
+def test_prepare_replace_window_lead_replicates_head_when_missing(tmp_path):
+    # Asset covers only the nominal window frames (2..3); no real head frames.
+    _write_frames_mapping(tmp_path, {2: 0, 3: 1})
+    visible = torch.rand(4, 8, 8, 3)
+    reference = torch.rand(4, 8, 8, 3)
+    prepared = prepare_replace_window(
+        mask_spec={"kind": "frames", "dir": str(tmp_path), "offset": 0},
+        start_frame=2,
+        nominal_length=2,
+        visible_frames=visible,
+        reference_frames=reference,
+        lead_frames=2,
+    )
+    assert prepared is not None
+    mask = prepared["mask_vis"]
+    assert tuple(mask.shape) == (4, 8, 8)
+    # Head is body[0] replicated (frame 2 -> background), then the body follows.
+    assert mask[0, 0, 0].item() == 0.0
+    assert torch.equal(mask[0], mask[1])
+    assert mask[2, 0, 0].item() == 0.0   # body[0] == frame 2
+    assert mask[3, 7, 0].item() == 1.0   # body[1] == frame 3 (subject)

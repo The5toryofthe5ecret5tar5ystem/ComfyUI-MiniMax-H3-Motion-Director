@@ -228,6 +228,39 @@ def load_mask_window(mask: Any, start_frame: int, length: int) -> torch.Tensor |
     return torch.stack(frames, dim=0)
 
 
+def load_mask_window_with_lead(
+    mask: Any,
+    *,
+    start_frame: int,
+    nominal_length: int,
+    lead_frames: int = 0,
+) -> torch.Tensor | None:
+    """Load a replace mask window extended backward by ``lead_frames``.
+
+    ``start_frame`` / ``nominal_length`` describe the nominal window (the
+    exported frames). When ``lead_frames > 0`` the returned mask is
+    ``lead_frames + nominal_length`` frames long: it first tries the real asset
+    frames covering ``[start-lead, start+nominal_length)`` (whole-scene mask
+    sets), and otherwise replicates the window's first-frame silhouette over
+    the runway head (the regenerated subject settles in place while the source
+    keeps the background pixel-exact). Returns None when the nominal window
+    itself cannot be loaded.
+    """
+    lead = max(0, int(lead_frames or 0))
+    body = load_mask_window(mask, int(start_frame), int(nominal_length))
+    if body is None:
+        return None
+    if not lead:
+        return body
+    full = load_mask_window(
+        mask, int(start_frame) - lead, int(nominal_length) + lead
+    )
+    if full is not None and int(full.shape[0]) == int(body.shape[0]) + lead:
+        return full
+    head = body[:1].repeat(lead, 1, 1)
+    return torch.cat([head, body], dim=0)
+
+
 def to_latent_mask(
     mask_hi: torch.Tensor,
     latent_h: int,
