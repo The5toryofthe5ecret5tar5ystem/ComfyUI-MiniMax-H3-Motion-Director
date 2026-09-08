@@ -385,6 +385,15 @@ def _auto_mask_for_window(body_raw, replace_spec):
                 "auto SAM3 mask produced no subject mask for this window "
                 "(subject absent, no sam3 model, or SAM3 failed - see log)"
             )
+        try:
+            _m = mask_hi.float()
+            _regen_frames = int((_m.amax(dim=(1, 2)) > 0.5).sum().item())
+            log.info(
+                "Segment auto SAM3 mask coverage: mean=%.4g regen_frames=%d/%d",
+                float(_m.mean()), _regen_frames, int(_m.shape[0]),
+            )
+        except Exception:
+            pass
         return mask_hi, ""
     except Exception as exc:
         log.warning("Segment auto SAM3 mask failed: %s", exc)
@@ -1019,15 +1028,29 @@ def execute_director_plan_core(
                     timeline_slot + 1, seg.task_key.upper(), replace_fallback_reason,
                 )
             else:
+                _mv = replace_state['mask_vis']
+                _mvf = _mv.float()
+                try:
+                    _cov = {
+                        "mean": float(_mvf.mean()),
+                        "regen_frames": int((_mvf.amax(dim=(1, 2)) > 0.5).sum().item()),
+                        "total": int(_mvf.shape[0]),
+                    }
+                except Exception:
+                    _cov = {"mean": 0.0, "regen_frames": 0, "total": int(_mv.shape[0])}
                 reports.append(
                     f"Segment {timeline_slot + 1}: masked replace ready - "
                     f"{int(replace_state['mask_vis'].shape[0])} frame mask, "
+                    f"coverage mean={_cov['mean']:.3f} "
+                    f"regen_frames={_cov['regen_frames']}/{_cov['total']}, "
                     f"echo-free motion reference, grow={replace_state['grow']}, "
                     f"feather={replace_state['feather']:g}."
                 )
                 log.info(
-                    "Segment %d: masked replace ready - %d frame mask, grow=%d, feather=%.3g",
+                    "Segment %d: masked replace ready - %d frame mask, "
+                    "coverage mean=%.4g regen_frames=%d/%d, grow=%d, feather=%.3g",
                     timeline_slot + 1, int(replace_state['mask_vis'].shape[0]),
+                    _cov['mean'], _cov['regen_frames'], _cov['total'],
                     replace_state['grow'], replace_state['feather'],
                 )
         report_director_progress(
