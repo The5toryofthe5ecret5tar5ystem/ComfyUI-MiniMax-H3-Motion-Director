@@ -548,6 +548,17 @@ def segment_window_frames(
                 continue
             if frame_idx < len(pils):
                 out[frame_idx] = merged
+        if box is not None:
+            try:
+                nonzero = int(np.count_nonzero(out.any(axis=(1, 2))))
+                log.info(
+                    "SAM3 box seed diagnostic: prompt_frame=%d box=%s "
+                    "nonzero_frames=%d/%d seed_frame_has_mask=%s",
+                    pf, [round(float(v), 3) for v in box], nonzero, len(pils),
+                    bool(out[pf].any()) if pf < len(out) else False,
+                )
+            except Exception:
+                pass
         mask = torch.from_numpy(out.astype(np.float32))
         return mask.contiguous()
     except Exception as exc:
