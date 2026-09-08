@@ -253,6 +253,32 @@ def report_director_segment_preview(
         log.debug("Director preview send skipped: %s", exc)
 
 
+def report_director_mask_check(
+    node_id: str | None,
+    *,
+    segment_index: int,
+    image_b64: str,
+    label: str = "",
+) -> None:
+    """Send a pre-sampling mask sanity-check image to the Live Preview page."""
+    if not node_id or not image_b64:
+        return
+    payload = {
+        "node_id": str(node_id),
+        "segment_index": int(segment_index),
+        "image_b64": str(image_b64),
+        "label": str(label),
+    }
+    try:
+        from server import PromptServer
+
+        srv = PromptServer.instance
+        if srv:
+            srv.send_sync("minimax_motion_director_maskcheck", payload, srv.client_id)
+    except Exception as exc:
+        log.debug("Director mask-check send skipped: %s", exc)
+
+
 def report_director_report(node_id: str | None, report: str) -> None:
     if not node_id:
         return

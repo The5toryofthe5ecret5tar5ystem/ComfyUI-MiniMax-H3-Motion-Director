@@ -769,6 +769,27 @@ export function mountOutputUI(
             ComfyUI Default Preview: SUPPRESSED
           </div>
         </section>
+
+        <section
+          class="mmx-output-card"
+          data-mask-check-card
+          hidden
+        >
+          <h4>
+            Mask check (window start frame)
+          </h4>
+
+          <div
+            class="mmx-result-info"
+            data-mask-check-label
+          >—</div>
+
+          <img
+            data-mask-check-img
+            alt="Mask check"
+            style="max-width:100%;border-radius:4px;display:block;"
+          >
+        </section>
       </aside>
     `;
 
@@ -2283,6 +2304,11 @@ export function mountOutputUI(
             clear: true,
         });
 
+        const maskCard = liveRoot.querySelector("[data-mask-check-card]");
+        const maskImg = liveRoot.querySelector("[data-mask-check-img]");
+        if (maskCard) maskCard.hidden = true;
+        if (maskImg) maskImg.removeAttribute("src");
+
         state.liveStage =
             "generation";
 
@@ -2801,6 +2827,32 @@ export function mountOutputUI(
         }
     })();
 
+    const setMaskCheck = (detail = {}) => {
+        const card = liveRoot.querySelector("[data-mask-check-card]");
+        const img = liveRoot.querySelector("[data-mask-check-img]");
+        const label = liveRoot.querySelector("[data-mask-check-label]");
+        if (!card || !img) return;
+        const uri =
+            detail.image_b64
+            || detail.imageB64
+            || "";
+        if (uri) {
+            img.src = uri;
+            if (label) {
+                label.textContent =
+                    detail.label
+                    || "Mask check";
+            }
+            card.hidden = false;
+        } else {
+            card.hidden = true;
+            img.removeAttribute("src");
+            if (label) {
+                label.textContent = "—";
+            }
+        }
+    };
+
     updateLocale();
     setTab("segment");
     renderSaveStatus();
@@ -2813,6 +2865,7 @@ export function mountOutputUI(
         state,
 
         consumePreview,
+        setMaskCheck,
         clear,
         setReport,
         setAudio,

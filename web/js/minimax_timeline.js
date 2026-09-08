@@ -12852,6 +12852,12 @@ app.registerExtension({
             editor.outputUi?.consumePreview?.(detail);
         });
 
+        api.addEventListener("minimax_motion_director_maskcheck", ({ detail }) => {
+            const editor = findDirectorNode(detail?.node_id)?._minimaxEditor;
+            if (!editor) return;
+            editor.outputUi?.setMaskCheck?.(detail);
+        });
+
         api.addEventListener("minimax_motion_director_report", ({ detail }) => {
             findDirectorNode(detail?.node_id)?._minimaxEditor?.outputUi?.setReport?.(detail?.report || "");
         });
