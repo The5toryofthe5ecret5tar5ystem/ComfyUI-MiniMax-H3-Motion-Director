@@ -84,6 +84,7 @@ def prepare_replace_window(
     grow: int = 0,
     feather: float = 0.0,
     lead_frames: int = 0,
+    mask_hi: torch.Tensor | None = None,
     method: str = "blur",
     blur_sigma: float = 14.0,
 ) -> dict[str, Any] | None:
@@ -96,7 +97,11 @@ def prepare_replace_window(
     ``lead_frames`` extends the returned mask backward over the pre-roll runway
     (real asset frames when present, else a first-frame-silhouette repeat).
 
-    Returns None when the mask cannot be loaded (caller falls back to a plain
+    When ``mask_hi`` is provided (in-run SAM3 auto-mask) it is used directly
+    as the full per-frame mask - it must already cover the whole render window
+    including any lead head - and the file loader is bypassed.
+
+    Returns None when the mask cannot be obtained (caller falls back to a plain
     RV2V window). On success returns::
 
         {"mask_vis": [Tv,H,W] 0..1 aligned to visible_frames,
@@ -112,21 +117,26 @@ def prepare_replace_window(
     if visible_frames.ndim != 4 or reference_frames.ndim != 4:
         return None
     nominal_length = max(1, int(nominal_length))
-    mask_hi = load_mask_window_with_lead(
-        mask_spec,
-        start_frame=int(start_frame),
-        nominal_length=nominal_length,
-        lead_frames=int(lead_frames or 0),
-    )
-    if mask_hi is None:
-        return None
+    if mask_hi is not None:
+        if mask_hi.ndim != 3:
+            return None
+        mask_body = mask_hi.float().contiguous()
+    else:
+        mask_body = load_mask_window_with_lead(
+            mask_spec,
+            start_frame=int(start_frame),
+            nominal_length=nominal_length,
+            lead_frames=int(lead_frames or 0),
+        )
+        if mask_body is None:
+            return None
     vh, vw = int(visible_frames.shape[1]), int(visible_frames.shape[2])
     rh, rw = int(reference_frames.shape[1]), int(reference_frames.shape[2])
     mask_vis = _align_mask_frames(
-        _resize_mask_spatial(mask_hi, vh, vw), int(visible_frames.shape[0])
+        _resize_mask_spatial(mask_body, vh, vw), int(visible_frames.shape[0])
     )
     mask_ref = _align_mask_frames(
-        _resize_mask_spatial(mask_hi, rh, rw), int(reference_frames.shape[0])
+        _resize_mask_spatial(mask_body, rh, rw), int(reference_frames.shape[0])
     )
     sanitized = sanitized_reference_frames(
         reference_frames,

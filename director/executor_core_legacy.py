@@ -348,6 +348,49 @@ def _extract_window_source_audio(plan, seg, fps: float) -> dict[str, Any] | None
         return None
 
 
+def _auto_mask_for_window(body_raw, replace_spec):
+    """In-run SAM3 auto-mask over a replace window's real source frames.
+
+    Returns ``(mask_hi, reason)``: ``mask_hi`` is a [T,H,W] 0..1 subject mask
+    covering the whole render window (including any pre-roll lead head) or None
+    when SAM3 could not run. ``reason`` is a human message for the fallback
+    path. The SAM3 predictor is always released before returning so VRAM is
+    free for H3 sampling.
+    """
+    if body_raw is None or int(body_raw.shape[0]) <= 0:
+        return None, "no source frames for auto SAM3 masking"
+    try:
+        from .sam3_auto import release_sam3, segment_window_frames
+
+        prompts = list(getattr(replace_spec, "sam_prompts", None) or [])
+        try:
+            obj_id = int(getattr(getattr(replace_spec, "mask", None), "obj_id", 0) or 0)
+        except (TypeError, ValueError):
+            obj_id = 0
+        mask_hi = None
+        try:
+            mask_hi = segment_window_frames(
+                body_raw,
+                prompts=prompts,
+                obj_id=obj_id or None,
+            )
+        finally:
+            # Free SAM3 VRAM before the H3 stack samples this window.
+            try:
+                release_sam3()
+            except Exception:
+                pass
+        if mask_hi is None:
+            return None, (
+                "auto SAM3 mask produced no subject mask for this window "
+                "(subject absent, no sam3 model, or SAM3 failed - see log)"
+            )
+        return mask_hi, ""
+    except Exception as exc:
+        log.warning("Segment auto SAM3 mask failed: %s", exc)
+        return None, f"auto SAM3 mask failed: {exc}"
+
+
 def execute_director_plan_core(
     plan: DirectorPlan,
     *,
@@ -931,6 +974,19 @@ def execute_director_plan_core(
             and reference_clip_frames is not None
             and visible_clip_frames is not None
         ):
+            auto_mask_hi = None
+            if str(getattr(replace_spec.mask, "kind", "") or "") == "sam3":
+                # In-run auto mask (no mask files): segment the window's real
+                # source frames by text prompt before building the masked latent.
+                auto_mask_hi, auto_reason = _auto_mask_for_window(body_raw, replace_spec)
+                if auto_mask_hi is None:
+                    replace_fallback_reason = auto_reason or "auto SAM3 mask unavailable"
+                else:
+                    reports.append(
+                        f"Segment {timeline_slot + 1}: auto SAM3 mask ready - "
+                        f"{int(auto_mask_hi.shape[0])} frame mask from prompt "
+                        f"{str((getattr(replace_spec, 'sam_prompts', None) or [''])[0] or '')!r}."
+                    )
             try:
                 prepared = prepare_replace_window(
                     mask_spec=replace_spec.mask.to_json(),
@@ -941,15 +997,18 @@ def execute_director_plan_core(
                     grow=int(getattr(replace_spec.mask, "grow", 0) or 0),
                     feather=float(getattr(replace_spec.mask, "feather", 0.0) or 0.0),
                     lead_frames=int(replace_lead),
+                    mask_hi=auto_mask_hi,
                 )
                 if prepared is None:
-                    replace_fallback_reason = "mask window unavailable for this segment"
+                    if not replace_fallback_reason:
+                        replace_fallback_reason = "mask window unavailable for this segment"
                 else:
                     replace_state = prepared
                     reference_clip_frames = prepared["sanitized_reference"]
             except Exception as exc:
                 replace_state = None
-                replace_fallback_reason = f"mask prepare failed: {exc}"
+                if not replace_fallback_reason:
+                    replace_fallback_reason = f"mask prepare failed: {exc}"
             if replace_state is None:
                 warning_messages.append(
                     f"S{timeline_slot + 1}: Character Replace fell back to a plain "
