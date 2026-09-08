@@ -348,53 +348,94 @@ def _extract_window_source_audio(plan, seg, fps: float) -> dict[str, Any] | None
         return None
 
 
-def _auto_mask_for_window(body_raw, replace_spec):
+def _auto_mask_for_window(body_raw, replace_spec, lead_frames=0):
     """In-run SAM3 auto-mask over a replace window's real source frames.
 
     Returns ``(mask_hi, reason)``: ``mask_hi`` is a [T,H,W] 0..1 subject mask
     covering the whole render window (including any pre-roll lead head) or None
-    when SAM3 could not run. ``reason`` is a human message for the fallback
-    path. The SAM3 predictor is always released before returning so VRAM is
-    free for H3 sampling.
+    when SAM3 could not produce a usable mask. ``reason`` is a human message
+    for the fallback path.
+
+    Robustness: the text prompt is anchored on the window's first frame by
+    default, which fails when that frame (or the pre-roll lead head before the
+    window) is a different shot / cut / a moment with the subject off-frame.
+    So the mask is retried at the true window start (``lead_frames``) and the
+    window middle with the normal thresholds, then with a relaxed detection
+    profile, before giving up. The SAM3 predictor is always released before
+    returning so VRAM is free for H3 sampling.
     """
     if body_raw is None or int(body_raw.shape[0]) <= 0:
         return None, "no source frames for auto SAM3 masking"
     try:
-        from .sam3_auto import release_sam3, segment_window_frames
+        from .sam3_auto import (
+            candidate_prompt_frames,
+            release_sam3,
+            segment_window_frames,
+        )
 
         prompts = list(getattr(replace_spec, "sam_prompts", None) or [])
         try:
             obj_id = int(getattr(getattr(replace_spec, "mask", None), "obj_id", 0) or 0)
         except (TypeError, ValueError):
             obj_id = 0
-        mask_hi = None
+        total = int(body_raw.shape[0])
+        anchors = candidate_prompt_frames(total, int(lead_frames or 0))
+        # Normal profile first on each anchor (frame 0 -> true window start ->
+        # middle -> last), then relaxed retries on the two most robust anchors
+        # (true window start and middle) so a clearly visible but weakly
+        # detected subject can still seed a track.
+        plan: list[tuple[int, bool]] = [(a, False) for a in anchors]
+        for anchor in anchors[1:3]:
+            plan.append((anchor, True))
+        attempted: list[str] = []
+        chosen = None
         try:
-            mask_hi = segment_window_frames(
-                body_raw,
-                prompts=prompts,
-                obj_id=obj_id or None,
-            )
+            for pf, relaxed in plan:
+                mask_hi = None
+                try:
+                    mask_hi = segment_window_frames(
+                        body_raw,
+                        prompts=prompts,
+                        obj_id=obj_id or None,
+                        prompt_frame=pf,
+                        relaxed=relaxed,
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "Segment auto SAM3 attempt failed (prompt_frame=%d relaxed=%s): %s",
+                        pf, relaxed, exc,
+                    )
+                if mask_hi is None:
+                    attempted.append(f"pf={pf}{'/relaxed' if relaxed else ''}:no-mask")
+                    continue
+                try:
+                    _m = mask_hi.float()
+                    regen = int((_m.amax(dim=(1, 2)) > 0.5).sum().item())
+                except Exception:
+                    regen = 0
+                attempted.append(f"pf={pf}{'/relaxed' if relaxed else ''}:{regen}")
+                if regen > 0:
+                    chosen = mask_hi
+                    log.info(
+                        "Segment auto SAM3 mask coverage (prompt_frame=%d relaxed=%s): "
+                        "mean=%.4g regen_frames=%d/%d",
+                        pf, relaxed, float(_m.mean()), regen, int(_m.shape[0]),
+                    )
+                    break
         finally:
             # Free SAM3 VRAM before the H3 stack samples this window.
             try:
                 release_sam3()
             except Exception:
                 pass
-        if mask_hi is None:
-            return None, (
-                "auto SAM3 mask produced no subject mask for this window "
-                "(subject absent, no sam3 model, or SAM3 failed - see log)"
-            )
-        try:
-            _m = mask_hi.float()
-            _regen_frames = int((_m.amax(dim=(1, 2)) > 0.5).sum().item())
-            log.info(
-                "Segment auto SAM3 mask coverage: mean=%.4g regen_frames=%d/%d",
-                float(_m.mean()), _regen_frames, int(_m.shape[0]),
-            )
-        except Exception:
-            pass
-        return mask_hi, ""
+        if chosen is not None:
+            return chosen, ""
+        return None, (
+            "auto SAM3 mask produced no subject mask for this window "
+            f"(attempts: {', '.join(attempted) or 'none'} - check that the "
+            "subject is clearly visible in the window and that the SAM3 prompt "
+            "matches her appearance; see log)"
+        )
     except Exception as exc:
         log.warning("Segment auto SAM3 mask failed: %s", exc)
         return None, f"auto SAM3 mask failed: {exc}"
@@ -1089,7 +1130,9 @@ def execute_director_plan_core(
             if str(getattr(replace_spec.mask, "kind", "") or "") == "sam3":
                 # In-run auto mask (no mask files): segment the window's real
                 # source frames by text prompt before building the masked latent.
-                auto_mask_hi, auto_reason = _auto_mask_for_window(body_raw, replace_spec)
+                auto_mask_hi, auto_reason = _auto_mask_for_window(
+                    body_raw, replace_spec, lead_frames=int(replace_lead or 0)
+                )
                 if auto_mask_hi is None:
                     replace_fallback_reason = auto_reason or "auto SAM3 mask unavailable"
                 else:
