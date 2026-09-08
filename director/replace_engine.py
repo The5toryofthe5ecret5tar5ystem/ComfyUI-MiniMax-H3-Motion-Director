@@ -294,6 +294,37 @@ def to_latent_mask(
     return mask[:, 0].clamp(0.0, 1.0).contiguous()
 
 
+def negative_anchor_frames(
+    frames: torch.Tensor, mask_hi: torch.Tensor
+) -> torch.Tensor:
+    """Render the subject region as a photographic negative (CGlide recipe).
+
+    ``anchor = frames * (1 - mask) + (1 - frames) * mask`` over the subject
+    (regenerate) region while the background stays a normal photograph. Feeding
+    this as <Video 1> makes H3 distrust the old-subject pixels and compose the
+    reference identity natively instead of pasting the original through an
+    inpaint seam.
+
+    ``frames`` is [T, H, W, 3] float 0..1; ``mask_hi`` is [T, H, W] 0..1
+    (1 = subject / regenerate). Mask is spatially resized when needed.
+    """
+    frames = frames.float()
+    mask_hi = mask_hi.float()
+    if mask_hi.ndim == 2:
+        mask_hi = mask_hi.unsqueeze(0)
+    if frames.ndim != 4:
+        raise ValueError(f"anchor frames must be [T,H,W,3], got {tuple(frames.shape)}")
+    if frames.shape[0] != mask_hi.shape[0]:
+        raise ValueError("anchor frames and mask frame counts differ")
+    mask = mask_hi.unsqueeze(-1)  # [T,H,W,1]
+    if tuple(mask.shape[1:3]) != tuple(frames.shape[1:3]):
+        m4 = mask.permute(0, 3, 1, 2)
+        m4 = F.interpolate(m4, size=tuple(frames.shape[1:3]), mode="nearest-exact")
+        mask = m4.permute(0, 2, 3, 1)
+    anchor = frames * (1.0 - mask) + (1.0 - frames) * mask
+    return anchor.clamp(0.0, 1.0).contiguous()
+
+
 def sanitize_source_frames(
     frames: torch.Tensor,
     mask_hi: torch.Tensor,

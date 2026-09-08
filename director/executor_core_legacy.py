@@ -698,8 +698,17 @@ def execute_director_plan_core(
         replace_masked = False
         replace_fallback_reason = ""
         replace_lead = 0
+        replace_render_anchor = False
         if replace_active:
             replace_decode_audio = replace_policy == "generate"
+            # Masked render strategy: 'anchor' (default) = CGlide-style full
+            # re-render whose <Video 1> draws the subject as a photographic
+            # negative; 'inpaint' = noise-mask keep (regenerate only the
+            # subject region, background pixel-exact).
+            replace_render_anchor = (
+                str(getattr(getattr(replace_spec, "mask", None), "render", "") or "anchor")
+                .strip().lower() != "inpaint"
+            )
             apply_visual_context = False
             apply_audio_context = False
             boundary_diagnostics[timeline_slot]["visual"] = False
@@ -720,8 +729,9 @@ def execute_director_plan_core(
                 f"audio policy = {replace_policy}; pre-roll lead = {replace_lead} frames."
             )
             log.info(
-                "Segment %d: CHARACTER REPLACE engaged (task=%s, policy=%s, lead=%d, mask_dir=%s, grow=%s, feather=%s)",
+                "Segment %d: CHARACTER REPLACE engaged (task=%s, policy=%s, lead=%d, render=%s, mask_dir=%s, grow=%s, feather=%s)",
                 timeline_slot + 1, seg.task_key, replace_policy, replace_lead,
+                "anchor" if replace_render_anchor else "inpaint",
                 str(getattr(getattr(replace_spec, "mask", None), "dir", "") or ""),
                 str(getattr(getattr(replace_spec, "mask", None), "grow", 0) or 0),
                 str(getattr(getattr(replace_spec, "mask", None), "feather", 0.0) or 0.0),
@@ -1007,6 +1017,7 @@ def execute_director_plan_core(
                     feather=float(getattr(replace_spec.mask, "feather", 0.0) or 0.0),
                     lead_frames=int(replace_lead),
                     mask_hi=auto_mask_hi,
+                    render_mode=("anchor" if replace_render_anchor else "blur"),
                 )
                 if prepared is None:
                     if not replace_fallback_reason:
@@ -1118,7 +1129,7 @@ def execute_director_plan_core(
             ref_videos=ref_videos, ref_video_audios=ref_video_audios, ref_audios=ref_audios,
         )
 
-        if replace_active and replace_state is not None:
+        if replace_active and replace_state is not None and not replace_render_anchor:
             if visible_clip_frames is None or int(visible_clip_frames.shape[0]) != int(num_frames):
                 replace_state = None
                 replace_masked = False
@@ -1213,6 +1224,20 @@ def execute_director_plan_core(
             )
             log.info(
                 "Segment %d: sampling MASKED replace latent (source background kept)",
+                timeline_slot + 1,
+            )
+        elif replace_render_anchor and replace_state is not None:
+            # Anchor render (default): full reference re-render. <Video 1> is the
+            # source window with the subject region drawn as a photographic
+            # negative, so H3 composes the reference identity natively (no keep
+            # latent, no noise mask - mirrors the proven CGlide recipe).
+            reports.append(
+                f"Segment {timeline_slot + 1}: sampling anchor re-render - "
+                "<Video 1> shows the subject region as a photographic negative; "
+                "the whole clip re-renders from the references."
+            )
+            log.info(
+                "Segment %d: sampling ANCHOR re-render (subject as negative in <Video 1>)",
                 timeline_slot + 1,
             )
         elif replace_active:

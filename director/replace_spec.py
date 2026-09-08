@@ -44,6 +44,7 @@ class ReplaceMaskSpec:
     grow: int = 0           # token-space dilation of the regenerate region
     feather: float = 0.0    # gaussian sigma in token space (0 = hard edge)
     obj_id: int = 1         # SAM3 tracked-object id (kind == "sam3")
+    render: str = "anchor"  # "anchor" (negative-region full re-render) | "inpaint" (noise-mask keep)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -53,6 +54,7 @@ class ReplaceMaskSpec:
             "grow": int(self.grow or 0),
             "feather": float(self.feather or 0.0),
             "obj_id": max(1, int(self.obj_id or 1)),
+            "render": self.render if self.render in ("anchor", "inpaint") else "anchor",
         }
 
     @staticmethod
@@ -62,6 +64,9 @@ class ReplaceMaskSpec:
         kind = str(raw.get("kind") or raw.get("mode") or "none").strip().lower()
         if kind not in ("none", "frames", "sam3"):
             kind = "none"
+        render = str(raw.get("render") or raw.get("strategy") or "anchor").strip().lower()
+        if render not in ("anchor", "inpaint"):
+            render = "anchor"
 
         def _int(key: str, default: int = 0) -> int:
             try:
@@ -82,6 +87,7 @@ class ReplaceMaskSpec:
             grow=max(0, _int("grow")),
             feather=max(0.0, _float("feather")),
             obj_id=max(1, _int("obj_id", 1)),
+            render=render,
         )
 
 

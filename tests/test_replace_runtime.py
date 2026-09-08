@@ -327,3 +327,28 @@ def test_prepare_replace_window_uses_mask_hi_override():
         )
         is None
     )
+
+
+def test_prepare_replace_window_anchor_negative_reference(tmp_path):
+    # render_mode="anchor" builds the CGlide negative-anchor reference: the
+    # subject region is inverted, the background is kept as a normal photo.
+    _write_frames_mapping(tmp_path, {0: 1, 1: 0})
+    torch.manual_seed(4)
+    visible = torch.rand(2, 8, 8, 3)
+    reference = torch.rand(2, 8, 8, 3)
+    prepared = prepare_replace_window(
+        mask_spec={"kind": "frames", "dir": str(tmp_path), "offset": 0},
+        start_frame=0,
+        nominal_length=2,
+        visible_frames=visible,
+        reference_frames=reference,
+        render_mode="anchor",
+    )
+    assert prepared is not None
+    ref = prepared["sanitized_reference"]
+    assert tuple(ref.shape) == (2, 8, 8, 3)
+    # Frame 0 mask value 1 -> subject rows 4.. inverted, background kept.
+    assert torch.allclose(ref[0, 4:, :, :], 1.0 - reference[0, 4:, :, :], atol=1e-5)
+    assert torch.allclose(ref[0, :4, :, :], reference[0, :4, :, :], atol=1e-5)
+    # Frame 1 mask value 0 -> no subject, whole frame kept.
+    assert torch.allclose(ref[1], reference[1], atol=1e-5)
