@@ -2872,6 +2872,9 @@ function installReplaceWindowsMode(ed) {
         label.style.color = "#9fd9b4";
         label.style.minWidth = "18px";
         label.textContent = "W";
+        const gotoBtn = mkSmallButton("\u25B6");
+        gotoBtn.title = "Move the player above to this window's start frame.";
+        gotoBtn.style.padding = "3px 7px";
         const startInput = numField("", 74);
         const startLbl = document.createElement("span");
         startLbl.textContent = "start";
@@ -2924,9 +2927,9 @@ function installReplaceWindowsMode(ed) {
         const audLbl = document.createElement("span");
         audLbl.textContent = "audio";
         line2.append(audLbl, policy);
-        line1.append(handle, enabled, label, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
+        line1.append(handle, enabled, label, gotoBtn, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
         row.append(line1, line2);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy } });
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy } });
         return row;
     }
 
@@ -3056,6 +3059,23 @@ function installReplaceWindowsMode(ed) {
             cfg.enabled = !!inp.enabled.checked;
             ensureReplaceConfigOnSeg(seg, cfg);
             commitLight();
+        });
+        inp.gotoBtn?.addEventListener("click", (e) => {
+            stopDomEvent(e);
+            const seg = getSeg();
+            if (!seg) return;
+            const total = directorTotalFrames(ed);
+            if (total <= 0) return;
+            const f = Math.min(Math.max(0, parseInt(seg.start, 10) || 0), total - 1);
+            try {
+                if (typeof ed.seekToFrame === "function") {
+                    ed.seekToFrame(f, { fromUi: true });
+                } else {
+                    ed.currentFrame = f;
+                    if (ed.seekBar) ed.seekBar.value = String(f);
+                    if (typeof ed._syncStagePreview === "function") ed._syncStagePreview(f, { force: true });
+                }
+            } catch (_err) { /* noop */ }
         });
         inp.btnS?.addEventListener("click", (e) => {
             stopDomEvent(e);
