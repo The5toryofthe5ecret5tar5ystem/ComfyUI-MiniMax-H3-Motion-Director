@@ -12,6 +12,7 @@ from mmx_pkg.director.replace_engine import (
     gaussian_blur_frames,
     load_mask_window,
     load_mask_window_with_lead,
+    negative_anchor_frames,
     replace_windows_in_user_order,
     resolve_segment_audio_policy,
     sanitize_source_frames,
@@ -167,3 +168,27 @@ def test_gaussian_blur_changes_values():
     blurred = gaussian_blur_frames(x, sigma=1.0)
     assert blurred[0, 0, 4, 4].item() < 1.0
     assert blurred[0, 0, 4, 5].item() > 0.0
+
+
+def test_negative_anchor_inverts_subject_keeps_background():
+    torch.manual_seed(1)
+    frames = torch.rand(2, 8, 8, 3)
+    mask = torch.zeros(2, 8, 8)
+    mask[:, :4, :] = 1.0  # top half is subject -> negative
+    anchor = negative_anchor_frames(frames, mask)
+    # Background (below the mask) is kept exactly.
+    assert torch.allclose(anchor[:, 4:, :, :], frames[:, 4:, :, :], atol=1e-6)
+    # Subject region is drawn as a photographic negative.
+    assert torch.allclose(anchor[:, :4, :, :], 1.0 - frames[:, :4, :, :], atol=1e-6)
+    assert bool((anchor >= 0.0).all() and (anchor <= 1.0).all())
+
+
+def test_negative_anchor_resizes_mask_spatial():
+    torch.manual_seed(2)
+    frames = torch.rand(1, 8, 8, 3)
+    small = torch.zeros(1, 4, 4)
+    small[:, :2, :] = 1.0
+    anchor = negative_anchor_frames(frames, small)
+    assert tuple(anchor.shape) == (1, 8, 8, 3)
+    # Resized mask now covers the top half at full res -> inverted there.
+    assert torch.allclose(anchor[0, :4, :, :], 1.0 - frames[0, :4, :, :], atol=1e-6)

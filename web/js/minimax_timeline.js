@@ -2401,6 +2401,7 @@ function replaceConfigFromSeg(seg) {
         audio_policy: policy,
         lead: Number.isFinite(Number(r.lead)) ? Math.max(0, Math.round(Number(r.lead))) : DEFAULT_REPLACE_LEAD_FRAMES,
         kind: String(m.kind || "frames") === "sam3" ? "sam3" : "frames",
+        render: String(m.render || "anchor") === "inpaint" ? "inpaint" : "anchor",
         dir: String(m.dir || ""),
         sam_prompt: String(prompts.find((p) => String(p).trim()) || ""),
         grow: Number.isFinite(Number(m.grow)) ? Math.max(0, Math.round(Number(m.grow))) : 1,
@@ -2423,6 +2424,7 @@ function ensureReplaceConfigOnSeg(seg, cfg) {
             offset: 0,
             grow: Math.max(0, Math.round(Number(c.grow) || 0)),
             feather: Math.max(0, Number(c.feather) || 0),
+            render: String(c.render || "anchor") === "inpaint" ? "inpaint" : "anchor",
         },
         sam_prompts: kind === "sam3" && prompt ? [prompt] : [],
         note: String(c.note || ""),
@@ -2763,6 +2765,8 @@ function installReplaceWindowsMode(ed) {
         const cfg = replaceConfigFromSeg(seg);
         const kindSel = selectField(["frames", "sam3"], cfg.kind, 74);
         kindSel.title = "Mask source: 'frames' = PNG mask folder (mask dir); 'sam3' = auto-segment this window from a text prompt at render time (no files).";
+        const renderSel = selectField(["anchor", "inpaint"], cfg.render, 82);
+        renderSel.title = "Render mode: 'anchor' = full re-render with the subject drawn as a negative in <Video 1> (proven, background re-rendered); 'inpaint' = noise-mask keep (background pixel-exact, subject region regenerated).";
         const dirInput = textField(cfg.dir, 130);
         const dirLbl = document.createElement("span");
         dirLbl.textContent = "mask dir";
@@ -2782,7 +2786,7 @@ function installReplaceWindowsMode(ed) {
         const policy = selectField(REPLACE_AUDIO_POLICIES, cfg.audio_policy, 78);
         const line2 = document.createElement("div");
         line2.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;opacity:.95;";
-        line2.append(kindSel, dirWrap, promptWrap);
+        line2.append(kindSel, renderSel, dirWrap, promptWrap);
         const growLbl = document.createElement("span");
         growLbl.textContent = "grow";
         const fthLbl = document.createElement("span");
@@ -2798,7 +2802,7 @@ function installReplaceWindowsMode(ed) {
         line2.append(audLbl, policy);
         line1.append(enabled, label, startLbl, startInput, endLbl, endInput, lenSpan, del);
         row.append(line1, line2);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, lenSpan, kindSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy } });
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy } });
         return row;
     }
 
@@ -2817,6 +2821,7 @@ function installReplaceWindowsMode(ed) {
         inp.lenSpan.textContent = len + (snap !== len ? " frames -> renders " + snap : " frames");
         if (active !== inp.dirInput) inp.dirInput.value = String(cfg.dir || "");
         if (active !== inp.kindSel) inp.kindSel.value = cfg.kind;
+        if (active !== inp.renderSel) inp.renderSel.value = cfg.render;
         const sam3Kind = cfg.kind === "sam3";
         if (inp.dirWrap) inp.dirWrap.style.display = sam3Kind ? "none" : "inline-flex";
         if (inp.promptWrap) inp.promptWrap.style.display = sam3Kind ? "inline-flex" : "none";
@@ -2893,6 +2898,14 @@ function installReplaceWindowsMode(ed) {
             if (!seg) return;
             const cfg = replaceConfigFromSeg(seg);
             cfg.kind = inp.kindSel.value === "sam3" ? "sam3" : "frames";
+            ensureReplaceConfigOnSeg(seg, cfg);
+            commitLight();
+        });
+        inp.renderSel.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            cfg.render = inp.renderSel.value === "inpaint" ? "inpaint" : "anchor";
             ensureReplaceConfigOnSeg(seg, cfg);
             commitLight();
         });

@@ -99,3 +99,22 @@ def test_mask_kind_sam3_and_obj_id():
     assert spec2.to_json()["mask"]["obj_id"] == 3
     assert ReplaceSpec.from_json(spec2.to_json()).mask.kind == "sam3"
     assert ReplaceMaskSpec.from_json({"kind": "banana"}).kind == "none"
+
+
+def test_mask_render_mode_default_and_parse():
+    # Default render mode is the proven negative-anchor full re-render.
+    spec = parse_replace_spec({"replace": {"enabled": True, "mask": {"kind": "sam3"}}})
+    assert spec.mask.render == "anchor"
+    spec2 = parse_replace_spec(
+        {"replace": {"enabled": True, "mask": {"kind": "frames", "render": "inpaint"}}}
+    )
+    assert spec2.mask.render == "inpaint"
+    assert spec2.to_json()["mask"]["render"] == "inpaint"
+    assert ReplaceSpec.from_json(spec2.to_json()).mask.render == "inpaint"
+    # Unknown render falls back to the default.
+    assert (
+        parse_replace_spec(
+            {"replace": {"enabled": True, "mask": {"kind": "sam3", "render": "bogus"}}}
+        ).mask.render
+        == "anchor"
+    )

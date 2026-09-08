@@ -26,6 +26,7 @@ from .replace_engine import (
     MASK_KEEP,
     MASK_REGENERATE,
     load_mask_window_with_lead,
+    negative_anchor_frames,
     pool_mask_to_latent_time,
     sanitize_source_frames,
     to_latent_mask,
@@ -85,6 +86,7 @@ def prepare_replace_window(
     feather: float = 0.0,
     lead_frames: int = 0,
     mask_hi: torch.Tensor | None = None,
+    render_mode: str = "blur",
     method: str = "blur",
     blur_sigma: float = 14.0,
 ) -> dict[str, Any] | None:
@@ -100,6 +102,12 @@ def prepare_replace_window(
     When ``mask_hi`` is provided (in-run SAM3 auto-mask) it is used directly
     as the full per-frame mask - it must already cover the whole render window
     including any lead head - and the file loader is bypassed.
+
+    ``render_mode`` selects what the motion reference becomes so the original
+    identity cannot echo: ``"blur"`` (default, used by the inpaint path)
+    destroys the subject with a heavy blur; ``"anchor"`` (CGlide-style full
+    re-render) draws the subject as a photographic negative. Both keep the
+    background as a normal photograph.
 
     Returns None when the mask cannot be obtained (caller falls back to a plain
     RV2V window). On success returns::
@@ -138,15 +146,18 @@ def prepare_replace_window(
     mask_ref = _align_mask_frames(
         _resize_mask_spatial(mask_body, rh, rw), int(reference_frames.shape[0])
     )
-    sanitized = sanitized_reference_frames(
-        reference_frames,
-        mask_ref,
-        method=str(method or "blur"),
-        blur_sigma=float(blur_sigma),
-    )
+    if str(render_mode or "").strip().lower() == "anchor":
+        motion_reference = negative_anchor_frames(reference_frames, mask_ref)
+    else:
+        motion_reference = sanitized_reference_frames(
+            reference_frames,
+            mask_ref,
+            method=str(method or "blur"),
+            blur_sigma=float(blur_sigma),
+        )
     return {
         "mask_vis": mask_vis.contiguous(),
-        "sanitized_reference": sanitized.contiguous(),
+        "sanitized_reference": motion_reference.contiguous(),
         "grow": max(0, int(grow or 0)),
         "feather": max(0.0, float(feather or 0.0)),
     }
