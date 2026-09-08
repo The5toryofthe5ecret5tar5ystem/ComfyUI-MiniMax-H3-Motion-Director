@@ -2894,6 +2894,7 @@ function installReplaceWindowsMode(ed) {
         const dirLbl = document.createElement("span");
         dirLbl.textContent = "mask dir";
         const promptInput = textField(cfg.sam_prompt, 150);
+        promptInput.placeholder = DEFAULT_SAM3_PROMPT;
         const promptLbl = document.createElement("span");
         promptLbl.textContent = "SAM3 prompt";
         promptInput.title = "Auto-mask prompt, e.g. 'the woman with long blue hair including every strand'.";
