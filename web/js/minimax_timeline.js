@@ -2366,6 +2366,9 @@ const REPLACE_AUDIO_POLICIES = ["source", "generate", "none"];
 // before the window's nominal start so the regenerated subject settles into the
 // opening pose; the runway head is trimmed before export. Set 0 to disable.
 const DEFAULT_REPLACE_LEAD_FRAMES = 12;
+// Default SAM3 auto-mask prompt for new windows (describe the target as she
+// appears in the source; full-body + hair phrasing improves coverage).
+const DEFAULT_SAM3_PROMPT = "the woman, full body from head to toe, including every strand of her hair";
 
 function directorIsVideoMode(ed) {
     try {
@@ -2749,7 +2752,16 @@ function installReplaceWindowsMode(ed) {
             contextLink: { schema: "previous_context_link_v1", enabled: false, visual: false, audio: false },
         };
         seg.frameCount = seg.length;
-        ensureReplaceConfigOnSeg(seg, { enabled: true, audio_policy: "source", dir: "", grow: 1, feather: 1.0, note: "" });
+        ensureReplaceConfigOnSeg(seg, {
+            enabled: true,
+            audio_policy: "source",
+            kind: "sam3",
+            sam_prompt: DEFAULT_SAM3_PROMPT,
+            render: "anchor",
+            grow: 1,
+            feather: 1.0,
+            note: "",
+        });
         return seg;
     }
 

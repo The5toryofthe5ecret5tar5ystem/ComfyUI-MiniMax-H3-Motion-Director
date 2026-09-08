@@ -33,7 +33,10 @@ log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director.sam3_auto")
 
 # Thresholds proven by sam3_scene_mask.py for prompt-driven subject tracking.
 SAM3_IMAGE_SIZE = 1008
-SAM3_DEFAULT_PROMPT = "the woman"
+SAM3_DEFAULT_PROMPT = (
+    "the woman, full body from head to toe, "
+    "including every strand of her hair"
+)
 SAM3_OBJ_ID_DEFAULT = 1
 
 _PREDICTOR_CACHE: dict[str, Any] = {}
