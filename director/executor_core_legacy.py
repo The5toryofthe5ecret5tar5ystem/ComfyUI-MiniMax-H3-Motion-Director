@@ -1031,6 +1031,12 @@ def execute_director_plan_core(
                         f"{str((getattr(replace_spec, 'sam_prompts', None) or [''])[0] or '')!r}."
                     )
             try:
+                if not replace_render_anchor and reference_clip_frames is not None:
+                    log.info(
+                        "Segment %d: building echo-free motion reference "
+                        "(inpaint: blurring %d reference frames at sigma 14) ...",
+                        timeline_slot + 1, int(reference_clip_frames.shape[0]),
+                    )
                 prepared = prepare_replace_window(
                     mask_spec=replace_spec.mask.to_json(),
                     start_frame=int(getattr(seg, "start_frame", 0) or 0),
