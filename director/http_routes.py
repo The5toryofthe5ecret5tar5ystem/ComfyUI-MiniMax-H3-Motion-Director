@@ -420,6 +420,15 @@ def _run_window_mask_test(body: dict):
     long_edge = _int_field("longEdge", "long_edge")
     action = str(body.get("action") or "").strip().lower()
     try:
+        test_frames = int(body.get("testFrames") if body.get("testFrames") is not None else body.get("test_frames", 0) or 0)
+    except (TypeError, ValueError):
+        test_frames = 0
+    # The manual quick test only needs the opening of the window (seed + a short
+    # tracking stretch) - running all ~222 frames wastes ~2 min per test. Cap
+    # quick tests to the first 48 frames unless the caller says otherwise.
+    if test_frames <= 0 and action != "full":
+        test_frames = 48
+    try:
         pick_frame = int(body.get("pickFrame") if body.get("pickFrame") is not None else body.get("pick_frame", -1) or -1)
     except (TypeError, ValueError):
         pick_frame = -1
@@ -455,12 +464,20 @@ def _run_window_mask_test(body: dict):
     frames = load_timeline_segment(timeline, begin, end)
 
     frame_count = int(frames.shape[0])
+    original_count = frame_count
     head = max(0, start - begin)
     effective_lead = min(lead, head)
     if pick_frame is not None and pick_frame >= 0:
         pick_index = max(0, min(int(pick_frame), frame_count - 1))
     else:
         pick_index = max(0, min(effective_lead, frame_count - 1))
+    # Quick tests run on the first N frames only (seed + short tracking). The
+    # frame shown for picking is the same frame either way, so truncation below
+    # is fine for both the frame action and the mask run.
+    if action != "full" and test_frames > 0 and test_frames < frame_count:
+        frames = frames[: int(test_frames)]
+        frame_count = int(frames.shape[0])
+        pick_index = max(0, min(pick_index, frame_count - 1))
     frame_w = int(frames.shape[2])
     frame_h = int(frames.shape[1])
 
@@ -490,20 +507,27 @@ def _run_window_mask_test(body: dict):
     )
     mask = result.get("mask")
     coverage = mask_coverage(mask)
+    tested_note = (
+        f" (first {frame_count} of {original_count} window frames)"
+        if original_count > frame_count
+        else ""
+    )
     if mask is None:
         label = (
             "Window mask test: NO subject detected"
             + (" (single quick pass - not the full retry policy)" if action != "full" else "")
             + " - would fall back to plain RV2V"
+            + tested_note
         )
     elif coverage:
         label = (
             f"Window mask test: {int(coverage['regen_frames'])}/{int(coverage['total'])} "
             f"frames regenerated (mean {float(coverage['mean']):.2f})"
             + (" [box-seeded]" if result.get("used_box") else "")
+            + tested_note
         )
     else:
-        label = "Window mask test: coverage unavailable"
+        label = "Window mask test: coverage unavailable" + tested_note
     image_b64 = compose_mask_check_jpeg(
         frames,
         mask,
@@ -524,6 +548,7 @@ def _run_window_mask_test(body: dict):
         "width": frame_w,
         "height": frame_h,
         "frames": frame_count,
+        "original_frames": original_count,
         "start": start,
         "end": end,
     }
