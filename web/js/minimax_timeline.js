@@ -2677,12 +2677,22 @@ function installReplaceWindowsMode(ed) {
     hTitle.style.color = "#8fe3b0";
     const hSub = document.createElement("span");
     hSub.style.color = "#7fa08b";
-    hSub.textContent = "masked, background kept, gaps allowed. Lengths auto-snap to H3-valid (17k+5) on run. lead = frames rendered before start (pose runway, 0 = off).";
+    hSub.textContent = "masked, background kept, gaps allowed. Lengths auto-snap to H3-valid (17k+5) on run. lead = frames rendered before start (pose runway, 0 = off). Add buttons use the 'len' field (default 5s, max 20s).";
     const unit = makeUnitToggle("f", () => renderRows());
-    const addBtn = mkSmallButton("+ Add window");
+    const lenLbl = document.createElement("span");
+    lenLbl.textContent = "len";
+    lenLbl.style.color = "#9fd9b4";
+    const addLenInput = numField("5", 48);
+    addLenInput.title = "Frames or seconds each + Add button uses for the new window's length (default 5s, clamped to 20s max).";
+    addLenInput.style.background = "#141d16";
+    const addLenUnit = makeUnitToggle("s", () => { /* no rerender needed */ });
+    const addAfterBtn = mkSmallButton("+ Add after");
+    addAfterBtn.title = "Add a window directly after the previous window's end, using the len above.";
+    const addAtBtn = mkSmallButton("+ Add at playhead");
+    addAtBtn.title = "Add a window starting at the current playhead position in the source player above, using the len above.";
     const clearHelp = document.createElement("span");
     clearHelp.style.color = "#7fa08b";
-    header.append(hTitle, hSub, unit, addBtn);
+    header.append(hTitle, hSub, unit, lenLbl, addLenInput, addLenUnit, addAfterBtn, addAtBtn);
     host.append(header);
 
     const rowsEl = document.createElement("div");
@@ -2753,13 +2763,50 @@ function installReplaceWindowsMode(ed) {
         return end;
     }
 
-    addBtn.addEventListener("click", (e) => {
-        stopDomEvent(e);
+    function addLengthFrames() {
+        const fps = directorFps(ed) || 24;
+        const raw = String(addLenInput.value || "").trim();
+        let frames;
+        if (raw === "") {
+            frames = 5 * fps;
+        } else if (addLenUnit._unit === "s") {
+            const s = parseFloat(raw);
+            frames = Number.isFinite(s) ? s * fps : 5 * fps;
+        } else {
+            const f = parseInt(raw, 10);
+            frames = Number.isFinite(f) ? f : 5 * fps;
+        }
+        // Clamp to [1 frame .. 20 seconds max].
+        const maxFrames = Math.max(1, Math.round(20 * fps));
+        return Math.max(1, Math.min(Math.round(frames), maxFrames));
+    }
+
+    function pushNewWindow(start, length) {
         const segs = ed.timeline && ed.timeline.segments;
         if (!segs) return;
-        segs.push(newWindowSeg(findLastEnd(), 175));
+        segs.push(newWindowSeg(start, length));
         commitLight();
         renderRows();
+    }
+
+    addAfterBtn.addEventListener("click", (e) => {
+        stopDomEvent(e);
+        pushNewWindow(findLastEnd(), addLengthFrames());
+    });
+
+    addAtBtn.addEventListener("click", (e) => {
+        stopDomEvent(e);
+        const total = directorTotalFrames(ed);
+        const len = addLengthFrames();
+        let start = Math.max(0, Math.round(currentPlayheadFrame(ed)));
+        if (total > 0) {
+            // Fit the new window inside the clip from the playhead.
+            start = Math.min(start, Math.max(0, total - 1));
+            const room = Math.max(0, total - start);
+            pushNewWindow(start, Math.max(1, Math.min(len, room)));
+        } else {
+            pushNewWindow(start, len);
+        }
     });
 
     function makeRow(seg) {
