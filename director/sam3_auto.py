@@ -237,6 +237,125 @@ def candidate_prompt_frames(total: int, lead: int = 0) -> list[int]:
     return out
 
 
+def mask_attempt_plan(total: int, lead: int = 0) -> list[tuple[int, bool]]:
+    """Ordered (prompt_frame, relaxed) attempts for a window's auto mask.
+
+    Mirrors the executor's retry policy: every candidate anchor first with the
+    normal profile, then relaxed-profile retries on the two most robust anchors
+    (true window start and middle). Kept here so the executor and the per-window
+    "Test mask" route run the exact same attempts.
+    """
+    anchors = candidate_prompt_frames(total, lead)
+    plan: list[tuple[int, bool]] = [(anchor, False) for anchor in anchors]
+    for anchor in anchors[1:3]:
+        plan.append((anchor, True))
+    return plan
+
+
+def run_window_auto_mask(
+    frames,
+    *,
+    prompts=None,
+    obj_id: int | None = None,
+    lead_frames: int = 0,
+    checkpoint: str | None = None,
+) -> dict[str, Any]:
+    """Run the full window auto-mask attempt policy and return a result dict.
+
+    Attempts every (prompt_frame, relaxed) pair from :func:`mask_attempt_plan`
+    until one yields a non-empty mask. The SAM3 predictor is always released
+    before returning so VRAM is free for H3 sampling.
+
+    Returns ``{"mask": [T,H,W] 0..1 or None, "attempts": [str, ...],
+    "coverage": {...}|None, "reason": str}``. ``reason`` is empty when a mask
+    was found.
+    """
+    if frames is None or int(frames.shape[0]) <= 0 or frames.ndim != 4:
+        return {
+            "mask": None,
+            "attempts": [],
+            "coverage": None,
+            "reason": "no source frames for auto SAM3 masking",
+        }
+    total = int(frames.shape[0])
+    plan = mask_attempt_plan(total, int(lead_frames or 0))
+    attempted: list[str] = []
+    chosen = None
+    chosen_relaxed = False
+    chosen_pf = -1
+    try:
+        for pf, relaxed in plan:
+            mask_hi = None
+            try:
+                mask_hi = segment_window_frames(
+                    frames,
+                    prompts=prompts,
+                    obj_id=obj_id,
+                    prompt_frame=pf,
+                    relaxed=relaxed,
+                    checkpoint=checkpoint,
+                )
+            except Exception as exc:
+                log.warning(
+                    "SAM3 auto-mask attempt failed (prompt_frame=%d relaxed=%s): %s",
+                    pf, relaxed, exc,
+                )
+            if mask_hi is None:
+                attempted.append(f"pf={pf}{'/relaxed' if relaxed else ''}:no-mask")
+                continue
+            try:
+                _m = mask_hi.float()
+                regen = int((_m.amax(dim=(1, 2)) > 0.5).sum().item())
+            except Exception:
+                regen = 0
+            attempted.append(f"pf={pf}{'/relaxed' if relaxed else ''}:{regen}")
+            if regen > 0:
+                chosen = mask_hi
+                chosen_pf = pf
+                chosen_relaxed = relaxed
+                log.info(
+                    "SAM3 auto-mask coverage (prompt_frame=%d relaxed=%s): "
+                    "mean=%.4g regen_frames=%d/%d",
+                    pf, relaxed, float(_m.mean()), regen, int(_m.shape[0]),
+                )
+                break
+    finally:
+        try:
+            release_sam3()
+        except Exception:
+            pass
+    if chosen is not None:
+        coverage = None
+        try:
+            _m = chosen.float()
+            coverage = {
+                "mean": float(_m.mean()),
+                "regen_frames": int((_m.amax(dim=(1, 2)) > 0.5).sum().item()),
+                "total": int(_m.shape[0]),
+            }
+        except Exception:
+            pass
+        return {
+            "mask": chosen,
+            "attempts": attempted,
+            "coverage": coverage,
+            "reason": "",
+            "prompt_frame": chosen_pf,
+            "relaxed": chosen_relaxed,
+        }
+    return {
+        "mask": None,
+        "attempts": attempted,
+        "coverage": None,
+        "reason": (
+            "auto SAM3 mask produced no subject mask for this window "
+            f"(attempts: {', '.join(attempted) or 'none'} - check that the "
+            "subject is clearly visible in the window and that the SAM3 prompt "
+            "matches her appearance; see log)"
+        ),
+    }
+
+
 def frames_to_pils(frames):
     """Convert torch float [T,H,W,3] (0..1) source frames into RGB PIL images."""
     import numpy as np
@@ -389,7 +508,9 @@ __all__ = [
     "SAM3_OBJ_ID_DEFAULT",
     "candidate_prompt_frames",
     "frames_to_pils",
+    "mask_attempt_plan",
     "release_sam3",
     "resolve_sam3_checkpoint",
+    "run_window_auto_mask",
     "segment_window_frames",
 ]

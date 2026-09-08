@@ -2927,9 +2927,17 @@ function installReplaceWindowsMode(ed) {
         const audLbl = document.createElement("span");
         audLbl.textContent = "audio";
         line2.append(audLbl, policy);
+        const testBtn = mkSmallButton("Test mask");
+        testBtn.title = "Run SAM3 on this window now and show the subject mask on the Mask check card (no video render). Uses the current SAM3 prompt, lead and window range.";
+        const testStatus = document.createElement("span");
+        testStatus.style.cssText = "color:#9fd9b4;font-size:11px;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        const testImg = document.createElement("img");
+        testImg.style.cssText = "display:none;max-width:100%;border-radius:4px;";
+        testImg.alt = "Window mask test";
+        line2.append(testBtn, testStatus);
         line1.append(handle, enabled, label, gotoBtn, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
-        row.append(line1, line2);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy } });
+        row.append(line1, line2, testImg);
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, testBtn, testStatus, testImg } });
         return row;
     }
 
@@ -2957,6 +2965,7 @@ function installReplaceWindowsMode(ed) {
         if (active !== inp.featherInput) inp.featherInput.value = String(cfg.feather);
         if (active !== inp.leadInput) inp.leadInput.value = String(cfg.lead);
         if (active !== inp.policy) inp.policy.value = cfg.audio_policy;
+        if (inp.testBtn) inp.testBtn.style.display = sam3Kind ? "" : "none";
         inp.enabled.checked = cfg.enabled;
     }
 
@@ -3107,6 +3116,80 @@ function installReplaceWindowsMode(ed) {
             seg.frameCount = len;
             commitLight();
             renderRows();
+        });
+        inp.testBtn?.addEventListener("click", async (e) => {
+            stopDomEvent(e);
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            if (cfg.kind !== "sam3") return;
+            const total = directorTotalFrames(ed);
+            const fps = directorFps(ed);
+            const start = Math.max(0, parseInt(seg.start, 10) || 0);
+            const len = Math.max(1, parseInt(seg.length ?? seg.frameCount, 10) || 1);
+            const end = Math.min(total > 0 ? total : start + 1, start + len);
+            const video = (ed.timeline && ed.timeline.video) || {};
+            const videoFile = video.videoFile || video.fileName || "";
+            if (!videoFile) {
+                inp.testStatus.textContent = "No source video file set.";
+                return;
+            }
+            const sourceFrameCount = Number(video.sourceFrameCount || (ed.timeline && ed.timeline.totalFrames) || total || 0);
+            const prompt = String(cfg.sam_prompt || inp.promptInput?.value || DEFAULT_SAM3_PROMPT).trim();
+            const lead = Math.max(0, Number(cfg.lead) || 0);
+            const outBlock = (ed.timeline && ed.timeline.output) || {};
+            const longEdge = Number(outBlock.longEdge || outBlock.long_edge || 0) || 0;
+            inp.testBtn.disabled = true;
+            const oldLabel = inp.testBtn.textContent;
+            inp.testBtn.textContent = "masking...";
+            inp.testStatus.textContent = "Running SAM3 over this window (can take a couple of minutes)...";
+            inp.testImg.style.display = "none";
+            inp.testImg.removeAttribute("src");
+            try {
+                const resp = await api.fetchApi("/minimax/motion-director/test_mask", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        videoFile,
+                        subfolder: video.subfolder || "",
+                        type: video.type || "input",
+                        sourceFrameCount,
+                        frameRate: fps || 29.97,
+                        start,
+                        end,
+                        lead,
+                        prompt,
+                        objId: 1,
+                        longEdge,
+                    }),
+                });
+                let data = null;
+                try { data = await resp.json(); } catch (_err) { data = null; }
+                if (!resp.ok || !data || data.ok === false) {
+                    const msg = (data && (data.error || data.reason)) || ("HTTP " + resp.status);
+                    inp.testStatus.textContent = "Mask test failed: " + msg;
+                    return;
+                }
+                if (data.image_b64) {
+                    inp.testImg.src = data.image_b64;
+                    inp.testImg.style.display = "block";
+                    ed.outputUi?.setMaskCheck?.({ image_b64: data.image_b64, label: data.label || "Window mask test" });
+                }
+                if (data.coverage) {
+                    inp.testStatus.textContent =
+                        "Coverage: " + data.coverage.regen_frames + "/" + data.coverage.total
+                        + " frames regen (mean " + Number(data.coverage.mean || 0).toFixed(2) + ")";
+                } else {
+                    inp.testStatus.textContent = data.fallback
+                        ? "No subject detected - this window would fall back to a plain RV2V render. Try a more specific prompt."
+                        : "Mask computed (no coverage info).";
+                }
+            } catch (err) {
+                inp.testStatus.textContent = "Mask test error: " + String(err && err.message ? err.message : err);
+            } finally {
+                inp.testBtn.disabled = false;
+                inp.testBtn.textContent = oldLabel;
+            }
         });
     }
 

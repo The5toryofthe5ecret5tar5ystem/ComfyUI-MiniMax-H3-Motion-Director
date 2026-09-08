@@ -368,6 +368,139 @@ async def minimax_clear_run(request):
     return web.json_response({"ok": True, "node_id": node_id, "cleared": existed})
 
 
+def _run_window_mask_test(body: dict):
+    """Synchronous core of the per-window SAM3 mask test (runs in a worker)."""
+    from .mask_preview import compose_mask_check_jpeg, mask_coverage
+    from .sam3_auto import run_window_auto_mask
+    from ..lib.video_io import load_timeline_segment
+
+    video_file = str(body.get("videoFile") or body.get("video_file") or "").strip()
+    if not video_file:
+        raise ValueError("Missing videoFile.")
+
+    subfolder = str(body.get("subfolder") or "").strip()
+    vtype = str(body.get("type") or "input").strip() or "input"
+    try:
+        frame_rate = float(body.get("frameRate") or body.get("frame_rate") or 24)
+    except (TypeError, ValueError):
+        frame_rate = 24.0
+    try:
+        source_total = int(
+            body.get("sourceFrameCount")
+            or body.get("source_frame_count")
+            or body.get("totalFrames")
+            or body.get("total_frames")
+            or 0
+        )
+    except (TypeError, ValueError):
+        source_total = 0
+    if source_total <= 0:
+        raise ValueError("Missing sourceFrameCount/totalFrames.")
+
+    def _int_field(*names: str, default: int = 0) -> int:
+        for name in names:
+            try:
+                value = int(body.get(name) or default)
+            except (TypeError, ValueError):
+                continue
+            if value:
+                return value
+        return default
+
+    start = _int_field("start", "startFrame", "start_frame")
+    end = _int_field("end", "endFrame", "end_frame")
+    if end <= start:
+        raise ValueError("Window end must be after start.")
+    lead = max(0, _int_field("lead", "leadFrames", "lead_frames"))
+    prompt = str(body.get("prompt") or body.get("samPrompt") or "").strip() or None
+    try:
+        obj_id = int(body.get("objId") or body.get("obj_id") or 1) or None
+    except (TypeError, ValueError):
+        obj_id = None
+    long_edge = _int_field("longEdge", "long_edge")
+
+    timeline = {
+        "frameRate": frame_rate,
+        "totalFrames": source_total,
+        "video": {
+            "videoFile": video_file,
+            "fileName": os.path.basename(video_file.replace("\\", "/")),
+            "subfolder": subfolder,
+            "type": vtype,
+            "sourceFrameCount": source_total,
+        },
+    }
+    if long_edge:
+        timeline["output"] = {"longEdge": long_edge}
+
+    # Mirror the run: mask window = [start-lead, start) lead head + [start, end).
+    begin = max(0, start - lead)
+    end = min(source_total, end)
+    if end <= begin:
+        raise ValueError("Window range falls outside the source.")
+    frames = load_timeline_segment(timeline, begin, end)
+
+    result = run_window_auto_mask(
+        frames,
+        prompts=[prompt] if prompt else None,
+        obj_id=obj_id,
+        lead_frames=min(lead, max(0, start - begin)),
+    )
+    mask = result.get("mask")
+    coverage = mask_coverage(mask)
+    if mask is None:
+        label = "Window mask test: NO subject detected - would fall back to plain RV2V"
+    elif coverage:
+        label = (
+            f"Window mask test: {int(coverage['regen_frames'])}/{int(coverage['total'])} "
+            f"frames regenerated (mean {float(coverage['mean']):.2f})"
+        )
+    else:
+        label = "Window mask test: coverage unavailable"
+    image_b64 = compose_mask_check_jpeg(
+        frames,
+        mask,
+        None,
+        lead=min(lead, max(0, int(frames.shape[0]) - 1)),
+        ref_label="window start frame",
+    )
+    return {
+        "ok": True,
+        "image_b64": image_b64,
+        "coverage": coverage,
+        "attempts": list(result.get("attempts") or []),
+        "fallback": mask is None,
+        "reason": str(result.get("reason") or ""),
+        "label": label,
+        "frames": int(frames.shape[0]),
+        "start": start,
+        "end": end,
+    }
+
+
+async def minimax_test_mask(request):
+    """Run SAM3 auto-mask for one replace window and return the Mask check image."""
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return web.Response(status=400, text=f"Invalid JSON: {exc}")
+
+    if str(body.get("videoFile") or body.get("video_file") or "").strip() in ("", "None"):
+        return web.Response(status=400, text="Missing videoFile.")
+    try:
+        import asyncio
+
+        result = await asyncio.to_thread(_run_window_mask_test, body)
+    except ValueError as exc:
+        return web.Response(status=400, text=str(exc))
+    except Exception as exc:
+        log.warning("MiniMax H3 Motion Director window mask test failed: %s", exc)
+        return web.json_response(
+            {"ok": False, "error": f"Mask test failed: {exc}"}, status=500
+        )
+    return web.json_response(result)
+
+
 def register_routes() -> bool:
     """Register MiniMax H3 Motion Director HTTP routes on the ComfyUI PromptServer."""
     global _ROUTES_REGISTERED
@@ -384,6 +517,7 @@ def register_routes() -> bool:
     _register_route(routes, "POST", "/minimax/motion-director/probe_video", minimax_probe_video)
     _register_route(routes, "GET", "/minimax/motion-director/probe_video", minimax_probe_video)
     _register_route(routes, "POST", "/minimax/motion-director/detect_shots", minimax_detect_shots)
+    _register_route(routes, "POST", "/minimax/motion-director/test_mask", minimax_test_mask)
     _register_route(routes, "GET", "/minimax/motion-director/postprocess_capabilities", minimax_postprocess_capabilities)
     _register_route(routes, "POST", "/minimax/motion-director/save_video", minimax_save_final_video)
     _register_route(routes, "POST", "/minimax/motion-director/release_video", minimax_release_final_video)
