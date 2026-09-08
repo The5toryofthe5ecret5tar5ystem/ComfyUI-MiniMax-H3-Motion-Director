@@ -2395,11 +2395,14 @@ function replaceConfigFromSeg(seg) {
     const r = (seg && seg.replace && typeof seg.replace === "object") ? seg.replace : {};
     const m = (r.mask && typeof r.mask === "object") ? r.mask : {};
     const policy = REPLACE_AUDIO_POLICIES.includes(r.audio_policy) ? r.audio_policy : "source";
+    const prompts = Array.isArray(r.sam_prompts) ? r.sam_prompts : [];
     return {
         enabled: !!r.enabled,
         audio_policy: policy,
         lead: Number.isFinite(Number(r.lead)) ? Math.max(0, Math.round(Number(r.lead))) : DEFAULT_REPLACE_LEAD_FRAMES,
+        kind: String(m.kind || "frames") === "sam3" ? "sam3" : "frames",
         dir: String(m.dir || ""),
+        sam_prompt: String(prompts.find((p) => String(p).trim()) || ""),
         grow: Number.isFinite(Number(m.grow)) ? Math.max(0, Math.round(Number(m.grow))) : 1,
         feather: Number.isFinite(Number(m.feather)) ? Math.max(0, Number(m.feather)) : 1.0,
         note: String(r.note || ""),
@@ -2408,18 +2411,20 @@ function replaceConfigFromSeg(seg) {
 
 function ensureReplaceConfigOnSeg(seg, cfg) {
     const c = cfg || replaceConfigFromSeg(seg);
+    const kind = String(c.kind || "frames") === "sam3" ? "sam3" : "frames";
+    const prompt = String(c.sam_prompt || "").trim();
     seg.replace = {
         enabled: !!c.enabled,
         audio_policy: c.audio_policy,
         lead: Number.isFinite(Number(c.lead)) ? Math.max(0, Math.round(Number(c.lead))) : DEFAULT_REPLACE_LEAD_FRAMES,
         mask: {
-            kind: "frames",
+            kind,
             dir: String(c.dir || ""),
             offset: 0,
             grow: Math.max(0, Math.round(Number(c.grow) || 0)),
             feather: Math.max(0, Number(c.feather) || 0),
         },
-        sam_prompts: [],
+        sam_prompts: kind === "sam3" && prompt ? [prompt] : [],
         note: String(c.note || ""),
     };
     return seg;
@@ -2510,7 +2515,7 @@ function selectField(options, value, width) {
         op.textContent = o;
         s.append(op);
     }
-    s.value = REPLACE_AUDIO_POLICIES.includes(value) ? value : options[0];
+    if (options.includes(value)) s.value = value;
     return s;
 }
 
@@ -2756,16 +2761,28 @@ function installReplaceWindowsMode(ed) {
         lenSpan.style.color = "#7fa08b";
         const del = mkSmallButton("del", true);
         const cfg = replaceConfigFromSeg(seg);
-        const dirInput = textField(cfg.dir, 150);
+        const kindSel = selectField(["frames", "sam3"], cfg.kind, 74);
+        kindSel.title = "Mask source: 'frames' = PNG mask folder (mask dir); 'sam3' = auto-segment this window from a text prompt at render time (no files).";
+        const dirInput = textField(cfg.dir, 130);
         const dirLbl = document.createElement("span");
         dirLbl.textContent = "mask dir";
+        const promptInput = textField(cfg.sam_prompt, 150);
+        const promptLbl = document.createElement("span");
+        promptLbl.textContent = "SAM3 prompt";
+        promptInput.title = "Auto-mask prompt, e.g. 'the woman with long blue hair including every strand'.";
+        const dirWrap = document.createElement("span");
+        dirWrap.style.cssText = "display:inline-flex;align-items:center;gap:4px;";
+        dirWrap.append(dirLbl, dirInput);
+        const promptWrap = document.createElement("span");
+        promptWrap.style.cssText = "display:inline-flex;align-items:center;gap:4px;";
+        promptWrap.append(promptLbl, promptInput);
         const growInput = numField(cfg.grow, 40);
         const featherInput = numField(cfg.feather, 44);
         const leadInput = numField(cfg.lead, 44);
         const policy = selectField(REPLACE_AUDIO_POLICIES, cfg.audio_policy, 78);
         const line2 = document.createElement("div");
         line2.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;opacity:.95;";
-        line2.append(dirLbl, dirInput);
+        line2.append(kindSel, dirWrap, promptWrap);
         const growLbl = document.createElement("span");
         growLbl.textContent = "grow";
         const fthLbl = document.createElement("span");
@@ -2781,7 +2798,7 @@ function installReplaceWindowsMode(ed) {
         line2.append(audLbl, policy);
         line1.append(enabled, label, startLbl, startInput, endLbl, endInput, lenSpan, del);
         row.append(line1, line2);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, lenSpan, dirInput, growInput, featherInput, leadInput, policy } });
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, lenSpan, kindSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy } });
         return row;
     }
 
@@ -2799,6 +2816,11 @@ function installReplaceWindowsMode(ed) {
         const snap = h3AlignFrameCount(len);
         inp.lenSpan.textContent = len + (snap !== len ? " frames -> renders " + snap : " frames");
         if (active !== inp.dirInput) inp.dirInput.value = String(cfg.dir || "");
+        if (active !== inp.kindSel) inp.kindSel.value = cfg.kind;
+        const sam3Kind = cfg.kind === "sam3";
+        if (inp.dirWrap) inp.dirWrap.style.display = sam3Kind ? "none" : "inline-flex";
+        if (inp.promptWrap) inp.promptWrap.style.display = sam3Kind ? "inline-flex" : "none";
+        if (active !== inp.promptInput) inp.promptInput.value = String(cfg.sam_prompt || "");
         if (active !== inp.growInput) inp.growInput.value = String(cfg.grow);
         if (active !== inp.featherInput) inp.featherInput.value = String(cfg.feather);
         if (active !== inp.leadInput) inp.leadInput.value = String(cfg.lead);
@@ -2863,6 +2885,22 @@ function installReplaceWindowsMode(ed) {
             const cfg = replaceConfigFromSeg(seg);
             const v = Number(inp.leadInput.value);
             cfg.lead = Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
+            ensureReplaceConfigOnSeg(seg, cfg);
+            commitLight();
+        });
+        inp.kindSel.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            cfg.kind = inp.kindSel.value === "sam3" ? "sam3" : "frames";
+            ensureReplaceConfigOnSeg(seg, cfg);
+            commitLight();
+        });
+        inp.promptInput.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            cfg.sam_prompt = String(inp.promptInput.value || "").trim();
             ensureReplaceConfigOnSeg(seg, cfg);
             commitLight();
         });

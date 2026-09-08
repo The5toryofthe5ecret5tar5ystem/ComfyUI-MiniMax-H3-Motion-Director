@@ -286,3 +286,44 @@ def test_prepare_replace_window_lead_replicates_head_when_missing(tmp_path):
     assert torch.equal(mask[0], mask[1])
     assert mask[2, 0, 0].item() == 0.0   # body[0] == frame 2
     assert mask[3, 7, 0].item() == 1.0   # body[1] == frame 3 (subject)
+
+
+def test_prepare_replace_window_uses_mask_hi_override():
+    # In-run SAM3 auto-mask: mask_hi replaces file loading entirely, so a
+    # missing dir must not matter. Aligns to visible length (repeat-last pad).
+    torch.manual_seed(1)
+    visible = torch.rand(5, 8, 8, 3)
+    reference = torch.rand(5, 8, 8, 3)
+    mask_hi = torch.zeros(4, 8, 8)
+    mask_hi[:, 4:, :] = 1.0  # subject = lower half
+    prepared = prepare_replace_window(
+        mask_spec={"kind": "sam3", "dir": "/does/not/exist"},
+        start_frame=0,
+        nominal_length=4,
+        visible_frames=visible,
+        reference_frames=reference,
+        mask_hi=mask_hi,
+    )
+    assert prepared is not None
+    assert tuple(prepared["mask_vis"].shape) == (5, 8, 8)
+    assert prepared["mask_vis"][0, 7, 0].item() == 1.0
+    assert torch.equal(prepared["mask_vis"][3], prepared["mask_vis"][4])
+    assert tuple(prepared["sanitized_reference"].shape) == (5, 8, 8, 3)
+    # Background rows survive in the echo-free reference.
+    assert torch.allclose(
+        prepared["sanitized_reference"][0, :4, :, :],
+        reference[0, :4, :, :],
+        atol=1e-5,
+    )
+    # A non-3D mask_hi is rejected (caller falls back).
+    assert (
+        prepare_replace_window(
+            mask_spec={"kind": "sam3"},
+            start_frame=0,
+            nominal_length=4,
+            visible_frames=visible,
+            reference_frames=reference,
+            mask_hi=torch.zeros(1, 1, 8, 8, 3),
+        )
+        is None
+    )

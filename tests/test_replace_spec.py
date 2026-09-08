@@ -83,3 +83,19 @@ def test_replace_lead_aliases_and_roundtrip():
     assert again.lead == 16
     assert again.to_json()["lead"] == 16
     assert ReplaceSpec.from_json(spec.to_json()).mask.kind == "frames"
+
+
+def test_mask_kind_sam3_and_obj_id():
+    block = {"enabled": True, "mask": {"kind": "sam3"}}
+    spec = parse_replace_spec({"replace": block})
+    assert spec.enabled is True
+    assert spec.mask.kind == "sam3"
+    assert spec.mask.obj_id == 1  # default tracked object id
+    spec2 = parse_replace_spec(
+        {"replace": {"enabled": True, "mask": {"kind": "sam3", "obj_id": 3}}}
+    )
+    assert spec2.mask.obj_id == 3
+    assert spec2.to_json()["mask"]["kind"] == "sam3"
+    assert spec2.to_json()["mask"]["obj_id"] == 3
+    assert ReplaceSpec.from_json(spec2.to_json()).mask.kind == "sam3"
+    assert ReplaceMaskSpec.from_json({"kind": "banana"}).kind == "none"

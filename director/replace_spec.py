@@ -31,16 +31,19 @@ DEFAULT_REPLACE_LEAD_FRAMES = 12
 class ReplaceMaskSpec:
     """How the subject mask for one window is obtained.
 
-    Phase 1 supports ``kind="frames"`` (asset mask directory, one PNG per
-    source frame, 0 = background, 255 = subject). ``sam3`` is added in Phase 2.
-    ``grow``/``feather`` run in H3 latent-token space after downscale.
+    ``kind="frames"`` (Phase 1) reads an asset mask directory (one PNG per
+    source frame, 0 = background, 255 = subject). ``kind="sam3"`` (Phase 2)
+    auto-segments the window's real source frames at render time from the
+    window's ``sam_prompts`` (no files). ``grow``/``feather`` run in H3
+    latent-token space after downscale.
     """
 
-    kind: str = "none"      # "none" | "frames" (Phase 2 adds "sam3")
-    dir: str = ""           # frames directory (or sidecar folder)
+    kind: str = "none"      # "none" | "frames" | "sam3"
+    dir: str = ""           # frames directory (or sidecar folder); unused by sam3
     offset: int = 0         # frames in dir are rebased to this source frame
     grow: int = 0           # token-space dilation of the regenerate region
     feather: float = 0.0    # gaussian sigma in token space (0 = hard edge)
+    obj_id: int = 1         # SAM3 tracked-object id (kind == "sam3")
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -49,6 +52,7 @@ class ReplaceMaskSpec:
             "offset": int(self.offset or 0),
             "grow": int(self.grow or 0),
             "feather": float(self.feather or 0.0),
+            "obj_id": max(1, int(self.obj_id or 1)),
         }
 
     @staticmethod
@@ -56,7 +60,7 @@ class ReplaceMaskSpec:
         if not isinstance(raw, dict):
             return ReplaceMaskSpec()
         kind = str(raw.get("kind") or raw.get("mode") or "none").strip().lower()
-        if kind not in ("none", "frames"):
+        if kind not in ("none", "frames", "sam3"):
             kind = "none"
 
         def _int(key: str, default: int = 0) -> int:
@@ -77,6 +81,7 @@ class ReplaceMaskSpec:
             offset=_int("offset"),
             grow=max(0, _int("grow")),
             feather=max(0.0, _float("feather")),
+            obj_id=max(1, _int("obj_id", 1)),
         )
 
 
