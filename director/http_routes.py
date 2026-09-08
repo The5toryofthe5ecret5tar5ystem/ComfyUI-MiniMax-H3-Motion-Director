@@ -418,6 +418,20 @@ def _run_window_mask_test(body: dict):
     except (TypeError, ValueError):
         obj_id = None
     long_edge = _int_field("longEdge", "long_edge")
+    action = str(body.get("action") or "").strip().lower()
+    try:
+        pick_frame = int(body.get("pickFrame") if body.get("pickFrame") is not None else body.get("pick_frame", -1) or -1)
+    except (TypeError, ValueError):
+        pick_frame = -1
+    box = None
+    box_raw = body.get("box") or body.get("boundingBox") or body.get("bounding_box")
+    if isinstance(box_raw, (list, tuple)) and len(box_raw) == 4:
+        try:
+            vals = [float(v) for v in box_raw]
+        except (TypeError, ValueError):
+            vals = []
+        if len(vals) == 4 and all(v == v and 0.0 <= v <= 1.0 for v in vals) and vals[2] > 0.0 and vals[3] > 0.0:
+            box = [vals[0], vals[1], min(vals[2], 1.0 - vals[0]), min(vals[3], 1.0 - vals[1])]
 
     timeline = {
         "frameRate": frame_rate,
@@ -440,11 +454,35 @@ def _run_window_mask_test(body: dict):
         raise ValueError("Window range falls outside the source.")
     frames = load_timeline_segment(timeline, begin, end)
 
+    frame_count = int(frames.shape[0])
+    head = max(0, start - begin)
+    effective_lead = min(lead, head)
+    if pick_frame is not None and pick_frame >= 0:
+        pick_index = max(0, min(int(pick_frame), frame_count - 1))
+    else:
+        pick_index = max(0, min(effective_lead, frame_count - 1))
+    frame_w = int(frames.shape[2])
+    frame_h = int(frames.shape[1])
+
+    if action in ("frame", "pick"):
+        from .mask_preview import frame_jpeg
+
+        return {
+            "ok": True,
+            "action": "frame",
+            "image_b64": frame_jpeg(frames[pick_index]),
+            "width": frame_w,
+            "height": frame_h,
+            "index": pick_index,
+        }
+
     result = run_window_auto_mask(
         frames,
         prompts=[prompt] if prompt else None,
         obj_id=obj_id,
-        lead_frames=min(lead, max(0, start - begin)),
+        lead_frames=effective_lead,
+        boxes=box,
+        boxes_frame=(pick_index if box is not None else -1),
     )
     mask = result.get("mask")
     coverage = mask_coverage(mask)
@@ -454,6 +492,7 @@ def _run_window_mask_test(body: dict):
         label = (
             f"Window mask test: {int(coverage['regen_frames'])}/{int(coverage['total'])} "
             f"frames regenerated (mean {float(coverage['mean']):.2f})"
+            + (" [box-seeded]" if result.get("used_box") else "")
         )
     else:
         label = "Window mask test: coverage unavailable"
@@ -461,7 +500,7 @@ def _run_window_mask_test(body: dict):
         frames,
         mask,
         None,
-        lead=min(lead, max(0, int(frames.shape[0]) - 1)),
+        lead=pick_index,
         ref_label="window start frame",
     )
     return {
@@ -472,7 +511,11 @@ def _run_window_mask_test(body: dict):
         "fallback": mask is None,
         "reason": str(result.get("reason") or ""),
         "label": label,
-        "frames": int(frames.shape[0]),
+        "used_box": bool(result.get("used_box") or box),
+        "pick_index": pick_index,
+        "width": frame_w,
+        "height": frame_h,
+        "frames": frame_count,
         "start": start,
         "end": end,
     }

@@ -118,3 +118,31 @@ def test_mask_render_mode_default_and_parse():
         ).mask.render
         == "anchor"
     )
+
+
+def test_pick_box_parse_clamps_and_roundtrips():
+    block = {
+        "enabled": True,
+        "mask": {"kind": "sam3"},
+        "pick": {"box": [0.2, 0.3, 0.4, 0.5], "frame": 12},
+    }
+    spec = parse_replace_spec({"replace": block})
+    assert spec.pick_box == [0.2, 0.3, 0.4, 0.5]
+    assert spec.pick_frame == 12
+    again = ReplaceSpec.from_json(spec.to_json())
+    assert again.pick_box == [0.2, 0.3, 0.4, 0.5]
+    assert again.pick_frame == 12
+    # Boxes that would run past the edge get width/height clipped.
+    clipped = parse_replace_spec(
+        {"replace": {"enabled": True, "mask": {"kind": "sam3"}, "pick": {"box": [0.9, 0.9, 0.5, 0.5]}}}
+    )
+    assert clipped.pick_box is not None
+    assert clipped.pick_box[2] <= 0.1 and clipped.pick_box[3] <= 0.1
+    # Malformed boxes are dropped.
+    for bad in ([1.5, 0.2, 0.3, 0.4], [0.2, 0.3, 0.4], "x", None):
+        s = parse_replace_spec(
+            {"replace": {"enabled": True, "mask": {"kind": "sam3"}, "pick": {"box": bad, "frame": 0}}}
+        )
+        assert s.pick_box is None
+    # No pick block -> None.
+    assert parse_replace_spec({"replace": {"enabled": True, "mask": {"kind": "sam3"}}}).pick_box is None

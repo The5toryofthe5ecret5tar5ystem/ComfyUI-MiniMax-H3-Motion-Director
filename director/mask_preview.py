@@ -107,3 +107,21 @@ def mask_coverage(mask_vis) -> dict[str, Any] | None:
         }
     except Exception:
         return {"mean": 0.0, "regen_frames": 0, "total": int(mask_vis.shape[0])}
+
+
+def frame_jpeg(frame, max_long: int = 1000) -> str | None:
+    """Encode one RGB frame [H,W,3] (float 0..1) as a JPEG data URI."""
+    from PIL import Image
+
+    if frame is None or frame.ndim != 3:
+        return None
+    arr = (
+        frame.detach().float().cpu().clamp(0.0, 1.0)
+        .mul(255.0).round().to(torch.uint8).numpy()
+    )
+    img = Image.fromarray(arr, "RGB")
+    if max_long and max(int(img.size[0]), int(img.size[1])) > max_long:
+        img.thumbnail((int(max_long), int(max_long)))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=86)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")

@@ -99,6 +99,13 @@ class ReplaceSpec:
     lead: int = DEFAULT_REPLACE_LEAD_FRAMES    # pre-roll runway frames (0 = off)
     sam_prompts: list[str] = field(default_factory=list)  # Phase 2 (stored only)
     note: str = ""
+    # Optional click/box subject seeding (SAM3 visual prompt) for kind == "sam3".
+    # pick_box is a single normalized box [xmin, ymin, width, height] in 0..1 on
+    # the frame at pick_frame (index into the mask window; -1 = true window start
+    # after the lead head). When set, SAM3 is seeded with this box instead of
+    # (or as the first attempt before) the text prompts.
+    pick_box: list[float] | None = None
+    pick_frame: int = -1
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -107,6 +114,10 @@ class ReplaceSpec:
             "lead": max(0, int(self.lead or 0)),
             "mask": self.mask.to_json(),
             "sam_prompts": [str(p) for p in (self.sam_prompts or [])],
+            "pick": {
+                "box": [float(v) for v in (self.pick_box or [])],
+                "frame": int(self.pick_frame if self.pick_frame is not None else -1),
+            } if self.pick_box else None,
         }
 
     @staticmethod
@@ -129,6 +140,23 @@ class ReplaceSpec:
                 except (TypeError, ValueError):
                     lead = DEFAULT_REPLACE_LEAD_FRAMES
                 break
+        pick_box: list[float] | None = None
+        pick_frame = -1
+        pick_raw = raw.get("pick")
+        if isinstance(pick_raw, dict):
+            box_raw = pick_raw.get("box") or pick_raw.get("boxes")
+            if isinstance(box_raw, (list, tuple)) and len(box_raw) == 4:
+                try:
+                    vals = [float(v) for v in box_raw]
+                except (TypeError, ValueError):
+                    vals = []
+                if len(vals) == 4 and all(v == v and 0.0 <= v <= 1.0 for v in vals):
+                    if vals[2] > 0.0 and vals[3] > 0.0:
+                        pick_box = [vals[0], vals[1], min(vals[2], 1.0 - vals[0]), min(vals[3], 1.0 - vals[1])]
+            try:
+                pick_frame = max(-1, int(pick_raw.get("frame", pick_raw.get("frameIndex", -1)) or -1))
+            except (TypeError, ValueError):
+                pick_frame = -1
         return ReplaceSpec(
             enabled=bool(raw.get("enabled")),
             audio_policy=policy,
@@ -136,6 +164,8 @@ class ReplaceSpec:
             lead=lead,
             sam_prompts=prompts,
             note=str(raw.get("note") or ""),
+            pick_box=pick_box,
+            pick_frame=pick_frame,
         )
 
 

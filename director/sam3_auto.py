@@ -252,18 +252,39 @@ def mask_attempt_plan(total: int, lead: int = 0) -> list[tuple[int, bool]]:
     return plan
 
 
+def _sanitize_box(box) -> list[float] | None:
+    """Validate/normalize a single [xmin, ymin, width, height] box (0..1)."""
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return None
+    try:
+        vals = [float(v) for v in box]
+    except (TypeError, ValueError):
+        return None
+    if any(v != v or v < 0.0 or v > 1.0 for v in vals):
+        return None
+    x0, y0, w, h = vals
+    if w <= 0.0 or h <= 0.0:
+        return None
+    return [x0, y0, min(w, 1.0 - x0), min(h, 1.0 - y0)]
+
+
 def run_window_auto_mask(
     frames,
     *,
     prompts=None,
     obj_id: int | None = None,
     lead_frames: int = 0,
+    boxes=None,
+    boxes_frame: int = -1,
     checkpoint: str | None = None,
 ) -> dict[str, Any]:
     """Run the full window auto-mask attempt policy and return a result dict.
 
-    Attempts every (prompt_frame, relaxed) pair from :func:`mask_attempt_plan`
-    until one yields a non-empty mask. The SAM3 predictor is always released
+    When ``boxes`` is a single normalized [xmin, ymin, width, height] box it is
+    tried first as a SAM3 visual prompt on frame ``boxes_frame`` (default = the
+    true window start after the lead head); if that yields no mask the text
+    prompt policy from :func:`mask_attempt_plan` is attempted. Without a box,
+    only the text prompt attempts run. The SAM3 predictor is always released
     before returning so VRAM is free for H3 sampling.
 
     Returns ``{"mask": [T,H,W] 0..1 or None, "attempts": [str, ...],
@@ -278,14 +299,27 @@ def run_window_auto_mask(
             "reason": "no source frames for auto SAM3 masking",
         }
     total = int(frames.shape[0])
-    plan = mask_attempt_plan(total, int(lead_frames or 0))
+    lead = int(lead_frames or 0)
+    box = _sanitize_box(boxes)
+    plan = mask_attempt_plan(total, lead)
+    # (prompt_frame, relaxed, box_for_this_attempt)
+    items: list[tuple[int, bool, list[float] | None]] = []
+    if box is not None:
+        anchor = int(boxes_frame) if boxes_frame is not None and int(boxes_frame) >= 0 else lead
+        anchor = max(0, min(anchor, total - 1))
+        items.append((anchor, False, box))
+    for pf, relaxed in plan:
+        items.append((pf, relaxed, None))
+
     attempted: list[str] = []
     chosen = None
     chosen_relaxed = False
     chosen_pf = -1
+    chosen_box = False
     try:
-        for pf, relaxed in plan:
+        for pf, relaxed, attempt_box in items:
             mask_hi = None
+            label = "box" if attempt_box is not None else "pf"
             try:
                 mask_hi = segment_window_frames(
                     frames,
@@ -293,30 +327,38 @@ def run_window_auto_mask(
                     obj_id=obj_id,
                     prompt_frame=pf,
                     relaxed=relaxed,
+                    boxes=(attempt_box if attempt_box is not None else None),
                     checkpoint=checkpoint,
                 )
             except Exception as exc:
                 log.warning(
-                    "SAM3 auto-mask attempt failed (prompt_frame=%d relaxed=%s): %s",
-                    pf, relaxed, exc,
+                    "SAM3 auto-mask attempt failed (prompt_frame=%d relaxed=%s box=%s): %s",
+                    pf, relaxed, bool(attempt_box), exc,
                 )
             if mask_hi is None:
-                attempted.append(f"pf={pf}{'/relaxed' if relaxed else ''}:no-mask")
+                attempted.append(
+                    f"{'box' if attempt_box is not None else 'pf'}="
+                    f"{pf}{'/relaxed' if relaxed else ''}:no-mask"
+                )
                 continue
             try:
                 _m = mask_hi.float()
                 regen = int((_m.amax(dim=(1, 2)) > 0.5).sum().item())
             except Exception:
                 regen = 0
-            attempted.append(f"pf={pf}{'/relaxed' if relaxed else ''}:{regen}")
+            attempted.append(
+                f"{'box' if attempt_box is not None else 'pf'}="
+                f"{pf}{'/relaxed' if relaxed else ''}:{regen}"
+            )
             if regen > 0:
                 chosen = mask_hi
                 chosen_pf = pf
                 chosen_relaxed = relaxed
+                chosen_box = attempt_box is not None
                 log.info(
-                    "SAM3 auto-mask coverage (prompt_frame=%d relaxed=%s): "
+                    "SAM3 auto-mask coverage (prompt_frame=%d relaxed=%s box=%s): "
                     "mean=%.4g regen_frames=%d/%d",
-                    pf, relaxed, float(_m.mean()), regen, int(_m.shape[0]),
+                    pf, relaxed, bool(attempt_box), float(_m.mean()), regen, int(_m.shape[0]),
                 )
                 break
     finally:
@@ -342,6 +384,7 @@ def run_window_auto_mask(
             "reason": "",
             "prompt_frame": chosen_pf,
             "relaxed": chosen_relaxed,
+            "used_box": chosen_box,
         }
     return {
         "mask": None,
@@ -393,6 +436,7 @@ def segment_window_frames(
     obj_id: int | None = None,
     prompt_frame: int = 0,
     relaxed: bool = False,
+    boxes=None,
 ) -> "torch.Tensor | None":
     """Segment ``frames`` [T,H,W,3] by text prompt into a [T,H,W] 0..1 mask.
 
@@ -402,10 +446,13 @@ def segment_window_frames(
     are merged with OR). An empty prompt list falls back to
     :data:`SAM3_DEFAULT_PROMPT`.
 
-    ``prompt_frame`` chooses which frame index the text prompt is anchored on
-    (the first frame of the window is the default). ``relaxed`` applies the
-    relaxed detection profile (lower score/new-detect thresholds) for this
-    session only; the cached predictor's attributes are restored afterwards.
+    When ``boxes`` is a single normalized [xmin, ymin, width, height] box in
+    0..1 it is used as a SAM3 visual prompt on ``prompt_frame`` instead of the
+    text prompts (dramatically more reliable for a clearly visible subject).
+    ``prompt_frame`` chooses which frame index the prompt is anchored on (the
+    first frame of the window is the default). ``relaxed`` applies the relaxed
+    detection profile (lower score/new-detect thresholds) for this session
+    only; the cached predictor's attributes are restored afterwards.
     """
     import torch
 
@@ -414,8 +461,9 @@ def segment_window_frames(
         return None
     if frames is None or int(frames.shape[0]) <= 0 or frames.ndim != 4:
         return None
+    box = _sanitize_box(boxes) if boxes is not None else None
     text_prompts = [str(p).strip() for p in (prompts or []) if str(p).strip()]
-    if not text_prompts:
+    if not text_prompts and box is None:
         text_prompts = [SAM3_DEFAULT_PROMPT]
     try:
         ckpt, predictor = _acquire_predictor(checkpoint)
@@ -440,16 +488,30 @@ def segment_window_frames(
         pf = max(0, min(int(prompt_frame or 0), len(pils) - 1))
         start_obj = int(obj_id or SAM3_OBJ_ID_DEFAULT)
         with torch.autocast("cuda", dtype=torch.float32):
-            for i, text in enumerate(text_prompts):
+            if box is not None:
+                # Visual (box) prompt: exact geometry, no text grounding.
                 predictor.handle_request(
                     dict(
                         type="add_prompt",
                         session_id=sid,
                         frame_index=pf,
-                        text=text,
-                        obj_id=start_obj + i,
+                        text=None,
+                        bounding_boxes=[box],
+                        bounding_box_labels=[1],
+                        obj_id=start_obj,
                     )
                 )
+            else:
+                for i, text in enumerate(text_prompts):
+                    predictor.handle_request(
+                        dict(
+                            type="add_prompt",
+                            session_id=sid,
+                            frame_index=pf,
+                            text=text,
+                            obj_id=start_obj + i,
+                        )
+                    )
             masks_by_frame: dict[int, np.ndarray | None] = {}
             try:
                 stream = predictor.handle_stream_request(

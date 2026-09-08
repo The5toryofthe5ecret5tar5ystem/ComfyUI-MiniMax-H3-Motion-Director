@@ -47,7 +47,7 @@ def test_run_window_auto_mask_stops_on_first_nonempty(monkeypatch):
     calls: list[tuple[int, bool]] = []
     released = []
 
-    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None):
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None):
         calls.append((int(prompt_frame), bool(relaxed)))
         if int(prompt_frame) == 12 and not relaxed:
             mask = torch.zeros(int(frames.shape[0]), 16, 16)
@@ -67,7 +67,7 @@ def test_run_window_auto_mask_stops_on_first_nonempty(monkeypatch):
 
 
 def test_run_window_auto_mask_full_miss_reports_all_attempts(monkeypatch):
-    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None):
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None):
         return torch.zeros(int(frames.shape[0]), 16, 16)
 
     monkeypatch.setattr(sam3_auto, "segment_window_frames", fake_segment)
@@ -80,6 +80,66 @@ def test_run_window_auto_mask_full_miss_reports_all_attempts(monkeypatch):
     assert len(result["attempts"]) == 6  # 4 anchors normal + 2 relaxed
     assert all(item.endswith(":0") for item in result["attempts"])
     assert "pf=125/relaxed:0" in result["attempts"]
+
+
+def test_run_window_auto_mask_box_seeded_first_and_wins(monkeypatch):
+    calls: list[tuple] = []
+    released = []
+
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, boxes=None, checkpoint=None):
+        calls.append((int(prompt_frame), bool(relaxed), boxes))
+        if boxes is not None:
+            mask = torch.zeros(int(frames.shape[0]), 16, 16)
+            mask[:, 3:13, 3:13] = 1.0
+            return mask
+        return torch.zeros(int(frames.shape[0]), 16, 16)
+
+    monkeypatch.setattr(sam3_auto, "segment_window_frames", fake_segment)
+    monkeypatch.setattr(sam3_auto, "release_sam3", lambda *a, **k: released.append(True))
+
+    box = [0.2, 0.3, 0.4, 0.5]
+    frames = torch.rand(238, 16, 16, 3)
+    result = run_window_auto_mask(
+        frames, prompts=["the woman"], obj_id=1, lead_frames=12, boxes=box, boxes_frame=12
+    )
+    assert result["mask"] is not None
+    assert result["used_box"] is True
+    assert calls[0][0] == 12 and calls[0][2] == box
+    assert len(calls) == 1  # box attempt won immediately
+    assert result["attempts"][0].startswith("box=12:")
+    assert released
+
+
+def test_run_window_auto_mask_box_miss_falls_back_to_text(monkeypatch):
+    calls: list[tuple] = []
+
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, boxes=None, checkpoint=None):
+        calls.append((int(prompt_frame), bool(relaxed), boxes is not None))
+        return torch.zeros(int(frames.shape[0]), 16, 16)
+
+    monkeypatch.setattr(sam3_auto, "segment_window_frames", fake_segment)
+    monkeypatch.setattr(sam3_auto, "release_sam3", lambda *a, **k: None)
+
+    frames = torch.rand(238, 16, 16, 3)
+    result = run_window_auto_mask(
+        frames, prompts=["the woman"], obj_id=1, lead_frames=12,
+        boxes=[0.2, 0.3, 0.4, 0.5], boxes_frame=12,
+    )
+    assert result["mask"] is None
+    assert result["attempts"][0].startswith("box=12:")
+    assert len(result["attempts"]) == 1 + 6  # box attempt + full text plan
+    assert calls[0][2] is True  # first call carried a box
+    assert all(c[2] is False for c in calls[1:])  # text attempts have no box
+
+
+def test_sanitize_box_rejects_bad_shapes():
+    assert sam3_auto._sanitize_box([0.1, 0.2, 0.3, 0.4]) == [0.1, 0.2, 0.3, 0.4]
+    assert sam3_auto._sanitize_box([1.5, 0.2, 0.3, 0.4]) is None
+    assert sam3_auto._sanitize_box([0.1, 0.2, 0.0, 0.4]) is None
+    assert sam3_auto._sanitize_box([0.1, 0.2, 0.3]) is None
+    assert sam3_auto._sanitize_box(None) is None
+    clipped = sam3_auto._sanitize_box([0.9, 0.9, 0.5, 0.5])
+    assert clipped is not None and clipped[2] <= 0.1 and clipped[3] <= 0.1
 
 
 def test_candidate_prompt_frames_starts_at_zero_and_includes_real_window():
