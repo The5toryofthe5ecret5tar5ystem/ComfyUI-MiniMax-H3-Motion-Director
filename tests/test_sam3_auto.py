@@ -19,9 +19,67 @@ from mmx_pkg.director.sam3_auto import (
     _restore_detection_profile,
     candidate_prompt_frames,
     frames_to_pils,
+    mask_attempt_plan,
     resolve_sam3_checkpoint,
+    run_window_auto_mask,
     segment_window_frames,
 )
+
+
+def test_mask_attempt_plan_covers_anchors_then_relaxed():
+    # total 238, 12-frame lead -> anchors [0,12,125,237] + relaxed on [12,125].
+    plan = mask_attempt_plan(238, lead=12)
+    assert plan == [
+        (0, False),
+        (12, False),
+        (125, False),
+        (237, False),
+        (12, True),
+        (125, True),
+    ]
+    # No lead: anchors [0, mid, last] + relaxed on the two real anchors.
+    plan0 = mask_attempt_plan(238, lead=0)
+    assert plan0[0] == (0, False)
+    assert sum(1 for _, relaxed in plan0 if relaxed) == 2
+
+
+def test_run_window_auto_mask_stops_on_first_nonempty(monkeypatch):
+    calls: list[tuple[int, bool]] = []
+    released = []
+
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None):
+        calls.append((int(prompt_frame), bool(relaxed)))
+        if int(prompt_frame) == 12 and not relaxed:
+            mask = torch.zeros(int(frames.shape[0]), 16, 16)
+            mask[:, 4:12, 4:12] = 1.0
+            return mask
+        return torch.zeros(int(frames.shape[0]), 16, 16)
+
+    monkeypatch.setattr(sam3_auto, "segment_window_frames", fake_segment)
+    monkeypatch.setattr(sam3_auto, "release_sam3", lambda *a, **k: released.append(True))
+
+    frames = torch.rand(238, 16, 16, 3)
+    result = run_window_auto_mask(frames, prompts=["the woman"], obj_id=1, lead_frames=12)
+    assert result["mask"] is not None
+    assert result["attempts"] == ["pf=0:0", "pf=12:238"]
+    assert calls == [(0, False), (12, False)]
+    assert released  # predictor always released
+
+
+def test_run_window_auto_mask_full_miss_reports_all_attempts(monkeypatch):
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None):
+        return torch.zeros(int(frames.shape[0]), 16, 16)
+
+    monkeypatch.setattr(sam3_auto, "segment_window_frames", fake_segment)
+    monkeypatch.setattr(sam3_auto, "release_sam3", lambda *a, **k: None)
+
+    frames = torch.rand(238, 16, 16, 3)
+    result = run_window_auto_mask(frames, prompts=["the woman"], obj_id=1, lead_frames=12)
+    assert result["mask"] is None
+    assert result["coverage"] is None
+    assert len(result["attempts"]) == 6  # 4 anchors normal + 2 relaxed
+    assert all(item.endswith(":0") for item in result["attempts"])
+    assert "pf=125/relaxed:0" in result["attempts"]
 
 
 def test_candidate_prompt_frames_starts_at_zero_and_includes_real_window():
