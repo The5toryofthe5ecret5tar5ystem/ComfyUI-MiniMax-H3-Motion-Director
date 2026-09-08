@@ -1,10 +1,17 @@
-"""Mask-check preview helpers (director.executor_core_legacy, CPU)."""
+"""Mask-check preview helpers (director.mask_preview + director.progress, CPU).
+
+Imported from the lightweight ``mask_preview`` module on purpose: the compose
+helper is a pure-CPU montage, and importing ``executor_core_legacy`` at test
+collection time drags in ``comfy.ldm.minimax`` -> ComfyUI's ``model_management``,
+which asserts CUDA at import on the CI runner (CPU-only torch). See CI failure
+history at 3d52287.
+"""
 
 from __future__ import annotations
 
 import torch
 
-from mmx_pkg.director.executor_core_legacy import _compose_mask_check_jpeg
+from mmx_pkg.director.mask_preview import compose_mask_check_jpeg as _compose_mask_check_jpeg
 from mmx_pkg.director.progress import report_director_mask_check
 
 
