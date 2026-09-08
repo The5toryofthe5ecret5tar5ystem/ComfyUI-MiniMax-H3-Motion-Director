@@ -7412,6 +7412,36 @@ class MiniMaxH3MotionDirectorEditor {
             this.normalizeGenSegments();
             return;
         }
+        if (this.timeline?.replaceMode) {
+            // Character Replace windows are user-authored and intentionally
+            // NON-tiled (gaps allowed, each window only covers its own source
+            // range): never re-tile or clamp a window's start to the previous
+            // window's end here - that silently deletes newly added windows
+            // and gaps. Only bound each window to [0, total] and drop
+            // degenerate (zero-frame) ones.
+            const rTotal = this.getTotalFrames();
+            this.timeline.totalFrames = rTotal;
+            if (!rTotal) {
+                this.timeline.segments = [];
+                return;
+            }
+            const bounded = [];
+            for (const seg of this.timeline.segments || []) {
+                if (!seg || typeof seg !== "object") continue;
+                const start = clamp(Math.max(0, parseInt(seg.start, 10) || 0), 0, rTotal);
+                let length = Math.max(
+                    1,
+                    parseInt(seg.length ?? seg.frameCount, 10) || Math.max(1, rTotal - start),
+                );
+                if (start + length > rTotal) length = rTotal - start;
+                if (length < 1) continue;
+                bounded.push({ ...seg, start, length });
+            }
+            this.timeline.segments = bounded;
+            this.selectedIndex = clamp(this.selectedIndex, 0, Math.max(0, bounded.length - 1));
+            this.updateSegmentContinuityUI();
+            return;
+        }
         const total = this.getTotalFrames();
         let segs = [...this.timeline.segments].sort((a, b) => a.start - b.start);
         if (!total) {
