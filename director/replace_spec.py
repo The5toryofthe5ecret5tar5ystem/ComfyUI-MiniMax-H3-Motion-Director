@@ -99,25 +99,33 @@ class ReplaceSpec:
     lead: int = DEFAULT_REPLACE_LEAD_FRAMES    # pre-roll runway frames (0 = off)
     sam_prompts: list[str] = field(default_factory=list)  # Phase 2 (stored only)
     note: str = ""
-    # Optional click/box subject seeding (SAM3 visual prompt) for kind == "sam3".
-    # pick_box is a single normalized box [xmin, ymin, width, height] in 0..1 on
-    # the frame at pick_frame (index into the mask window; -1 = true window start
-    # after the lead head). When set, SAM3 is seeded with this box instead of
-    # (or as the first attempt before) the text prompts.
+    # Optional geometry subject seeding (SAM3) for kind == "sam3". pick_box is
+    # a single normalized box [xmin, ymin, width, height] in 0..1 on the frame
+    # at pick_frame (index into the mask window; -1 = true window start after
+    # the lead head). pick_points/pick_labels are normalized [x, y] clicks with
+    # 0/1 labels (1 = include, 0 = exclude) that use SAM3's instance tracker
+    # path (points win over the box at runtime).
     pick_box: list[float] | None = None
     pick_frame: int = -1
+    pick_points: list[list[float]] | None = None
+    pick_labels: list[int] | None = None
 
     def to_json(self) -> dict[str, Any]:
+        pick_obj: dict[str, Any] = {}
+        if self.pick_box:
+            pick_obj["box"] = [float(v) for v in (self.pick_box or [])]
+        if self.pick_points:
+            pick_obj["points"] = [[float(v) for v in pt] for pt in self.pick_points]
+            pick_obj["point_labels"] = [int(v) for v in (self.pick_labels or [])]
+        if pick_obj:
+            pick_obj["frame"] = int(self.pick_frame if self.pick_frame is not None else -1)
         return {
             "enabled": bool(self.enabled),
             "audio_policy": self.audio_policy,
             "lead": max(0, int(self.lead or 0)),
             "mask": self.mask.to_json(),
             "sam_prompts": [str(p) for p in (self.sam_prompts or [])],
-            "pick": {
-                "box": [float(v) for v in (self.pick_box or [])],
-                "frame": int(self.pick_frame if self.pick_frame is not None else -1),
-            } if self.pick_box else None,
+            "pick": pick_obj or None,
         }
 
     @staticmethod
@@ -141,6 +149,8 @@ class ReplaceSpec:
                     lead = DEFAULT_REPLACE_LEAD_FRAMES
                 break
         pick_box: list[float] | None = None
+        pick_points: list[list[float]] | None = None
+        pick_labels: list[int] | None = None
         pick_frame = -1
         pick_raw = raw.get("pick")
         if isinstance(pick_raw, dict):
@@ -153,6 +163,34 @@ class ReplaceSpec:
                 if len(vals) == 4 and all(v == v and 0.0 <= v <= 1.0 for v in vals):
                     if vals[2] > 0.0 and vals[3] > 0.0:
                         pick_box = [vals[0], vals[1], min(vals[2], 1.0 - vals[0]), min(vals[3], 1.0 - vals[1])]
+            pts_raw = pick_raw.get("points") or pick_raw.get("clicks")
+            lbl_raw = pick_raw.get("point_labels") or pick_raw.get("pointLabels") or []
+            if isinstance(pts_raw, (list, tuple)) and pts_raw:
+                pts: list[list[float]] = []
+                lbls: list[int] = []
+                valid = True
+                for i, point in enumerate(pts_raw):
+                    if not isinstance(point, (list, tuple)) or len(point) < 2:
+                        valid = False
+                        break
+                    try:
+                        x = float(point[0])
+                        y = float(point[1])
+                    except (TypeError, ValueError):
+                        valid = False
+                        break
+                    if x != x or y != y or not (0.0 <= x <= 1.0) or not (0.0 <= y <= 1.0):
+                        valid = False
+                        break
+                    pts.append([x, y])
+                    try:
+                        label = int(lbl_raw[i]) if i < len(lbl_raw) else 1
+                    except (TypeError, ValueError):
+                        label = 1
+                    lbls.append(1 if label else 0)
+                if valid and pts:
+                    pick_points = pts
+                    pick_labels = lbls
             try:
                 pick_frame = max(-1, int(pick_raw.get("frame", pick_raw.get("frameIndex", -1)) or -1))
             except (TypeError, ValueError):
@@ -166,6 +204,8 @@ class ReplaceSpec:
             note=str(raw.get("note") or ""),
             pick_box=pick_box,
             pick_frame=pick_frame,
+            pick_points=pick_points,
+            pick_labels=pick_labels,
         )
 
 

@@ -47,7 +47,7 @@ def test_run_window_auto_mask_stops_on_first_nonempty(monkeypatch):
     calls: list[tuple[int, bool]] = []
     released = []
 
-    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None):
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None, points=None, point_labels=None):
         calls.append((int(prompt_frame), bool(relaxed)))
         if int(prompt_frame) == 12 and not relaxed:
             mask = torch.zeros(int(frames.shape[0]), 16, 16)
@@ -67,7 +67,7 @@ def test_run_window_auto_mask_stops_on_first_nonempty(monkeypatch):
 
 
 def test_run_window_auto_mask_full_miss_reports_all_attempts(monkeypatch):
-    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None):
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None, points=None, point_labels=None):
         return torch.zeros(int(frames.shape[0]), 16, 16)
 
     monkeypatch.setattr(sam3_auto, "segment_window_frames", fake_segment)
@@ -86,7 +86,7 @@ def test_run_window_auto_mask_box_seeded_first_and_wins(monkeypatch):
     calls: list[tuple] = []
     released = []
 
-    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, boxes=None, checkpoint=None):
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, boxes=None, checkpoint=None, points=None, point_labels=None):
         calls.append((int(prompt_frame), bool(relaxed), boxes))
         if boxes is not None:
             mask = torch.zeros(int(frames.shape[0]), 16, 16)
@@ -113,7 +113,7 @@ def test_run_window_auto_mask_box_seeded_first_and_wins(monkeypatch):
 def test_run_window_auto_mask_box_miss_falls_back_to_text(monkeypatch):
     calls: list[tuple] = []
 
-    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, boxes=None, checkpoint=None):
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, boxes=None, checkpoint=None, points=None, point_labels=None):
         calls.append((int(prompt_frame), bool(relaxed), boxes is not None))
         return torch.zeros(int(frames.shape[0]), 16, 16)
 
@@ -145,7 +145,7 @@ def test_sanitize_box_rejects_bad_shapes():
 def test_run_window_auto_mask_quick_without_box_runs_two_text_attempts(monkeypatch):
     calls: list[tuple[int, bool]] = []
 
-    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None):
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None, points=None, point_labels=None):
         calls.append((int(prompt_frame), bool(relaxed)))
         return torch.zeros(int(frames.shape[0]), 16, 16)
 
@@ -162,11 +162,52 @@ def test_run_window_auto_mask_quick_without_box_runs_two_text_attempts(monkeypat
     assert result["reason"].endswith("Quick test: only the strongest anchor(s) were tried.")
 
 
+def test_sanitize_points_validates_and_defaults_labels():
+    ok = sam3_auto._sanitize_points([[0.2, 0.3], [0.4, 0.5]], [1, 0])
+    assert ok is not None
+    assert ok[0] == [[0.2, 0.3], [0.4, 0.5]]
+    assert ok[1] == [1, 0]
+    assert sam3_auto._sanitize_points([[0.2, 0.3]], None)[1] == [1]
+    assert sam3_auto._sanitize_points([[1.5, 0.5]]) is None
+    assert sam3_auto._sanitize_points([[0.2]]) is None
+    assert sam3_auto._sanitize_points(None) is None
+    assert sam3_auto._sanitize_points([]) is None
+
+
+def test_run_window_auto_mask_points_seeded_first_and_wins(monkeypatch):
+    calls: list[tuple] = []
+    released = []
+
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None, points=None, point_labels=None):
+        calls.append((int(prompt_frame), points, point_labels))
+        if points is not None:
+            mask = torch.zeros(int(frames.shape[0]), 16, 16)
+            mask[:, 4:12, 4:12] = 1.0
+            return mask
+        return torch.zeros(int(frames.shape[0]), 16, 16)
+
+    monkeypatch.setattr(sam3_auto, "segment_window_frames", fake_segment)
+    monkeypatch.setattr(sam3_auto, "release_sam3", lambda *a, **k: released.append(True))
+
+    frames = torch.rand(238, 16, 16, 3)
+    result = run_window_auto_mask(
+        frames, prompts=["the woman"], obj_id=1, lead_frames=12,
+        points=[[0.3, 0.4], [0.5, 0.6]], point_labels=[1, 1], boxes_frame=12, quick=True,
+    )
+    assert result["mask"] is not None
+    assert result["used_points"] is True
+    assert result["attempts"][0].startswith("points=12:")
+    assert len(calls) == 1
+    assert calls[0][1] == [[0.3, 0.4], [0.5, 0.6]]
+    assert calls[0][2] == [1, 1]
+    assert released
+
+
 def test_run_window_auto_mask_quick_with_box_is_single_attempt(monkeypatch):
     calls: list[tuple] = []
     released = []
 
-    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None):
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None, points=None, point_labels=None):
         calls.append((int(prompt_frame), boxes))
         if boxes is not None:
             mask = torch.zeros(int(frames.shape[0]), 16, 16)

@@ -101,6 +101,27 @@ def test_mask_kind_sam3_and_obj_id():
     assert ReplaceMaskSpec.from_json({"kind": "banana"}).kind == "none"
 
 
+def test_pick_points_parse_and_roundtrip():
+    block = {
+        "enabled": True,
+        "mask": {"kind": "sam3"},
+        "pick": {"points": [[0.2, 0.3], [0.4, 0.5]], "point_labels": [1, 0], "frame": 12},
+    }
+    spec = parse_replace_spec({"replace": block})
+    assert spec.pick_points == [[0.2, 0.3], [0.4, 0.5]]
+    assert spec.pick_labels == [1, 0]
+    assert spec.pick_frame == 12
+    again = ReplaceSpec.from_json(spec.to_json())
+    assert again.pick_points == [[0.2, 0.3], [0.4, 0.5]]
+    assert again.pick_labels == [1, 0]
+    # Malformed points are dropped (fall back to box/text).
+    bad = parse_replace_spec(
+        {"replace": {"enabled": True, "mask": {"kind": "sam3"}, "pick": {"points": [[1.7, 0.2]], "frame": 0}}}
+    )
+    assert bad.pick_points is None
+    assert parse_replace_spec({"replace": {"enabled": True, "mask": {"kind": "sam3"}}}).pick_points is None
+
+
 def test_mask_render_mode_default_and_parse():
     # Default render mode is the proven negative-anchor full re-render.
     spec = parse_replace_spec({"replace": {"enabled": True, "mask": {"kind": "sam3"}}})
