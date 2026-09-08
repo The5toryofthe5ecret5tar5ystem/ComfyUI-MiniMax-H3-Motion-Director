@@ -441,6 +441,17 @@ def _run_window_mask_test(body: dict):
             vals = []
         if len(vals) == 4 and all(v == v and 0.0 <= v <= 1.0 for v in vals) and vals[2] > 0.0 and vals[3] > 0.0:
             box = [vals[0], vals[1], min(vals[2], 1.0 - vals[0]), min(vals[3], 1.0 - vals[1])]
+    pts = None
+    pts_lbls = None
+    pts_raw = body.get("points") or body.get("clicks")
+    if isinstance(pts_raw, (list, tuple)) and pts_raw:
+        from .sam3_auto import _sanitize_points
+
+        lbl_raw = body.get("pointLabels") if body.get("pointLabels") is not None else body.get("point_labels")
+        pts = _sanitize_points(pts_raw, lbl_raw)
+        if pts is not None:
+            pts_lbls = pts[1]
+            pts = pts[0]
 
     timeline = {
         "frameRate": frame_rate,
@@ -502,7 +513,9 @@ def _run_window_mask_test(body: dict):
         obj_id=obj_id,
         lead_frames=effective_lead,
         boxes=box,
-        boxes_frame=(pick_index if box is not None else -1),
+        boxes_frame=pick_index,
+        points=pts,
+        point_labels=pts_lbls,
         quick=(action != "full"),
     )
     mask = result.get("mask")
@@ -523,7 +536,7 @@ def _run_window_mask_test(body: dict):
         label = (
             f"Window mask test: {int(coverage['regen_frames'])}/{int(coverage['total'])} "
             f"frames regenerated (mean {float(coverage['mean']):.2f})"
-            + (" [box-seeded]" if result.get("used_box") else "")
+            + (" [points-seeded]" if result.get("used_points") else (" [box-seeded]" if result.get("used_box") else ""))
             + tested_note
         )
     else:
@@ -544,6 +557,7 @@ def _run_window_mask_test(body: dict):
         "reason": str(result.get("reason") or ""),
         "label": label,
         "used_box": bool(result.get("used_box") or box),
+        "used_points": bool(result.get("used_points") or bool(pts)),
         "pick_index": pick_index,
         "width": frame_w,
         "height": frame_h,

@@ -371,18 +371,27 @@ def _auto_mask_for_window(body_raw, replace_spec, lead_frames=0):
         except (TypeError, ValueError):
             obj_id = 0
         pick_box = getattr(replace_spec, "pick_box", None)
+        pick_points = getattr(replace_spec, "pick_points", None)
+        pick_labels = getattr(replace_spec, "pick_labels", None)
         pick_frame = -1
         try:
             pick_frame = int(getattr(replace_spec, "pick_frame", -1) or -1)
         except (TypeError, ValueError):
             pick_frame = -1
+        seed_anchor = (
+            int(pick_frame)
+            if (pick_box or pick_points) and pick_frame >= 0
+            else int(lead_frames or 0)
+        )
         result = run_window_auto_mask(
             body_raw,
             prompts=prompts,
             obj_id=obj_id or None,
             lead_frames=int(lead_frames or 0),
             boxes=pick_box,
-            boxes_frame=(pick_frame if pick_box is not None and pick_frame >= 0 else int(lead_frames or 0)),
+            boxes_frame=seed_anchor,
+            points=pick_points,
+            point_labels=pick_labels,
         )
         if result.get("mask") is not None:
             return result["mask"], ""

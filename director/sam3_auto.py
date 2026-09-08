@@ -268,6 +268,38 @@ def _sanitize_box(box) -> list[float] | None:
     return [x0, y0, min(w, 1.0 - x0), min(h, 1.0 - y0)]
 
 
+def _sanitize_points(points, labels=None):
+    """Validate a list of normalized [x, y] clicks (0..1) into (pts, labels).
+
+    Returns ``([ [x,y], ... ], [0/1, ...])`` or None. Labels default to 1
+    (positive / include); 0 marks a negative (exclude) click.
+    """
+    if not isinstance(points, (list, tuple)) or not points:
+        return None
+    labels = list(labels or []) if isinstance(labels, (list, tuple)) else []
+    pts: list[list[float]] = []
+    lbls: list[int] = []
+    for i, point in enumerate(points):
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+            return None
+        try:
+            x = float(point[0])
+            y = float(point[1])
+        except (TypeError, ValueError):
+            return None
+        if x != x or y != y or not (0.0 <= x <= 1.0) or not (0.0 <= y <= 1.0):
+            return None
+        pts.append([x, y])
+        try:
+            lbl = int(labels[i]) if i < len(labels) else 1
+        except (TypeError, ValueError):
+            lbl = 1
+        lbls.append(1 if lbl else 0)
+    if not pts:
+        return None
+    return pts, lbls
+
+
 def run_window_auto_mask(
     frames,
     *,
@@ -276,6 +308,8 @@ def run_window_auto_mask(
     lead_frames: int = 0,
     boxes=None,
     boxes_frame: int = -1,
+    points=None,
+    point_labels=None,
     checkpoint: str | None = None,
     quick: bool = False,
 ) -> dict[str, Any]:
@@ -308,14 +342,21 @@ def run_window_auto_mask(
     total = int(frames.shape[0])
     lead = int(lead_frames or 0)
     box = _sanitize_box(boxes)
+    pts = _sanitize_points(points, point_labels) if points is not None else None
     plan = mask_attempt_plan(total, lead)
     quick = bool(quick)
-    # (prompt_frame, relaxed, box_for_this_attempt)
-    items: list[tuple[int, bool, list[float] | None]] = []
-    if box is not None:
+    # (prompt_frame, relaxed, seed_for_this_attempt)
+    # seed is None (text) or {"kind": "points"|"box", ...}.
+    items: list[tuple[int, bool, dict | None]] = []
+    seed = None
+    if pts is not None:
+        seed = {"kind": "points", "pts": pts[0], "lbls": pts[1]}
+    elif box is not None:
+        seed = {"kind": "box", "box": box}
+    if seed is not None:
         anchor = int(boxes_frame) if boxes_frame is not None and int(boxes_frame) >= 0 else lead
         anchor = max(0, min(anchor, total - 1))
-        items.append((anchor, False, box))
+        items.append((anchor, False, seed))
         if not quick:
             for pf, relaxed in plan:
                 items.append((pf, relaxed, None))
@@ -333,29 +374,40 @@ def run_window_auto_mask(
     chosen_relaxed = False
     chosen_pf = -1
     chosen_box = False
+    chosen_points = False
     try:
-        for pf, relaxed, attempt_box in items:
+        for pf, relaxed, seed in items:
             mask_hi = None
-            label = "box" if attempt_box is not None else "pf"
+            kind = (seed or {}).get("kind", None) if seed else None
+            kind_label = kind if kind in ("box", "points") else "pf"
             try:
+                seed_boxes = None
+                seed_points = None
+                seed_labels = None
+                if seed is not None and seed.get("kind") == "box":
+                    seed_boxes = seed.get("box")
+                elif seed is not None and seed.get("kind") == "points":
+                    seed_points = seed.get("pts")
+                    seed_labels = seed.get("lbls")
                 mask_hi = segment_window_frames(
                     frames,
                     prompts=prompts,
                     obj_id=obj_id,
                     prompt_frame=pf,
                     relaxed=relaxed,
-                    boxes=(attempt_box if attempt_box is not None else None),
+                    boxes=seed_boxes,
+                    points=seed_points,
+                    point_labels=seed_labels,
                     checkpoint=checkpoint,
                 )
             except Exception as exc:
                 log.warning(
-                    "SAM3 auto-mask attempt failed (prompt_frame=%d relaxed=%s box=%s): %s",
-                    pf, relaxed, bool(attempt_box), exc,
+                    "SAM3 auto-mask attempt failed (prompt_frame=%d relaxed=%s seed=%s): %s",
+                    pf, relaxed, kind_label, exc,
                 )
             if mask_hi is None:
                 attempted.append(
-                    f"{'box' if attempt_box is not None else 'pf'}="
-                    f"{pf}{'/relaxed' if relaxed else ''}:no-mask"
+                    f"{kind_label}={pf}{'/relaxed' if relaxed else ''}:no-mask"
                 )
                 continue
             try:
@@ -364,18 +416,18 @@ def run_window_auto_mask(
             except Exception:
                 regen = 0
             attempted.append(
-                f"{'box' if attempt_box is not None else 'pf'}="
-                f"{pf}{'/relaxed' if relaxed else ''}:{regen}"
+                f"{kind_label}={pf}{'/relaxed' if relaxed else ''}:{regen}"
             )
             if regen >= usable_min:
                 chosen = mask_hi
                 chosen_pf = pf
                 chosen_relaxed = relaxed
-                chosen_box = attempt_box is not None
+                chosen_box = kind == "box"
+                chosen_points = kind == "points"
                 log.info(
-                    "SAM3 auto-mask coverage (prompt_frame=%d relaxed=%s box=%s): "
+                    "SAM3 auto-mask coverage (prompt_frame=%d relaxed=%s seed=%s): "
                     "mean=%.4g regen_frames=%d/%d",
-                    pf, relaxed, bool(attempt_box), float(_m.mean()), regen, int(_m.shape[0]),
+                    pf, relaxed, kind_label, float(_m.mean()), regen, int(_m.shape[0]),
                 )
                 break
     finally:
@@ -402,6 +454,7 @@ def run_window_auto_mask(
             "prompt_frame": chosen_pf,
             "relaxed": chosen_relaxed,
             "used_box": chosen_box,
+            "used_points": chosen_points,
         }
     return {
         "mask": None,
@@ -482,6 +535,8 @@ def segment_window_frames(
     prompt_frame: int = 0,
     relaxed: bool = False,
     boxes=None,
+    points=None,
+    point_labels=None,
 ) -> "torch.Tensor | None":
     """Segment ``frames`` [T,H,W,3] by text prompt into a [T,H,W] 0..1 mask.
 
@@ -507,6 +562,7 @@ def segment_window_frames(
     if frames is None or int(frames.shape[0]) <= 0 or frames.ndim != 4:
         return None
     box = _sanitize_box(boxes) if boxes is not None else None
+    pts = _sanitize_points(points, point_labels) if points is not None else None
     text_prompts = [str(p).strip() for p in (prompts or []) if str(p).strip()]
     if not text_prompts:
         text_prompts = [SAM3_DEFAULT_PROMPT]
@@ -533,8 +589,30 @@ def segment_window_frames(
         pf = max(0, min(int(prompt_frame or 0), len(pils) - 1))
         start_obj = int(obj_id or SAM3_OBJ_ID_DEFAULT)
         seed_immediate = None
+        seed_tag = "points seed" if pts is not None else ("box seed" if box is not None else "")
         with torch.autocast("cuda", dtype=torch.float32):
-            if box is not None:
+            if pts is not None:
+                # Point clicks route to SAM3's instance tracker path (no text,
+                # no box): each positive click includes the object, a 0 label
+                # excludes. This is the geometry-free alternative to the box.
+                add_resp = predictor.handle_request(
+                    dict(
+                        type="add_prompt",
+                        session_id=sid,
+                        frame_index=pf,
+                        text=None,
+                        points=pts[0],
+                        point_labels=pts[1],
+                        obj_id=start_obj,
+                    )
+                )
+                try:
+                    seed_immediate = _merge_mask_outputs(
+                        (add_resp or {}).get("outputs", {}) or {}
+                    )
+                except Exception:
+                    seed_immediate = None
+            elif box is not None:
                 # Text + box together: the text grounds the object class while
                 # the box localizes it. A box-only prompt on this SAM3 build
                 # produced no masklet at all (0 propagation responses), so the
@@ -622,16 +700,21 @@ def segment_window_frames(
                 shape_resized += 1
             if frame_idx < len(out):
                 out[frame_idx] = fitted
-        if box is not None or shape_resized or shape_dropped or responses == 0:
+        if seed_tag or shape_resized or shape_dropped or responses == 0:
             try:
                 nonzero = int(np.count_nonzero(out.any(axis=(1, 2))))
+                seed_desc = None
+                if pts is not None:
+                    seed_desc = f"{len(pts[0])}pt"
+                elif box is not None:
+                    seed_desc = [round(float(v), 3) for v in box]
                 log.info(
-                    "SAM3 mask assembly%s: prompt_frame=%d box=%s text=%r responses=%d "
+                    "SAM3 mask assembly (%s): prompt_frame=%d seed=%s text=%r responses=%d "
                     "seed_immediate=%s ok=%d resized=%d dropped=%d nonzero_frames=%d/%d seed_frame_has_mask=%s",
-                    " (box seed)" if box is not None else "",
+                    seed_tag or "text",
                     pf,
-                    [round(float(v), 3) for v in box] if box is not None else None,
-                    str(text_prompts[0]) if box is not None and text_prompts else None,
+                    seed_desc,
+                    str(text_prompts[0]) if pts is None and box is not None and text_prompts else None,
                     responses,
                     bool(seed_immediate is not None and seed_immediate.any()),
                     shape_ok, shape_resized, shape_dropped,

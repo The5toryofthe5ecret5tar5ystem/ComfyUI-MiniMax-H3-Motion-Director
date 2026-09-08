@@ -3156,25 +3156,51 @@ function installReplaceWindowsMode(ed) {
             };
         };
 
-        const paintPickBox = (canvas, box) => {
+        const paintFrameBase = (canvas) => {
             const ctx = canvas.getContext("2d");
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(canvas._img, 0, 0, canvas.width, canvas.height);
-            if (box) {
-                const x0 = Math.max(0, Math.min(1, box[0])) * canvas.width;
-                const y0 = Math.max(0, Math.min(1, box[1])) * canvas.height;
-                const w = Math.max(0, Math.min(1, box[2])) * canvas.width;
-                const h = Math.max(0, Math.min(1, box[3])) * canvas.height;
-                ctx.strokeStyle = "#4fff8f";
+            if (canvas._img) ctx.drawImage(canvas._img, 0, 0, canvas.width, canvas.height);
+        };
+        const paintPickBox = (canvas, box) => {
+            const ctx = canvas.getContext("2d");
+            paintFrameBase(canvas);
+            if (!box) return;
+            const x0 = Math.max(0, Math.min(1, box[0])) * canvas.width;
+            const y0 = Math.max(0, Math.min(1, box[1])) * canvas.height;
+            const w = Math.max(0, Math.min(1, box[2])) * canvas.width;
+            const h = Math.max(0, Math.min(1, box[3])) * canvas.height;
+            ctx.strokeStyle = "#4fff8f";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x0, y0, w, h);
+            ctx.fillStyle = "rgba(79,255,143,0.15)";
+            ctx.fillRect(x0, y0, w, h);
+        };
+        const paintPickPoints = (canvas, points, labels) => {
+            const ctx = canvas.getContext("2d");
+            paintFrameBase(canvas);
+            const list = Array.isArray(points) ? points : [];
+            const lbls = Array.isArray(labels) ? labels : [];
+            list.forEach((pt, i) => {
+                const x = Math.max(0, Math.min(1, Number(pt[0]) || 0)) * canvas.width;
+                const y = Math.max(0, Math.min(1, Number(pt[1]) || 0)) * canvas.height;
+                const positive = !(Number(lbls[i]) === 0);
+                ctx.beginPath();
+                ctx.arc(x, y, 7, 0, Math.PI * 2);
+                ctx.fillStyle = positive ? "#4fff8f" : "#ff5c5c";
+                ctx.fill();
                 ctx.lineWidth = 2;
-                ctx.strokeRect(x0, y0, w, h);
-                ctx.fillStyle = "rgba(79,255,143,0.15)";
-                ctx.fillRect(x0, y0, w, h);
-            }
+                ctx.strokeStyle = positive ? "#1e7a44" : "#a02020";
+                ctx.stroke();
+                if (!positive) {
+                    ctx.beginPath();
+                    ctx.moveTo(x - 4, y - 4); ctx.lineTo(x + 4, y + 4);
+                    ctx.moveTo(x + 4, y - 4); ctx.lineTo(x - 4, y + 4);
+                    ctx.stroke();
+                }
+            });
         };
 
         const openPickEditor = async (pickSeg) => {
-            const cfg2 = replaceConfigFromSeg(pickSeg);
             const frameResp = await api.fetchApi("/minimax/motion-director/test_mask", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -3187,6 +3213,23 @@ function installReplaceWindowsMode(ed) {
             }
             inp.pickArea.style.display = "flex";
             inp.pickCanvasHost.replaceChildren();
+            // Mode toolbar + dynamic instructions.
+            const toolbar = document.createElement("div");
+            toolbar.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;";
+            const hint = document.createElement("span");
+            hint.style.cssText = "color:#9fd9b4;font-size:11px;flex:1 1 220px;";
+            const mkModeBtn = (label, mode) => {
+                const b = document.createElement("button");
+                b.type = "button";
+                b.textContent = label;
+                b.style.cssText = "padding:2px 8px;border-radius:4px;background:#0f1a13;color:#cfe9d9;border:1px solid #2f5a40;cursor:pointer;";
+                b.dataset.mode = mode;
+                return b;
+            };
+            const btnBox = mkModeBtn("Box", "box");
+            const btnPoints = mkModeBtn("Points (click to select)", "points");
+            toolbar.append(btnBox, btnPoints, hint);
+            inp.pickCanvasHost.append(toolbar);
             const natW = Number(frameData.width) || 1;
             const natH = Number(frameData.height) || 1;
             const maxW = Math.min(560, natW);
@@ -3196,18 +3239,56 @@ function installReplaceWindowsMode(ed) {
             canvas.height = scaledH;
             canvas.style.cssText = "width:" + maxW + "px;height:" + scaledH + "px;cursor:crosshair;display:block;max-width:100%;";
             inp.pickCanvasHost.append(canvas);
+            const frameIndex = Number(frameData.index) || 0;
+            const getStoredPick = () => {
+                const existing = replaceConfigFromSeg(getSeg() || pickSeg).pick || null;
+                return existing && typeof existing === "object" ? existing : null;
+            };
+            const savePick = (pick) => {
+                const segLive = getSeg();
+                if (!segLive) return;
+                const c = replaceConfigFromSeg(segLive);
+                c.pick = Object.assign({}, pick, { frame: frameIndex });
+                ensureReplaceConfigOnSeg(segLive, c);
+                commitLight();
+            };
+            let mode = getStoredPick() && getStoredPick().mode === "points" ? "points" : "box";
+            const setHint = () => {
+                if (mode === "points") {
+                    hint.textContent = "Click on the subject to add a green (include) point. Shift+click or right-click adds a red (exclude) point. Points select the whole instance - no box needed.";
+                } else {
+                    hint.textContent = "Drag a box around the subject, or click the person (a small box is made for you).";
+                }
+            };
+            const paintAll = () => {
+                const stored = getStoredPick();
+                if (mode === "points") {
+                    const pts = stored && stored.mode === "points" ? (stored.points || []) : [];
+                    const lbls = stored && stored.mode === "points" ? (stored.point_labels || []) : [];
+                    paintPickPoints(canvas, pts, lbls);
+                } else {
+                    const box = stored && stored.mode === "box" ? stored.box : null;
+                    paintPickBox(canvas, box);
+                }
+            };
+            const setMode = (next) => {
+                mode = next;
+                btnBox.style.borderColor = mode === "box" ? "#4fff8f" : "#2f5a40";
+                btnBox.style.color = mode === "box" ? "#4fff8f" : "#cfe9d9";
+                btnPoints.style.borderColor = mode === "points" ? "#4fff8f" : "#2f5a40";
+                btnPoints.style.color = mode === "points" ? "#4fff8f" : "#cfe9d9";
+                setHint();
+                paintAll();
+            };
+            btnBox.addEventListener("click", (ev) => { ev.preventDefault(); setMode("box"); });
+            btnPoints.addEventListener("click", (ev) => { ev.preventDefault(); setMode("points"); });
             const img = new Image();
             img.onload = () => {
                 canvas._img = img;
-                canvas._pickIndex = Number(frameData.index) || 0;
-                const existing = (replaceConfigFromSeg(pickSeg).pick || null);
-                paintPickBox(canvas, existing && existing.box ? existing.box : null);
-                inp.testStatus.textContent = existing && existing.box
-                    ? "Box already set for this window. Drag a new box or click the person to replace it."
-                    : "Click the person or drag a box around them.";
+                setMode(mode);
             };
             img.src = frameData.image_b64;
-            let down = null;
+
             const toNorm = (ev) => {
                 const rect = canvas.getBoundingClientRect();
                 return [
@@ -3215,16 +3296,27 @@ function installReplaceWindowsMode(ed) {
                     Math.max(0, Math.min(1, (ev.clientY - rect.top) / rect.height)),
                 ];
             };
+            let down = null;
+
             const commitBox = (box) => {
-                const segLive = getSeg();
-                if (!segLive) return;
-                const c = replaceConfigFromSeg(segLive);
-                c.pick = { box: box, frame: canvas._pickIndex || 0 };
-                ensureReplaceConfigOnSeg(segLive, c);
-                commitLight();
+                savePick({ mode: "box", box: box });
                 inp.testStatus.textContent = "Box saved - SAM3 will use it for this window (Test mask / render).";
             };
-            const finish = (ev) => {
+            const addPoint = (ev) => {
+                const [x, y] = toNorm(ev);
+                const negative = ev.shiftKey || ev.button === 2;
+                const stored = getStoredPick();
+                const pts = (stored && stored.mode === "points" && Array.isArray(stored.points)) ? stored.points.slice() : [];
+                const lbls = (stored && stored.mode === "points" && Array.isArray(stored.point_labels)) ? stored.point_labels.slice() : [];
+                pts.push([x, y]);
+                lbls.push(negative ? 0 : 1);
+                savePick({ mode: "points", points: pts, point_labels: lbls });
+                paintPickPoints(canvas, pts, lbls);
+                inp.testStatus.textContent = negative
+                    ? "Negative point added (excludes). Keep clicking, or Test mask."
+                    : "Point added (includes this spot). Add more on the body if needed, or Test mask.";
+            };
+            const finishBox = (ev) => {
                 if (!down) return;
                 const [x1, y1] = toNorm(ev);
                 const x0 = Math.min(down[0], x1);
@@ -3232,32 +3324,38 @@ function installReplaceWindowsMode(ed) {
                 let w = Math.abs(x1 - down[0]);
                 let h = Math.abs(y1 - down[1]);
                 if (w < 0.015 && h < 0.015) {
-                    // A click = small centered box around the point.
                     const cw = 0.10, chh = 0.14;
                     const cx = Math.max(0, Math.min(1, down[0]));
                     const cy = Math.max(0, Math.min(1, down[1]));
                     commitBox([Math.max(0, cx - cw / 2), Math.max(0, cy - chh / 2), cw, chh]);
                     paintPickBox(canvas, [Math.max(0, cx - cw / 2), Math.max(0, cy - chh / 2), cw, chh]);
                 } else {
-                    const box = [x0, y0, w, h];
-                    commitBox(box);
-                    paintPickBox(canvas, box);
+                    commitBox([x0, y0, w, h]);
+                    paintPickBox(canvas, [x0, y0, w, h]);
                 }
                 down = null;
             };
+
+            canvas.addEventListener("contextmenu", (ev) => { ev.preventDefault(); });
             canvas.addEventListener("pointerdown", (ev) => {
                 ev.preventDefault();
                 canvas.setPointerCapture?.(ev.pointerId);
+                if (mode === "points") {
+                    addPoint(ev);
+                    return;
+                }
                 down = toNorm(ev);
             });
             canvas.addEventListener("pointermove", (ev) => {
-                if (!down) return;
+                if (mode !== "box" || !down) return;
                 const [x1, y1] = toNorm(ev);
                 const x0 = Math.min(down[0], x1);
                 const y0 = Math.min(down[1], y1);
                 paintPickBox(canvas, [x0, y0, Math.abs(x1 - down[0]), Math.abs(y1 - down[1])]);
             });
-            canvas.addEventListener("pointerup", finish);
+            canvas.addEventListener("pointerup", (ev) => {
+                if (mode === "box") finishBox(ev);
+            });
             canvas.addEventListener("pointercancel", () => { down = null; });
         };
 
@@ -3296,18 +3394,23 @@ function installReplaceWindowsMode(ed) {
             }
             const payload = buildMaskRequest(seg);
             const pick = cfg2.pick || null;
-            if (pick && Array.isArray(pick.box) && pick.box.length === 4) {
+            let seedLabel = null;
+            if (pick && pick.mode === "points" && Array.isArray(pick.points) && pick.points.length) {
+                payload.points = pick.points;
+                payload.pointLabels = Array.isArray(pick.point_labels) ? pick.point_labels : pick.points.map(() => 1);
+                if (Number.isFinite(Number(pick.frame))) payload.pickFrame = Number(pick.frame);
+                seedLabel = "points";
+            } else if (pick && Array.isArray(pick.box) && pick.box.length === 4) {
                 payload.box = pick.box;
                 if (Number.isFinite(Number(pick.frame))) payload.pickFrame = Number(pick.frame);
+                seedLabel = "box";
             }
             // Quick sanity check: only run SAM3 over the first ~48 window frames.
             payload.testFrames = 48;
             inp.testBtn.disabled = true;
             const oldLabel = inp.testBtn.textContent;
             inp.testBtn.textContent = "masking...";
-            inp.testStatus.textContent = pick && pick.box
-                ? "Running SAM3 on the first 48 frames with your box (fast check, ~30-60s)..."
-                : "Running SAM3 on the first 48 frames (fast check, ~30-60s)...";
+            inp.testStatus.textContent = "Running SAM3 on the first 48 frames" + (seedLabel ? " with your " + seedLabel + " seed" : "") + " (fast check, ~30-60s)...";
             inp.testImg.style.display = "none";
             inp.testImg.removeAttribute("src");
             try {
@@ -3330,12 +3433,13 @@ function installReplaceWindowsMode(ed) {
                 }
                 if (data.coverage) {
                     inp.testStatus.textContent =
-                        (data.used_box ? "Box-seeded. " : "") + "Coverage: " + data.coverage.regen_frames + "/" + data.coverage.total
+                        (data.used_points ? "Points-seeded. " : (data.used_box ? "Box-seeded. " : ""))
+                        + "Coverage: " + data.coverage.regen_frames + "/" + data.coverage.total
                         + " frames regen (mean " + Number(data.coverage.mean || 0).toFixed(2) + ")";
                 } else {
                     inp.testStatus.textContent = data.fallback
-                        ? "No subject detected" + (payload.box ? " inside your box" : "")
-                        + " - would fall back to a plain RV2V render. Try Pick subject or a more specific prompt."
+                        ? "No subject detected" + (payload.points ? " from your points" : (payload.box ? " inside your box" : ""))
+                        + " - would fall back to a plain RV2V render. Try Pick subject (points or box) or a more specific prompt."
                         : "Mask computed (no coverage info).";
                 }
             } catch (err) {
