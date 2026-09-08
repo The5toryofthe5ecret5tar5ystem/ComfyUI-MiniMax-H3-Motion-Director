@@ -146,6 +146,41 @@ def resolve_segment_raw_clip(plan: DirectorPlan, seg) -> torch.Tensor:
     return load_timeline_segment(plan.raw, seg.start_frame, seg.end_frame)
 
 
+def resolve_segment_raw_head(plan: DirectorPlan, seg, head_frames: int) -> torch.Tensor:
+    """Real source frames immediately before ``seg.start_frame`` (pre-roll).
+
+    Mirrors :func:`resolve_segment_raw_clip` but reads ``[start-head, start)``.
+    Returns an empty tensor when the head is unavailable (source-free tasks,
+    segment-local source clips, external-group sources, or the timeline starts
+    at frame 0); callers clamp their runway to whatever real frames are
+    returned.
+    """
+    head = max(0, int(head_frames))
+    if head <= 0:
+        return torch.zeros((0, 16, 16, 3), dtype=torch.float32)
+    task_key = str(getattr(seg, "task_key", "") or "").lower()
+    if is_source_free_generation_task(task_key):
+        return torch.zeros((0, 16, 16, 3), dtype=torch.float32)
+    if seg.source_clip is not None and int(seg.source_clip.shape[0]) > 0:
+        return torch.zeros((0, 16, 16, 3), dtype=torch.float32)
+    if getattr(seg, "mixed_mode", None):
+        return torch.zeros((0, 16, 16, 3), dtype=torch.float32)
+    if task_key == "fl2v" and is_gen_timeline_plan(plan):
+        return torch.zeros((0, 16, 16, 3), dtype=torch.float32)
+    start = max(0, int(getattr(seg, "start_frame", 0) or 0))
+    if start <= 0:
+        return torch.zeros((0, 16, 16, 3), dtype=torch.float32)
+    begin = max(0, start - head)
+    sv = getattr(plan, "source_video", None)
+    if is_gen_timeline_plan(plan) and isinstance(sv, torch.Tensor) and int(sv.shape[0]) > 0:
+        if begin < start and start <= int(sv.shape[0]):
+            return sv[begin:start].clone()
+        return torch.zeros((0, 16, 16, 3), dtype=torch.float32)
+    if (plan.raw or {}).get("externalGroups", {}).get("active"):
+        return torch.zeros((0, 16, 16, 3), dtype=torch.float32)
+    return load_timeline_segment(plan.raw, begin, start)
+
+
 def resolve_segment_raw_clip_with_lookahead(
     plan: DirectorPlan,
     seg,

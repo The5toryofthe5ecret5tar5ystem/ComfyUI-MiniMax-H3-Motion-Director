@@ -11,6 +11,7 @@ from mmx_pkg.director.replace_spec import ReplaceSpec
 from mmx_pkg.director.replace_engine import (
     gaussian_blur_frames,
     load_mask_window,
+    load_mask_window_with_lead,
     replace_windows_in_user_order,
     resolve_segment_audio_policy,
     sanitize_source_frames,
@@ -87,6 +88,45 @@ def test_load_mask_window_missing_and_invalid():
     assert load_mask_window(None, 0, 2) is None
     assert load_mask_window({"kind": "none", "dir": "/nope"}, 0, 2) is None
     assert load_mask_window({"kind": "frames", "dir": "/does/not/exist"}, 0, 2) is None
+
+
+def test_load_mask_window_with_lead_reuses_real_head(tmp_path):
+    # Asset covers frames 0..4; nominal window starts at frame 2.
+    _write_mask_frames(tmp_path, {0: 0, 1: 0, 2: 1, 3: 1, 4: 1})
+    mask = {"kind": "frames", "dir": str(tmp_path), "offset": 0}
+    out = load_mask_window_with_lead(
+        mask, start_frame=2, nominal_length=3, lead_frames=2
+    )
+    assert out is not None
+    assert tuple(out.shape) == (5, 8, 8)
+    # Real asset frames 0..1 are the lead head (both background rows).
+    assert out[0, 0, 0].item() == 0.0
+    assert out[1, 0, 0].item() == 0.0
+    # Nominal body 2..4 (subject bottom).
+    assert out[2, 7, 0].item() == 1.0
+    assert out[4, 7, 0].item() == 1.0
+
+
+def test_load_mask_window_with_lead_replicates_head_when_missing(tmp_path):
+    # Asset covers only the nominal window frames (2..4).
+    _write_mask_frames(tmp_path, {2: 1, 3: 1, 4: 1})
+    mask = {"kind": "frames", "dir": str(tmp_path), "offset": 0}
+    out = load_mask_window_with_lead(
+        mask, start_frame=2, nominal_length=3, lead_frames=2
+    )
+    assert out is not None
+    assert tuple(out.shape) == (5, 8, 8)
+    # Lead head is the window's first-frame silhouette repeated.
+    assert torch.equal(out[0], out[1])
+    assert torch.equal(out[0], out[2])
+    assert out[4, 7, 0].item() == 1.0
+
+
+def test_load_mask_window_with_lead_zero_and_missing_body():
+    mask = {"kind": "frames", "dir": "/does/not/exist"}
+    # lead 0 behaves exactly like the plain loader (returns None for bad dir).
+    assert load_mask_window_with_lead(mask, start_frame=0, nominal_length=2) is None
+    assert load_mask_window_with_lead({"kind": "none", "dir": "/nope"}, start_frame=0, nominal_length=2, lead_frames=3) is None
 
 
 def test_to_latent_mask_shape_and_convention():

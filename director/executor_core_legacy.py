@@ -89,6 +89,7 @@ from .segment_runtime import (
     load_source_bridge_clip,
     resolve_segment_raw_clip,
     resolve_segment_raw_clip_with_lookahead,
+    resolve_segment_raw_head,
     resolve_source_bridge_window,
     segment_passthrough_chunk,
     tensor_frame_to_jpeg_b64,
@@ -644,6 +645,7 @@ def execute_director_plan_core(
         replace_state = None
         replace_masked = False
         replace_fallback_reason = ""
+        replace_lead = 0
         if replace_active:
             replace_decode_audio = replace_policy == "generate"
             apply_visual_context = False
@@ -652,14 +654,22 @@ def execute_director_plan_core(
             boundary_diagnostics[timeline_slot]["audio"] = False
             boundary_diagnostics[timeline_slot]["visual_reason"] = "Character Replace standalone window"
             boundary_diagnostics[timeline_slot]["audio_reason"] = "Character Replace standalone window"
+            # Pre-roll runway (source frames rendered before the nominal window
+            # start so the regenerated subject settles into the opening pose).
+            # Clamped to the headroom available before source frame 0; the head
+            # is trimmed from the output before export.
+            replace_lead = min(
+                max(0, int(getattr(replace_spec, "lead", 0) or 0)),
+                max(0, int(getattr(seg, "start_frame", 0) or 0)),
+            )
             reports.append(
                 f"Segment {timeline_slot + 1}: CHARACTER REPLACE - standalone masked window; "
                 f"Previous Context OFF (the source background owns continuity); "
-                f"audio policy = {replace_policy}."
+                f"audio policy = {replace_policy}; pre-roll lead = {replace_lead} frames."
             )
             log.info(
-                "Segment %d: CHARACTER REPLACE engaged (task=%s, policy=%s, mask_dir=%s, grow=%s, feather=%s)",
-                timeline_slot + 1, seg.task_key, replace_policy,
+                "Segment %d: CHARACTER REPLACE engaged (task=%s, policy=%s, lead=%d, mask_dir=%s, grow=%s, feather=%s)",
+                timeline_slot + 1, seg.task_key, replace_policy, replace_lead,
                 str(getattr(getattr(replace_spec, "mask", None), "dir", "") or ""),
                 str(getattr(getattr(replace_spec, "mask", None), "grow", 0) or 0),
                 str(getattr(getattr(replace_spec, "mask", None), "feather", 0.0) or 0.0),
@@ -704,9 +714,31 @@ def execute_director_plan_core(
             raw_clip = torch.zeros((0, 16, 16, 3), dtype=torch.float32)
         else:
             raw_clip = resolve_segment_raw_clip(plan, seg)
+        # Replace pre-roll: pull real source frames before the window start so
+        # the regenerated subject has a runway to settle into the opening pose.
+        # The lead head is trimmed from the decoded output before export.
+        if replace_lead and seg.source_clip is None:
+            _head = resolve_segment_raw_head(plan, seg, replace_lead)
+            if _head is None or int(_head.shape[0]) <= 0:
+                replace_lead = 0
+            else:
+                replace_lead = min(replace_lead, int(_head.shape[0]))
+                _head = _head[:replace_lead]
+                raw_clip = torch.cat([_head, raw_clip], dim=0)
+                reports.append(
+                    f"Segment {timeline_slot + 1}: replace pre-roll lead = {replace_lead} frames "
+                    "(render starts earlier in the source; the runway head is trimmed before export)."
+                )
+                log.info(
+                    "Segment %d: replace pre-roll lead = %d frames (runway trimmed before export)",
+                    timeline_slot + 1, replace_lead,
+                )
         if seg.source_clip is not None:
             body_raw = seg.source_clip
             target_len = max(target_len, int(body_raw.shape[0]))
+        elif replace_lead:
+            # raw_clip already spans [start-lead, end); keep the whole render window.
+            body_raw = raw_clip
         else:
             body_raw = raw_clip[:target_len] if int(raw_clip.shape[0]) > target_len else raw_clip
         if body_raw is not None and body_raw.shape[0] > 0:
@@ -719,10 +751,16 @@ def execute_director_plan_core(
 
         reference_clip_frames = None
         if seg.task_key in {"v2v", "rv2v"}:
-            reference_base_frames = target_len
+            # Replace pre-roll extends the conditioning reference over the runway
+            # head too; any short H3 alignment surplus at the tail is
+            # freeze-padded by prepare_h3_reference_video_clip and is discarded
+            # by the lead trim (it never enters the exported window).
+            reference_base_frames = (
+                target_len + replace_lead if replace_lead else target_len
+            )
             reference_target_frames = minimax_align_frame_count(reference_base_frames)
             requested_lookahead = max(0, reference_target_frames - reference_base_frames)
-            if requested_lookahead > 0:
+            if requested_lookahead > 0 and not replace_lead:
                 reference_raw = resolve_segment_raw_clip_with_lookahead(plan, seg, end_extra=requested_lookahead)
             else:
                 reference_raw = body_raw.clone()
@@ -855,11 +893,30 @@ def execute_director_plan_core(
                     )
 
         generation_request = target_len + context_span
+        if replace_lead:
+            # The sample must cover the runway plus the window: render
+            # [start-lead, ...) and trim the lead head after decode.
+            generation_request = target_len + replace_lead + context_span
         num_frames = minimax_align_frame_count(generation_request)
         if visible_clip_frames is not None:
-            visible_clip_frames, _ = prepare_segment_clip(
-                visible_clip_frames, minimax_align_frame_count(target_len)
-            )
+            if replace_lead:
+                visible_clip_frames, _ = prepare_segment_clip(
+                    visible_clip_frames,
+                    minimax_align_frame_count(target_len + replace_lead),
+                )
+                # The keep-latent (VAE source encode) must exactly match the
+                # H3 sample length; freeze-pad any alignment surplus at the tail
+                # (those frames are trimmed away, never exported).
+                _pad = num_frames - int(visible_clip_frames.shape[0])
+                if _pad > 0:
+                    visible_clip_frames = torch.cat(
+                        [visible_clip_frames, visible_clip_frames[-1:].repeat(_pad, 1, 1, 1)],
+                        dim=0,
+                    )
+            else:
+                visible_clip_frames, _ = prepare_segment_clip(
+                    visible_clip_frames, minimax_align_frame_count(target_len)
+                )
         prev_tail = None
         if not context_pipeline_active and is_continuity_active(plan, seg):
             prev_tail = resolve_prev_segment_output(plan, all_segments, seg.index, completed_outputs, node_id)
@@ -883,6 +940,7 @@ def execute_director_plan_core(
                     reference_frames=reference_clip_frames,
                     grow=int(getattr(replace_spec.mask, "grow", 0) or 0),
                     feather=float(getattr(replace_spec.mask, "feather", 0.0) or 0.0),
+                    lead_frames=int(replace_lead),
                 )
                 if prepared is None:
                     replace_fallback_reason = "mask window unavailable for this segment"
@@ -1219,7 +1277,8 @@ def execute_director_plan_core(
 
         fps = float(plan.frame_rate or 24.0)
         decoded, audio_dict = trim_segment_av(
-            decoded, audio_dict, head_frames=context_span, target_frames=target_len, fps=fps,
+            decoded, audio_dict,
+            head_frames=context_span + replace_lead, target_frames=target_len, fps=fps,
         )
         if replace_active and replace_state is not None and replace_policy != "generate":
             if replace_policy == "none" or audio_mode == AUDIO_MODE_MUTE:
@@ -1249,8 +1308,8 @@ def execute_director_plan_core(
 
         chunk = decoded.cpu().float()
         handoff = {
-            "context_end_frame": int(context_span + target_len),
-            "trim_frames": int(context_span),
+            "context_end_frame": int(context_span + replace_lead + target_len),
+            "trim_frames": int(context_span + replace_lead),
             "export_frames": int(target_len),
             "sample_frames": int(num_frames),
         }

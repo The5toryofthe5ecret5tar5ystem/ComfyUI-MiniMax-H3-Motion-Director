@@ -20,6 +20,12 @@ from typing import Any
 #   none     = mute this window
 AUDIO_POLICIES = ("source", "generate", "none")
 
+# Default replace pre-roll ("lead") in source frames: render this many frames
+# before the window's nominal start so the regenerated subject has a runway to
+# settle into the opening pose. The runway head is trimmed before export and
+# never enters the timeline. Set ``lead: 0`` on a window to disable.
+DEFAULT_REPLACE_LEAD_FRAMES = 12
+
 
 @dataclass
 class ReplaceMaskSpec:
@@ -79,6 +85,7 @@ class ReplaceSpec:
     enabled: bool = False
     audio_policy: str = "source"               # AUDIO_POLICIES
     mask: ReplaceMaskSpec = field(default_factory=ReplaceMaskSpec)
+    lead: int = DEFAULT_REPLACE_LEAD_FRAMES    # pre-roll runway frames (0 = off)
     sam_prompts: list[str] = field(default_factory=list)  # Phase 2 (stored only)
     note: str = ""
 
@@ -86,6 +93,7 @@ class ReplaceSpec:
         return {
             "enabled": bool(self.enabled),
             "audio_policy": self.audio_policy,
+            "lead": max(0, int(self.lead or 0)),
             "mask": self.mask.to_json(),
             "sam_prompts": [str(p) for p in (self.sam_prompts or [])],
         }
@@ -102,10 +110,19 @@ class ReplaceSpec:
             for p in (raw.get("sam_prompts") or raw.get("samPrompts") or [])
             if str(p).strip()
         ]
+        lead = DEFAULT_REPLACE_LEAD_FRAMES
+        for key in ("lead", "pre_roll", "preRoll", "lead_frames", "leadFrames"):
+            if key in raw:
+                try:
+                    lead = max(0, int(raw[key]))
+                except (TypeError, ValueError):
+                    lead = DEFAULT_REPLACE_LEAD_FRAMES
+                break
         return ReplaceSpec(
             enabled=bool(raw.get("enabled")),
             audio_policy=policy,
             mask=ReplaceMaskSpec.from_json(raw.get("mask")),
+            lead=lead,
             sam_prompts=prompts,
             note=str(raw.get("note") or ""),
         )
