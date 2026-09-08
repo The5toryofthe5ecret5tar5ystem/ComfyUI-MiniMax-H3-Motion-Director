@@ -1137,8 +1137,32 @@ def execute_director_plan_core(
             else:
                 try:
                     from .refine_sampling import _split_av
+                    from .replace_engine import sanitize_source_frames
 
-                    source_video_latent = encode_source_video(vae, visible_clip_frames)
+                    # Erase the subject from the source handed to the model as
+                    # the keep/conditioning stream. Keeping the raw original
+                    # performer there makes the model treat her as content to
+                    # preserve (reconstructing her instead of applying the
+                    # Picture refs). Blur only inside the mask, so the kept
+                    # background stays pixel-exact.
+                    _mv_keep = replace_state.get("mask_vis")
+                    keep_source = visible_clip_frames
+                    if (
+                        _mv_keep is not None
+                        and int(_mv_keep.shape[0]) == int(visible_clip_frames.shape[0])
+                        and tuple(_mv_keep.shape[1:]) == tuple(visible_clip_frames.shape[1:3])
+                    ):
+                        keep_source = sanitize_source_frames(
+                            visible_clip_frames,
+                            _mv_keep.float(),
+                            method="blur",
+                            blur_sigma=14.0,
+                        )
+                        log.info(
+                            "Segment %d: masked replace keep/cond source is subject-erased (echo-free keep)",
+                            timeline_slot + 1,
+                        )
+                    source_video_latent = encode_source_video(vae, keep_source)
                     source_video_t = (
                         source_video_latent.get("samples")
                         if isinstance(source_video_latent, dict)
