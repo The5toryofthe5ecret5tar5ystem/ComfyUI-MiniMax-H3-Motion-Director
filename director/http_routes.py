@@ -476,6 +476,9 @@ def _run_window_mask_test(body: dict):
             "index": pick_index,
         }
 
+    # The manual Test mask is a quick sanity check: with a box only the box
+    # attempt runs; without a box only the two strongest text anchors. The full
+    # retry policy is reserved for the real render (executor path).
     result = run_window_auto_mask(
         frames,
         prompts=[prompt] if prompt else None,
@@ -483,11 +486,16 @@ def _run_window_mask_test(body: dict):
         lead_frames=effective_lead,
         boxes=box,
         boxes_frame=(pick_index if box is not None else -1),
+        quick=(action != "full"),
     )
     mask = result.get("mask")
     coverage = mask_coverage(mask)
     if mask is None:
-        label = "Window mask test: NO subject detected - would fall back to plain RV2V"
+        label = (
+            "Window mask test: NO subject detected"
+            + (" (single quick pass - not the full retry policy)" if action != "full" else "")
+            + " - would fall back to plain RV2V"
+        )
     elif coverage:
         label = (
             f"Window mask test: {int(coverage['regen_frames'])}/{int(coverage['total'])} "

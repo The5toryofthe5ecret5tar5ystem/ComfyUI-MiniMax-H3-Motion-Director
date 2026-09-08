@@ -142,6 +142,52 @@ def test_sanitize_box_rejects_bad_shapes():
     assert clipped is not None and clipped[2] <= 0.1 and clipped[3] <= 0.1
 
 
+def test_run_window_auto_mask_quick_without_box_runs_two_text_attempts(monkeypatch):
+    calls: list[tuple[int, bool]] = []
+
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None):
+        calls.append((int(prompt_frame), bool(relaxed)))
+        return torch.zeros(int(frames.shape[0]), 16, 16)
+
+    monkeypatch.setattr(sam3_auto, "segment_window_frames", fake_segment)
+    monkeypatch.setattr(sam3_auto, "release_sam3", lambda *a, **k: None)
+
+    frames = torch.rand(238, 16, 16, 3)
+    result = run_window_auto_mask(
+        frames, prompts=["the woman"], obj_id=1, lead_frames=12, quick=True
+    )
+    assert result["mask"] is None
+    assert len(result["attempts"]) == 2  # only the two strongest text anchors
+    assert len(calls) == 2
+    assert result["reason"].endswith("Quick test: only the strongest anchor(s) were tried.")
+
+
+def test_run_window_auto_mask_quick_with_box_is_single_attempt(monkeypatch):
+    calls: list[tuple] = []
+    released = []
+
+    def fake_segment(frames, *, prompts=None, obj_id=None, prompt_frame=0, relaxed=False, checkpoint=None, boxes=None):
+        calls.append((int(prompt_frame), boxes))
+        if boxes is not None:
+            mask = torch.zeros(int(frames.shape[0]), 16, 16)
+            mask[:, 4:12, 4:12] = 1.0
+            return mask
+        return torch.zeros(int(frames.shape[0]), 16, 16)
+
+    monkeypatch.setattr(sam3_auto, "segment_window_frames", fake_segment)
+    monkeypatch.setattr(sam3_auto, "release_sam3", lambda *a, **k: released.append(True))
+
+    frames = torch.rand(238, 16, 16, 3)
+    result = run_window_auto_mask(
+        frames, prompts=["the woman"], obj_id=1, lead_frames=12,
+        boxes=[0.2, 0.3, 0.4, 0.5], boxes_frame=12, quick=True,
+    )
+    assert result["mask"] is not None
+    assert len(calls) == 1
+    assert calls[0][1] is not None
+    assert released
+
+
 def test_candidate_prompt_frames_starts_at_zero_and_includes_real_window():
     # 12-frame pre-roll head over a 250-frame mask window -> 238 real frames.
     frames = candidate_prompt_frames(250, lead=12)

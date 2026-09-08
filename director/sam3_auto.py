@@ -277,6 +277,7 @@ def run_window_auto_mask(
     boxes=None,
     boxes_frame: int = -1,
     checkpoint: str | None = None,
+    quick: bool = False,
 ) -> dict[str, Any]:
     """Run the full window auto-mask attempt policy and return a result dict.
 
@@ -286,6 +287,12 @@ def run_window_auto_mask(
     prompt policy from :func:`mask_attempt_plan` is attempted. Without a box,
     only the text prompt attempts run. The SAM3 predictor is always released
     before returning so VRAM is free for H3 sampling.
+
+    ``quick=True`` bounds the run for interactive "Test mask" calls: with a box
+    only the box attempt runs, and without a box only the two strongest text
+    anchors run - the full retry/relaxed policy is reserved for the actual
+    render (quick=False). This keeps a manual test under ~2-4 minutes so a long
+    HTTP request cannot time out.
 
     Returns ``{"mask": [T,H,W] 0..1 or None, "attempts": [str, ...],
     "coverage": {...}|None, "reason": str}``. ``reason`` is empty when a mask
@@ -302,14 +309,20 @@ def run_window_auto_mask(
     lead = int(lead_frames or 0)
     box = _sanitize_box(boxes)
     plan = mask_attempt_plan(total, lead)
+    quick = bool(quick)
     # (prompt_frame, relaxed, box_for_this_attempt)
     items: list[tuple[int, bool, list[float] | None]] = []
     if box is not None:
         anchor = int(boxes_frame) if boxes_frame is not None and int(boxes_frame) >= 0 else lead
         anchor = max(0, min(anchor, total - 1))
         items.append((anchor, False, box))
-    for pf, relaxed in plan:
-        items.append((pf, relaxed, None))
+        if not quick:
+            for pf, relaxed in plan:
+                items.append((pf, relaxed, None))
+    else:
+        text_plan = plan[:2] if quick else plan
+        for pf, relaxed in text_plan:
+            items.append((pf, relaxed, None))
 
     attempted: list[str] = []
     chosen = None
@@ -395,6 +408,7 @@ def run_window_auto_mask(
             f"(attempts: {', '.join(attempted) or 'none'} - check that the "
             "subject is clearly visible in the window and that the SAM3 prompt "
             "matches her appearance; see log)"
+            + (" Quick test: only the strongest anchor(s) were tried." if quick else "")
         ),
     }
 
@@ -543,18 +557,47 @@ def segment_window_frames(
         # the source pixel-exact instead of falling back to a plain regen.
         h, w = int(pils[0].size[1]), int(pils[0].size[0])
         out = np.zeros((len(pils), h, w), dtype=bool)
+        responses = 0
+        shape_ok = 0
+        shape_resized = 0
+        shape_dropped = 0
         for frame_idx, merged in masks_by_frame.items():
-            if merged is None or merged.shape != (h, w):
+            if merged is None:
                 continue
+            responses += 1
+            if merged.shape != (h, w):
+                # SAM3 can return masks on its internal grid rather than the
+                # source frame size; upscale them instead of silently dropping
+                # the whole window (which looked like "no subject detected").
+                if merged.ndim == 2 and merged.shape[0] > 0 and merged.shape[1] > 0:
+                    try:
+                        from PIL import Image
+
+                        _img = Image.fromarray((merged.astype(np.uint8) * 255))
+                        _img = _img.resize((w, h), Image.LANCZOS)
+                        _arr = np.asarray(_img, dtype=np.uint8) > 127
+                        if _arr.shape == (h, w) and frame_idx < len(pils):
+                            out[frame_idx] = _arr
+                            shape_resized += 1
+                            continue
+                    except Exception:
+                        pass
+                shape_dropped += 1
+                continue
+            shape_ok += 1
             if frame_idx < len(pils):
                 out[frame_idx] = merged
-        if box is not None:
+        if box is not None or shape_resized or shape_dropped:
             try:
                 nonzero = int(np.count_nonzero(out.any(axis=(1, 2))))
                 log.info(
-                    "SAM3 box seed diagnostic: prompt_frame=%d box=%s "
-                    "nonzero_frames=%d/%d seed_frame_has_mask=%s",
-                    pf, [round(float(v), 3) for v in box], nonzero, len(pils),
+                    "SAM3 mask assembly%s: prompt_frame=%d box=%s responses=%d "
+                    "ok=%d resized=%d dropped=%d nonzero_frames=%d/%d seed_frame_has_mask=%s",
+                    " (box seed)" if box is not None else "",
+                    pf,
+                    [round(float(v), 3) for v in box] if box is not None else None,
+                    responses, shape_ok, shape_resized, shape_dropped,
+                    nonzero, len(pils),
                     bool(out[pf].any()) if pf < len(out) else False,
                 )
             except Exception:
