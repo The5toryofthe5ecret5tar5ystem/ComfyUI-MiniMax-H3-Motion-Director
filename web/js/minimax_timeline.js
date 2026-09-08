@@ -2391,6 +2391,19 @@ function directorTotalFrames(ed) {
     }
 }
 
+function currentPlayheadFrame(ed) {
+    // 0-based frame the source scrubber/player is parked on.
+    try {
+        const f = Number(ed.currentFrame);
+        if (Number.isFinite(f) && f >= 0) return Math.round(f);
+    } catch (_err) { /* fall through */ }
+    try {
+        const s = Number(ed.seekBar?.value);
+        if (Number.isFinite(s) && s >= 0) return Math.round(s);
+    } catch (_err) { /* fall through */ }
+    return 0;
+}
+
 function replaceConfigFromSeg(seg) {
     const r = (seg && seg.replace && typeof seg.replace === "object") ? seg.replace : {};
     const m = (r.mask && typeof r.mask === "object") ? r.mask : {};
@@ -2675,7 +2688,15 @@ function installReplaceWindowsMode(ed) {
     const rowsEl = document.createElement("div");
     rowsEl.style.cssText = "display:flex;flex-direction:column;gap:4px;";
     host.append(rowsEl);
-    ed.root.insertBefore(host, ed.mainBody);
+    // Show the source player ABOVE the replace windows so the user can scrub
+    // to the frames/seconds they want. mainBody order is: stage, controls,
+    // (host here), split-edit-bar, viewport, output. In normal mode the host
+    // is hidden so this placement is inert.
+    if (ed.viewport && ed.mainBody) {
+        ed.mainBody.insertBefore(host, ed.viewport);
+    } else {
+        ed.root.insertBefore(host, ed.mainBody);
+    }
 
     const toolbarActions = ed.root.querySelector(".bd-actions");
     if (toolbarActions) {
@@ -2759,6 +2780,10 @@ function installReplaceWindowsMode(ed) {
         const endInput = numField("", 74);
         const endLbl = document.createElement("span");
         endLbl.textContent = "end";
+        const btnS = mkSmallButton("S<");
+        btnS.title = "Set this window's start to the playhead frame (scrub the player above, then click).";
+        const btnE = mkSmallButton("E>");
+        btnE.title = "Set this window's end to the playhead frame (must be after its start).";
         const lenSpan = document.createElement("span");
         lenSpan.style.color = "#7fa08b";
         const del = mkSmallButton("del", true);
@@ -2800,9 +2825,9 @@ function installReplaceWindowsMode(ed) {
         const audLbl = document.createElement("span");
         audLbl.textContent = "audio";
         line2.append(audLbl, policy);
-        line1.append(enabled, label, startLbl, startInput, endLbl, endInput, lenSpan, del);
+        line1.append(enabled, label, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
         row.append(line1, line2);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy } });
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy } });
         return row;
     }
 
@@ -2933,6 +2958,37 @@ function installReplaceWindowsMode(ed) {
             ensureReplaceConfigOnSeg(seg, cfg);
             commitLight();
         });
+        inp.btnS?.addEventListener("click", (e) => {
+            stopDomEvent(e);
+            const seg = getSeg();
+            if (!seg) return;
+            const total = directorTotalFrames(ed);
+            if (total <= 0) return;
+            const p = Math.min(Math.max(0, Math.round(currentPlayheadFrame(ed))), total - 1);
+            const curStart = Math.max(0, parseInt(seg.start, 10) || 0);
+            const curEnd = curStart + Math.max(1, parseInt(seg.length ?? seg.frameCount, 10) || 1);
+            seg.start = p;
+            const len = Math.max(1, Math.min(curEnd - p, total - p));
+            seg.length = len;
+            seg.frameCount = len;
+            commitLight();
+            renderRows();
+        });
+        inp.btnE?.addEventListener("click", (e) => {
+            stopDomEvent(e);
+            const seg = getSeg();
+            if (!seg) return;
+            const total = directorTotalFrames(ed);
+            if (total <= 0) return;
+            const curStart = Math.max(0, parseInt(seg.start, 10) || 0);
+            const p = Math.min(Math.max(0, Math.round(currentPlayheadFrame(ed))), total);
+            if (p <= curStart) return;
+            const len = p - curStart;
+            seg.length = len;
+            seg.frameCount = len;
+            commitLight();
+            renderRows();
+        });
     }
 
     function renderRows() {
@@ -3000,18 +3056,19 @@ function installReplaceWindowsMode(ed) {
             setToggleLabel();
         }
         host.style.display = rep ? "" : "none";
-        // Keep the output bar and the global/segment prompt+refs panels visible;
-        // hide only the stage, playback, split-edit and canvas areas.
+        // Keep the source video player (stage + playback bar) visible as a
+        // scrubber; hide only the split editor and canvas timeline.
         if (ed.mainBody) {
             const hideKids = (sel) => {
                 const el = ed.mainBody.querySelector(":scope > " + sel);
                 if (el) el.style.display = rep ? "none" : "";
             };
-            hideKids(".bd-stage");
-            hideKids(".bd-controls");
             hideKids(".bd-split-edit-bar");
             hideKids(".bd-viewport");
             if (ed.splitEditBarEl && rep) ed.splitEditBarEl.classList.add("hidden");
+        }
+        if (rep) {
+            try { ed.updateStageVisibility?.(); } catch (_err) { /* noop */ }
         }
         if (ed._segBoundsBar) ed._segBoundsBar.refresh(false);
         // Disable tiled-timeline editing controls while replace mode is active.
