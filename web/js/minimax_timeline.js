@@ -2423,6 +2423,7 @@ function replaceConfigFromSeg(seg) {
         grow: Number.isFinite(Number(m.grow)) ? Math.max(0, Math.round(Number(m.grow))) : 1,
         feather: Number.isFinite(Number(m.feather)) ? Math.max(0, Number(m.feather)) : 1.0,
         note: String(r.note || ""),
+        pick: (r.pick && typeof r.pick === "object") ? r.pick : null,
     };
 }
 
@@ -2444,6 +2445,7 @@ function ensureReplaceConfigOnSeg(seg, cfg) {
         },
         sam_prompts: kind === "sam3" && prompt ? [prompt] : [],
         note: String(c.note || ""),
+        pick: c.pick || null,
     };
     return seg;
 }
@@ -2929,15 +2931,23 @@ function installReplaceWindowsMode(ed) {
         line2.append(audLbl, policy);
         const testBtn = mkSmallButton("Test mask");
         testBtn.title = "Run SAM3 on this window now and show the subject mask on the Mask check card (no video render). Uses the current SAM3 prompt, lead and window range.";
+        const pickBtn = mkSmallButton("Pick subject");
+        pickBtn.title = "Show this window's start frame and drag a box around the subject to seed SAM3 with a box prompt (much more reliable than text). Click = small centered box; drag = exact box. Stored per window and used by Test mask and the real render.";
+        const pickArea = document.createElement("div");
+        pickArea.style.cssText = "display:none;flex-direction:column;gap:4px;background:#0b1210;border:1px solid #2a4a35;border-radius:5px;padding:6px;";
+        pickArea.innerHTML = '<div style="color:#9fd9b4;font-size:11px;">Drag a box around the subject on the window start frame, or click the person (a small box is made for you).</div>';
+        const pickCanvasHost = document.createElement("div");
+        pickCanvasHost.style.cssText = "position:relative;";
+        pickArea.append(pickCanvasHost);
         const testStatus = document.createElement("span");
         testStatus.style.cssText = "color:#9fd9b4;font-size:11px;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
         const testImg = document.createElement("img");
         testImg.style.cssText = "display:none;max-width:100%;border-radius:4px;";
         testImg.alt = "Window mask test";
-        line2.append(testBtn, testStatus);
+        line2.append(pickBtn, testBtn, testStatus);
         line1.append(handle, enabled, label, gotoBtn, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
-        row.append(line1, line2, testImg);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, testBtn, testStatus, testImg } });
+        row.append(line1, line2, pickArea, testImg);
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost } });
         return row;
     }
 
@@ -2966,6 +2976,7 @@ function installReplaceWindowsMode(ed) {
         if (active !== inp.leadInput) inp.leadInput.value = String(cfg.lead);
         if (active !== inp.policy) inp.policy.value = cfg.audio_policy;
         if (inp.testBtn) inp.testBtn.style.display = sam3Kind ? "" : "none";
+        if (inp.pickBtn) inp.pickBtn.style.display = sam3Kind ? "" : "none";
         inp.enabled.checked = cfg.enabled;
     }
 
@@ -3117,51 +3128,191 @@ function installReplaceWindowsMode(ed) {
             commitLight();
             renderRows();
         });
+        const buildMaskRequest = (segObj, extra = {}) => {
+            const cfg2 = replaceConfigFromSeg(segObj);
+            const total = directorTotalFrames(ed);
+            const fps = directorFps(ed);
+            const start = Math.max(0, parseInt(segObj.start, 10) || 0);
+            const len = Math.max(1, parseInt(segObj.length ?? segObj.frameCount, 10) || 1);
+            const end = Math.min(total > 0 ? total : start + 1, start + len);
+            const video = (ed.timeline && ed.timeline.video) || {};
+            const videoFile = video.videoFile || video.fileName || "";
+            const sourceFrameCount = Number(video.sourceFrameCount || (ed.timeline && ed.timeline.totalFrames) || total || 0);
+            const outBlock = (ed.timeline && ed.timeline.output) || {};
+            const longEdge = Number(outBlock.longEdge || outBlock.long_edge || 0) || 0;
+            return {
+                videoFile,
+                subfolder: video.subfolder || "",
+                type: video.type || "input",
+                sourceFrameCount,
+                frameRate: fps || 29.97,
+                start,
+                end,
+                lead: Math.max(0, Number(cfg2.lead) || 0),
+                prompt: String(cfg2.sam_prompt || DEFAULT_SAM3_PROMPT).trim(),
+                objId: 1,
+                longEdge,
+                ...extra,
+            };
+        };
+
+        const paintPickBox = (canvas, box) => {
+            const ctx = canvas.getContext("2d");
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(canvas._img, 0, 0, canvas.width, canvas.height);
+            if (box) {
+                const x0 = Math.max(0, Math.min(1, box[0])) * canvas.width;
+                const y0 = Math.max(0, Math.min(1, box[1])) * canvas.height;
+                const w = Math.max(0, Math.min(1, box[2])) * canvas.width;
+                const h = Math.max(0, Math.min(1, box[3])) * canvas.height;
+                ctx.strokeStyle = "#4fff8f";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x0, y0, w, h);
+                ctx.fillStyle = "rgba(79,255,143,0.15)";
+                ctx.fillRect(x0, y0, w, h);
+            }
+        };
+
+        const openPickEditor = async (pickSeg) => {
+            const cfg2 = replaceConfigFromSeg(pickSeg);
+            const frameResp = await api.fetchApi("/minimax/motion-director/test_mask", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(buildMaskRequest(pickSeg, { action: "frame" })),
+            });
+            const frameData = await frameResp.json().catch(() => null);
+            if (!frameResp.ok || !frameData || frameData.ok === false || !frameData.image_b64) {
+                inp.testStatus.textContent = "Could not load the window start frame: " + String((frameData && (frameData.error || frameData.reason)) || ("HTTP " + frameResp.status));
+                return;
+            }
+            inp.pickArea.style.display = "flex";
+            inp.pickCanvasHost.replaceChildren();
+            const natW = Number(frameData.width) || 1;
+            const natH = Number(frameData.height) || 1;
+            const maxW = Math.min(560, natW);
+            const scaledH = Math.max(1, Math.round(maxW * natH / natW));
+            const canvas = document.createElement("canvas");
+            canvas.width = maxW;
+            canvas.height = scaledH;
+            canvas.style.cssText = "width:" + maxW + "px;height:" + scaledH + "px;cursor:crosshair;display:block;max-width:100%;";
+            inp.pickCanvasHost.append(canvas);
+            const img = new Image();
+            img.onload = () => {
+                canvas._img = img;
+                canvas._pickIndex = Number(frameData.index) || 0;
+                const existing = (replaceConfigFromSeg(pickSeg).pick || null);
+                paintPickBox(canvas, existing && existing.box ? existing.box : null);
+                inp.testStatus.textContent = existing && existing.box
+                    ? "Box already set for this window. Drag a new box or click the person to replace it."
+                    : "Click the person or drag a box around them.";
+            };
+            img.src = frameData.image_b64;
+            let down = null;
+            const toNorm = (ev) => {
+                const rect = canvas.getBoundingClientRect();
+                return [
+                    Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width)),
+                    Math.max(0, Math.min(1, (ev.clientY - rect.top) / rect.height)),
+                ];
+            };
+            const commitBox = (box) => {
+                const segLive = getSeg();
+                if (!segLive) return;
+                const c = replaceConfigFromSeg(segLive);
+                c.pick = { box: box, frame: canvas._pickIndex || 0 };
+                ensureReplaceConfigOnSeg(segLive, c);
+                commitLight();
+                inp.testStatus.textContent = "Box saved - SAM3 will use it for this window (Test mask / render).";
+            };
+            const finish = (ev) => {
+                if (!down) return;
+                const [x1, y1] = toNorm(ev);
+                const x0 = Math.min(down[0], x1);
+                const y0 = Math.min(down[1], y1);
+                let w = Math.abs(x1 - down[0]);
+                let h = Math.abs(y1 - down[1]);
+                if (w < 0.015 && h < 0.015) {
+                    // A click = small centered box around the point.
+                    const cw = 0.10, chh = 0.14;
+                    const cx = Math.max(0, Math.min(1, down[0]));
+                    const cy = Math.max(0, Math.min(1, down[1]));
+                    commitBox([Math.max(0, cx - cw / 2), Math.max(0, cy - chh / 2), cw, chh]);
+                    paintPickBox(canvas, [Math.max(0, cx - cw / 2), Math.max(0, cy - chh / 2), cw, chh]);
+                } else {
+                    const box = [x0, y0, w, h];
+                    commitBox(box);
+                    paintPickBox(canvas, box);
+                }
+                down = null;
+            };
+            canvas.addEventListener("pointerdown", (ev) => {
+                ev.preventDefault();
+                canvas.setPointerCapture?.(ev.pointerId);
+                down = toNorm(ev);
+            });
+            canvas.addEventListener("pointermove", (ev) => {
+                if (!down) return;
+                const [x1, y1] = toNorm(ev);
+                const x0 = Math.min(down[0], x1);
+                const y0 = Math.min(down[1], y1);
+                paintPickBox(canvas, [x0, y0, Math.abs(x1 - down[0]), Math.abs(y1 - down[1])]);
+            });
+            canvas.addEventListener("pointerup", finish);
+            canvas.addEventListener("pointercancel", () => { down = null; });
+        };
+
+        inp.pickBtn?.addEventListener("click", async (e) => {
+            stopDomEvent(e);
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg2 = replaceConfigFromSeg(seg);
+            if (cfg2.kind !== "sam3") return;
+            const video = (ed.timeline && ed.timeline.video) || {};
+            if (!(video.videoFile || video.fileName || "")) {
+                inp.testStatus.textContent = "No source video file set.";
+                return;
+            }
+            inp.pickBtn.disabled = true;
+            try {
+                await openPickEditor(seg);
+            } catch (err) {
+                inp.testStatus.textContent = "Pick subject error: " + String(err && err.message ? err.message : err);
+            } finally {
+                inp.pickBtn.disabled = false;
+            }
+        });
+
         inp.testBtn?.addEventListener("click", async (e) => {
             stopDomEvent(e);
             const seg = getSeg();
             if (!seg) return;
-            const cfg = replaceConfigFromSeg(seg);
-            if (cfg.kind !== "sam3") return;
-            const total = directorTotalFrames(ed);
-            const fps = directorFps(ed);
-            const start = Math.max(0, parseInt(seg.start, 10) || 0);
-            const len = Math.max(1, parseInt(seg.length ?? seg.frameCount, 10) || 1);
-            const end = Math.min(total > 0 ? total : start + 1, start + len);
+            const cfg2 = replaceConfigFromSeg(seg);
+            if (cfg2.kind !== "sam3") return;
             const video = (ed.timeline && ed.timeline.video) || {};
             const videoFile = video.videoFile || video.fileName || "";
             if (!videoFile) {
                 inp.testStatus.textContent = "No source video file set.";
                 return;
             }
-            const sourceFrameCount = Number(video.sourceFrameCount || (ed.timeline && ed.timeline.totalFrames) || total || 0);
-            const prompt = String(cfg.sam_prompt || inp.promptInput?.value || DEFAULT_SAM3_PROMPT).trim();
-            const lead = Math.max(0, Number(cfg.lead) || 0);
-            const outBlock = (ed.timeline && ed.timeline.output) || {};
-            const longEdge = Number(outBlock.longEdge || outBlock.long_edge || 0) || 0;
+            const payload = buildMaskRequest(seg);
+            const pick = cfg2.pick || null;
+            if (pick && Array.isArray(pick.box) && pick.box.length === 4) {
+                payload.box = pick.box;
+                if (Number.isFinite(Number(pick.frame))) payload.pickFrame = Number(pick.frame);
+            }
             inp.testBtn.disabled = true;
             const oldLabel = inp.testBtn.textContent;
             inp.testBtn.textContent = "masking...";
-            inp.testStatus.textContent = "Running SAM3 over this window (can take a couple of minutes)...";
+            inp.testStatus.textContent = pick && pick.box
+                ? "Running SAM3 with your box (can take ~1-2 min)..."
+                : "Running SAM3 over this window (can take a couple of minutes)...";
             inp.testImg.style.display = "none";
             inp.testImg.removeAttribute("src");
             try {
                 const resp = await api.fetchApi("/minimax/motion-director/test_mask", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        videoFile,
-                        subfolder: video.subfolder || "",
-                        type: video.type || "input",
-                        sourceFrameCount,
-                        frameRate: fps || 29.97,
-                        start,
-                        end,
-                        lead,
-                        prompt,
-                        objId: 1,
-                        longEdge,
-                    }),
+                    body: JSON.stringify(payload),
                 });
                 let data = null;
                 try { data = await resp.json(); } catch (_err) { data = null; }
@@ -3177,11 +3328,12 @@ function installReplaceWindowsMode(ed) {
                 }
                 if (data.coverage) {
                     inp.testStatus.textContent =
-                        "Coverage: " + data.coverage.regen_frames + "/" + data.coverage.total
+                        (data.used_box ? "Box-seeded. " : "") + "Coverage: " + data.coverage.regen_frames + "/" + data.coverage.total
                         + " frames regen (mean " + Number(data.coverage.mean || 0).toFixed(2) + ")";
                 } else {
                     inp.testStatus.textContent = data.fallback
-                        ? "No subject detected - this window would fall back to a plain RV2V render. Try a more specific prompt."
+                        ? "No subject detected" + (payload.box ? " inside your box" : "")
+                        + " - would fall back to a plain RV2V render. Try Pick subject or a more specific prompt."
                         : "Mask computed (no coverage info).";
                 }
             } catch (err) {
