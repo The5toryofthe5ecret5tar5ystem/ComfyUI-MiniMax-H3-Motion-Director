@@ -302,6 +302,47 @@ def build_director_audio_outputs(
     end = max(0, int(output_frame_end if output_frame_end is not None else plan.total_frames))
     if images_out and hasattr(images_out[0], "shape"):
         end = max(end, int(images_out[0].shape[0]))
+
+    # Character Replace windows are independent, non-contiguous source ranges
+    # that get concatenated back to back for the combined "Export all" clip. The
+    # merged audio is therefore each window's OWN source track stitched in
+    # window order - NOT source[0:end] (which would play the beginning of the
+    # video under windows taken from later source times).
+    _segs = list(getattr(plan, "segments", None) or [])
+    _replace_plan = bool(
+        timeline.get("replaceMode")
+        or any(bool(getattr(s, "replace", None) and getattr(s.replace, "enabled", False)) for s in _segs)
+    )
+    if (
+        _replace_plan
+        and mode == AUDIO_MODE_SOURCE
+        and end > 0
+        and _segs
+        and len(images_out) == 1
+    ):
+        per_window: list[dict[str, Any] | None] = []
+        for seg in _segs:
+            per_window.append(
+                extract_timeline_audio(
+                    timeline,
+                    int(getattr(seg, "start_frame", 0) or 0),
+                    int(getattr(seg, "end_frame", 0) or 0),
+                    fps,
+                )
+            )
+        merged = _merge_generated_segment_audios(
+            plan, per_window, total_frames=end, fps=fps
+        )
+        if mode == AUDIO_MODE_SOURCE and not any(
+            _audio_has_samples(item) for item in per_window
+        ):
+            log.warning(
+                "Source audio: no extractable track in any Character Replace window; "
+                "merged clip audio is silent.",
+            )
+            source_fallback = "silent"
+        return [_coerce_audio_output(merged, sample_rate=silent_sample_rate)], source_fallback
+
     extracted = extract_timeline_audio(timeline, 0, end, fps) if end > 0 else None
     if mode == AUDIO_MODE_SOURCE and not _audio_has_samples(extracted):
         hint = diagnose_source_audio_failure(timeline, 0, end, fps)
