@@ -591,64 +591,8 @@ def segment_window_frames(
         seed_immediate = None
         seed_tag = "points seed" if pts is not None else ("box seed" if box is not None else "")
         with torch.autocast("cuda", dtype=torch.float32):
-            if pts is not None:
-                # Point clicks route to SAM3's instance tracker path (no text,
-                # no box): each positive click includes the object, a 0 label
-                # excludes. This is the geometry-free alternative to the box.
-                add_resp = predictor.handle_request(
-                    dict(
-                        type="add_prompt",
-                        session_id=sid,
-                        frame_index=pf,
-                        text=None,
-                        points=pts[0],
-                        point_labels=pts[1],
-                        obj_id=start_obj,
-                    )
-                )
-                try:
-                    seed_immediate = _merge_mask_outputs(
-                        (add_resp or {}).get("outputs", {}) or {}
-                    )
-                except Exception:
-                    seed_immediate = None
-            elif box is not None:
-                # Text + box together: the text grounds the object class while
-                # the box localizes it. A box-only prompt on this SAM3 build
-                # produced no masklet at all (0 propagation responses), so the
-                # text is required to seed the semantic path. We also keep the
-                # immediate prompt-frame mask SAM3 returns from add_prompt so a
-                # quiet propagation cannot wipe out a valid seed.
-                add_resp = predictor.handle_request(
-                    dict(
-                        type="add_prompt",
-                        session_id=sid,
-                        frame_index=pf,
-                        text=text_prompts[0],
-                        bounding_boxes=[box],
-                        bounding_box_labels=[1],
-                        obj_id=start_obj,
-                    )
-                )
-                try:
-                    seed_immediate = _merge_mask_outputs(
-                        (add_resp or {}).get("outputs", {}) or {}
-                    )
-                except Exception:
-                    seed_immediate = None
-            else:
-                for i, text in enumerate(text_prompts):
-                    predictor.handle_request(
-                        dict(
-                            type="add_prompt",
-                            session_id=sid,
-                            frame_index=pf,
-                            text=text,
-                            obj_id=start_obj + i,
-                        )
-                    )
-            masks_by_frame: dict[int, np.ndarray | None] = {}
-            try:
+            def _collect_propagation() -> dict[int, np.ndarray | None]:
+                collected: dict[int, np.ndarray | None] = {}
                 stream = predictor.handle_stream_request(
                     dict(
                         type="propagate_in_video",
@@ -662,9 +606,95 @@ def segment_window_frames(
                     if not isinstance(response, dict):
                         continue
                     frame_idx = response.get("frame_index", 0)
-                    masks_by_frame[int(frame_idx)] = _merge_mask_outputs(
+                    collected[int(frame_idx)] = _merge_mask_outputs(
                         response.get("outputs", {}) or {}
                     )
+                return collected
+
+            def _capture_immediate(add_resp):
+                try:
+                    return _merge_mask_outputs((add_resp or {}).get("outputs", {}) or {})
+                except Exception:
+                    return None
+
+            try:
+                masks_by_frame: dict[int, np.ndarray | None] = {}
+                if pts is not None:
+                    # Point prompts REFINE an existing track: SAM3's tracker
+                    # path throws "No cached outputs found. Ensure normal
+                    # propagation has run first" when points are the first
+                    # prompt of a session. So seed with the text prompt, run a
+                    # normal propagation (populates the cache + creates the
+                    # track), then inject the user's points to refine that
+                    # object and re-propagate so the refinement covers the
+                    # window. If refinement fails, keep the text-seeded mask.
+                    seed_resp = predictor.handle_request(
+                        dict(
+                            type="add_prompt",
+                            session_id=sid,
+                            frame_index=pf,
+                            text=text_prompts[0],
+                            obj_id=start_obj,
+                        )
+                    )
+                    seed_immediate = _capture_immediate(seed_resp)
+                    masks_by_frame = _collect_propagation()
+                    try:
+                        refine_resp = predictor.handle_request(
+                            dict(
+                                type="add_prompt",
+                                session_id=sid,
+                                frame_index=pf,
+                                text=None,
+                                points=pts[0],
+                                point_labels=pts[1],
+                                obj_id=start_obj,
+                            )
+                        )
+                        refined_immediate = _capture_immediate(refine_resp)
+                        if refined_immediate is not None:
+                            seed_immediate = refined_immediate
+                        refined_masks = _collect_propagation()
+                        if refined_masks:
+                            masks_by_frame = refined_masks
+                    except Exception as exc:
+                        log.warning(
+                            "SAM3 point refinement failed (%s); keeping the text-seeded mask.",
+                            exc,
+                        )
+                elif box is not None:
+                    # Text + box together: the text grounds the object class
+                    # while the box localizes it. A box-only prompt on this
+                    # SAM3 build produced no masklet at all (0 propagation
+                    # responses), so the text is required to seed the semantic
+                    # path. We also keep the immediate prompt-frame mask SAM3
+                    # returns from add_prompt so a quiet propagation cannot
+                    # wipe out a valid seed.
+                    add_resp = predictor.handle_request(
+                        dict(
+                            type="add_prompt",
+                            session_id=sid,
+                            frame_index=pf,
+                            text=text_prompts[0],
+                            bounding_boxes=[box],
+                            bounding_box_labels=[1],
+                            obj_id=start_obj,
+                        )
+                    )
+                    seed_immediate = _capture_immediate(add_resp)
+                    masks_by_frame = _collect_propagation()
+                else:
+                    for i, text in enumerate(text_prompts):
+                        predictor.handle_request(
+                            dict(
+                                type="add_prompt",
+                                session_id=sid,
+                                frame_index=pf,
+                                text=text,
+                                obj_id=start_obj + i,
+                            )
+                        )
+                    masks_by_frame = _collect_propagation()
             finally:
                 try:
                     predictor.handle_request(dict(type="close_session", session_id=sid))
