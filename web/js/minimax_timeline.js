@@ -3228,7 +3228,11 @@ function installReplaceWindowsMode(ed) {
             };
             const btnBox = mkModeBtn("Box", "box");
             const btnPoints = mkModeBtn("Points (click to select)", "points");
-            toolbar.append(btnBox, btnPoints, hint);
+            const btnUndo = mkModeBtn("Undo last", "undo");
+            btnUndo.title = "Remove the most recently added point.";
+            const btnClear = mkModeBtn("Clear", "clear");
+            btnClear.title = "Remove the stored selection for this window (fall back to the text prompt).";
+            toolbar.append(btnBox, btnPoints, btnUndo, btnClear, hint);
             inp.pickCanvasHost.append(toolbar);
             const natW = Number(frameData.width) || 1;
             const natH = Number(frameData.height) || 1;
@@ -3277,6 +3281,7 @@ function installReplaceWindowsMode(ed) {
                 btnBox.style.color = mode === "box" ? "#4fff8f" : "#cfe9d9";
                 btnPoints.style.borderColor = mode === "points" ? "#4fff8f" : "#2f5a40";
                 btnPoints.style.color = mode === "points" ? "#4fff8f" : "#cfe9d9";
+                btnUndo.style.display = mode === "points" ? "" : "none";
                 setHint();
                 paintAll();
             };
@@ -3316,6 +3321,34 @@ function installReplaceWindowsMode(ed) {
                     ? "Negative point added (excludes). Keep clicking, or Test mask."
                     : "Point added (includes this spot). Add more on the body if needed, or Test mask.";
             };
+            const clearSeed = () => {
+                const segLive = getSeg();
+                if (!segLive) return;
+                const c = replaceConfigFromSeg(segLive);
+                c.pick = null;
+                ensureReplaceConfigOnSeg(segLive, c);
+                commitLight();
+                paintFrameBase(canvas);
+                inp.testStatus.textContent = "Selection cleared - SAM3 will use the text prompt only.";
+            };
+            const undoPoint = () => {
+                const stored = getStoredPick();
+                if (!(stored && stored.mode === "points" && Array.isArray(stored.points) && stored.points.length)) {
+                    inp.testStatus.textContent = "Nothing to undo - no points stored.";
+                    return;
+                }
+                const pts = stored.points.slice(0, -1);
+                const lbls = Array.isArray(stored.point_labels) ? stored.point_labels.slice(0, -1) : [];
+                if (pts.length) {
+                    savePick({ mode: "points", points: pts, point_labels: lbls });
+                } else {
+                    clearSeed();
+                }
+                setMode("points");
+                inp.testStatus.textContent = "Last point removed.";
+            };
+            btnUndo.addEventListener("click", (ev) => { ev.preventDefault(); undoPoint(); });
+            btnClear.addEventListener("click", (ev) => { ev.preventDefault(); clearSeed(); });
             const finishBox = (ev) => {
                 if (!down) return;
                 const [x1, y1] = toNorm(ev);
