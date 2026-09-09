@@ -28,7 +28,7 @@ from ..nodes.conditioning import (
     run_minimax_conditioning,
 )
 from ..patches import motion_context_patch_status
-from .core_sampling import sample_single_stage
+from .core_sampling import sample_single_stage, sample_audio_refine_pass
 from .core_sampling import (
     describe_external_sampler,
     resolve_sampling_mode,
@@ -444,6 +444,9 @@ def execute_director_plan_core(
     source_overlap_frames: int = 5,
     audio_context_enabled: bool = True,
     color_reanchor_enabled: bool = False,
+    audio_refine_enabled: bool = False,
+    audio_refine_steps: int = 6,
+    audio_refine_denoise: float = 0.5,
     pin_renorm_enabled: bool = False,
     clear_vram_between_segments: bool = True,
     postprocess_config: str | dict[str, Any] = "",
@@ -472,6 +475,19 @@ def execute_director_plan_core(
     plan.source_overlap_frames = requested_source_bridge
     plan.color_reanchor_enabled = bool(color_reanchor_enabled)
     color_reanchor_requested = bool(color_reanchor_enabled)
+    # Audio Refine (freeze-video, audio-only partial denoise) is meaningful only
+    # when audio is actually generated from the AV latent.
+    audio_refine_requested = bool(
+        audio_refine_enabled
+        and int(audio_refine_steps or 0) > 0
+        and audio_mode == AUDIO_MODE_GENERATE
+    )
+    audio_refine_cfg = {
+        "enabled": audio_refine_requested,
+        "steps": int(audio_refine_steps or 0),
+        "denoise": float(audio_refine_denoise or 0.5),
+        "pipeline": "frozen_video_audio_tail_v1",
+    }
     audio_context_requested = bool(audio_context_enabled)
     audio_context_master_active = bool(audio_context_requested and audio_mode == AUDIO_MODE_GENERATE)
     audio_context_active = bool(motion_enabled and audio_context_master_active)
@@ -525,6 +541,8 @@ def execute_director_plan_core(
     }
     cache_settings.update(color_reanchor_cache_settings(color_reanchor_requested))
     cache_settings.update(postprocess_cache_fingerprint(postprocess))
+    if audio_refine_requested:
+        cache_settings["audio_refine"] = dict(audio_refine_cfg)
     cache_settings.update({"spatial_stride": int(plan_spatial_stride), "spatial_pipeline": H3_SPATIAL_PIPELINE})
     if any(seg.task_key in {"v2v", "rv2v"} for seg in plan.segments):
         cache_settings["reference_video_pipeline"] = H3_REFERENCE_VIDEO_PIPELINE
@@ -592,6 +610,18 @@ def execute_director_plan_core(
     reports.append(f"Legacy global Audio Context default: {'ON' if audio_context_active else 'OFF'}")
     reports.append(f"pin_renorm (experimental): {'ON' if pin_renorm_enabled else 'OFF'}")
     reports.append(f"Color Re-anchor: {'ON' if color_reanchor_requested else 'OFF'}")
+    if audio_refine_requested:
+        reports.append(
+            f"Audio Refine (freeze-video, audio-only): ON - {int(audio_refine_steps)} "
+            f"steps @ denoise {float(audio_refine_denoise)} (video returned bit-identical)"
+        )
+    elif audio_refine_enabled:
+        reports.append(
+            "Audio Refine requested but OFF: output audio mode is not 'generate' "
+            "(refinement needs a decoded AV audio latent)."
+        )
+    else:
+        reports.append("Audio Refine (freeze-video, audio-only): OFF")
     reports.append(
         f"H3 spatial stride: {int(plan_spatial_stride)} "
         f"(authoritative canvas {int(plan.width)}x{int(plan.height)})"
@@ -1429,6 +1459,56 @@ def execute_director_plan_core(
             warning_messages.append(
                 f"S{timeline_slot + 1}: Global Refine FAILED; fallback FIRST_PASS_RESULT — {global_outcome.error}"
             )
+
+        # ---- Audio Refine (freeze-video, audio-only partial denoise) ---------
+        # Runs after sampling (and any Global Refine) but BEFORE audio VAE decode,
+        # while the packed AV latent still exists. The video stream is frozen via
+        # a per-stream denoise mask (0 = preserve) so it returns bit-identical;
+        # only the audio is re-noised at audio_refine_denoise and re-denoised for
+        # audio_refine_steps in the context of the finished video.
+        if audio_refine_requested:
+            if replace_active:
+                warning_messages.append(
+                    f"S{timeline_slot + 1}: Audio Refine skipped - Character Replace is a "
+                    "standalone masked window (its own audio policy owns continuity)."
+                )
+            elif not getattr(samples, "is_nested", False):
+                warning_messages.append(
+                    f"S{timeline_slot + 1}: Audio Refine skipped - sampled latent is not a "
+                    "nested H3 AV latent."
+                )
+            else:
+                _audio_refine_started = time.perf_counter()
+                try:
+                    samples = sample_audio_refine_pass(
+                        model=model,
+                        positive=positive,
+                        negative=negative,
+                        samples=samples,
+                        seed=seed,
+                        cfg=cfg,
+                        steps=int(audio_refine_steps),
+                        sampler_name=sampler,
+                        scheduler=scheduler,
+                        external_sampler=external_sampler,
+                        external_sigmas=external_sigmas,
+                        shift_video=shift_video,
+                        shift_audio=shift_audio,
+                        audio_denoise=float(audio_refine_denoise),
+                        on_phase=lambda _phase, value: _report_sample_phase("audio_refine", value),
+                    )
+                    stage_times["audio_refine"] = time.perf_counter() - _audio_refine_started
+                    reports.append(
+                        f"Segment {timeline_slot + 1}: AUDIO REFINE - {int(audio_refine_steps)} "
+                        f"steps @ denoise {float(audio_refine_denoise)} "
+                        "(video frozen bit-identical; audio-only partial denoise)."
+                    )
+                except Exception as exc:
+                    cleanup_segment_vram(enabled=True, unload_models=False)
+                    warning_messages.append(
+                        f"S{timeline_slot + 1}: Audio Refine FAILED; keeping the sampled "
+                        f"audio — {exc}"
+                    )
 
         report_director_progress(
             node_id, segment_index=progress_index, segment_total=seg_total,

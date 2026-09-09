@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Callable
 
 import torch
@@ -332,9 +333,148 @@ def sample_single_stage(
     return out
 
 
+def sample_audio_refine_pass(
+    *,
+    model,
+    positive,
+    negative,
+    samples,
+    seed: int,
+    cfg: float,
+    steps: int,
+    sampler_name: str,
+    scheduler: str,
+    external_sampler=None,
+    external_sigmas=None,
+    shift_video: float = 12.0,
+    shift_audio: float = 3.0,
+    audio_denoise: float = 0.5,
+    video_denoise: float = 0.0,
+    on_phase: PhaseCallback | None = None,
+    phase_name: str = "audio_refine",
+):
+    """Audio-only refinement pass over an already-sampled H3 AV latent.
+
+    Freezes the video stream (per-stream denoise mask 0.0) and runs extra
+    partial-denoise steps on the audio stream (mask 1.0) in the context of the
+    finished video, before audio VAE decode.  Video returns bit-identical at
+    ``video_denoise`` 0.0 (native masked blend).  Mirrors ComfyUI-H3-AudioRefine's
+    approach using only public comfy.sample APIs.
+
+    Internal mode mirrors the stock KSampler ``denoise`` path (schedule is
+    ``steps / audio_denoise`` long; only the tail executes).  External mode runs
+    ``sample_custom`` over the tail of the connected SIGMAS (best-effort partial
+    denoise; document in the run report).
+    """
+    import comfy.nested_tensor
+    import comfy.sample
+    import comfy.utils
+    from comfy_extras.nodes_minimax_h3 import MiniMaxH3SigmaShift
+
+    def notify(phase: str, value: float) -> None:
+        if on_phase:
+            on_phase(phase, value)
+
+    notify(phase_name, 0)
+    if not getattr(samples, "is_nested", False):
+        raise ValueError(
+            "Audio Refine requires a sampled nested H3 AV latent (video+audio)."
+        )
+    streams = samples.unbind()
+    if len(streams) < 2:
+        raise ValueError(
+            "Audio Refine nested latent has %d stream(s), expected 2 (video, audio)."
+            % len(streams)
+        )
+    video, audio = streams[0], streams[1]
+    if video.ndim != 5 or audio.ndim != 4:
+        raise ValueError(
+            "Audio Refine unexpected stream shapes video=%s audio=%s "
+            "(expected video [B,C,T,H,W] and audio [B,C,2,T])."
+            % (list(video.shape), list(audio.shape))
+        )
+
+    # Per-stream denoise masks at full spatial/temporal shape, 1 channel each;
+    # core's reshape_mask broadcasts channels. 0.0 = preserve, 1.0 = generate.
+    v = torch.full(
+        (1, 1, int(video.shape[2]), int(video.shape[3]), int(video.shape[4])),
+        float(video_denoise),
+        dtype=torch.float32,
+    )
+    a = torch.ones((1, 1, int(audio.shape[2]), int(audio.shape[3])), dtype=torch.float32)
+    noise_mask = comfy.nested_tensor.NestedTensor((v, a))
+
+    mode = resolve_sampling_mode(external_sampler, external_sigmas)
+    neg = negative if negative else []
+    latent_image = samples
+    noise = comfy.sample.prepare_noise(latent_image, int(seed), None)
+
+    def callback(step, x0, x, total_steps):
+        notify(phase_name, min(1.0, (int(step) + 1) / max(1, int(total_steps))))
+
+    disable_pbar = not comfy.utils.PROGRESS_BAR_ENABLED
+    if mode == "internal":
+        shifted = MiniMaxH3SigmaShift.execute(model, float(shift_video), float(shift_audio))
+        model_for_sampling = _unpack_node_output(shifted)[0]
+        refined = comfy.sample.sample(
+            model_for_sampling,
+            noise,
+            int(steps),
+            float(cfg),
+            sampler_name,
+            scheduler,
+            positive,
+            neg,
+            latent_image,
+            denoise=float(audio_denoise),
+            noise_mask=noise_mask,
+            callback=callback,
+            disable_pbar=disable_pbar,
+            seed=int(seed),
+        )
+    else:
+        # External SIGMAS: partial-denoise over the schedule tail. Reuse the same
+        # validation as the first pass, then keep the last ~steps/audio_denoise
+        # sigmas so the audio rides the ModelSamplingAV carry of the patched model.
+        sigmas_checked, _ = validate_external_sampling(
+            model, external_sampler, external_sigmas
+        )
+        total = max(
+            2,
+            int(math.ceil(float(steps) / max(0.05, float(audio_denoise)))) + 1,
+        )
+        if int(sigmas_checked.numel()) > total:
+            sigmas_checked = sigmas_checked[-total:]
+        try:
+            refined = comfy.sample.sample_custom(
+                model,
+                noise,
+                float(cfg),
+                external_sampler,
+                sigmas_checked,
+                positive,
+                neg,
+                latent_image,
+                noise_mask=noise_mask,
+                callback=callback,
+                disable_pbar=disable_pbar,
+                seed=int(seed),
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "Motion Director Audio Refine external SAMPLER failed. Confirm the "
+                "sampler supports standard ComfyUI SAMPLER objects and MiniMax H3 "
+                "NestedTensor inputs. Original error: %s" % exc
+            ) from exc
+
+    notify(phase_name, 1)
+    return refined
+
+
 __all__ = [
     "describe_external_sampler",
     "resolve_sampling_mode",
+    "sample_audio_refine_pass",
     "sample_single_stage",
     "validate_external_sampling",
 ]

@@ -260,6 +260,49 @@ class MiniMaxH3MotionDirector:
                         "tooltip": "Internal Director post-processing and Output Preview configuration.",
                     },
                 ),
+                "bd_grp_audio_refine": (
+                    "BDGROUP",
+                    {
+                        "default": "Audio Refine",
+                        "tooltip": "Freeze-video, audio-only refinement pass (experimental).",
+                    },
+                ),
+                "audio_refine_enabled": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": (
+                            "Run an extra audio-only partial-denoise pass after each segment "
+                            "samples, with the video stream frozen bit-identical (native "
+                            "per-stream denoise mask). Improves audio at low step counts; "
+                            "each refinement step costs close to a full forward pass."
+                        ),
+                    },
+                ),
+                "audio_refine_steps": (
+                    "INT",
+                    {
+                        "default": 6,
+                        "min": 1,
+                        "max": 50,
+                        "tooltip": "Refinement steps, run at the audio denoise depth below.",
+                    },
+                ),
+                "audio_refine_denoise": (
+                    "FLOAT",
+                    {
+                        "default": 0.5,
+                        "min": 0.05,
+                        "max": 1.0,
+                        "step": 0.05,
+                        "round": 0.01,
+                        "tooltip": (
+                            "How far the audio is re-noised before refinement: 0.3-0.6 keeps "
+                            "pass-1 audio content and cleans the noise floor; 1.0 regenerates "
+                            "audio from scratch against the frozen video."
+                        ),
+                    },
+                ),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -322,6 +365,9 @@ class MiniMaxH3MotionDirector:
         source_overlap_frames=5,
         audio_context_enabled=True,
         color_reanchor_enabled=False,
+        audio_refine_enabled=False,
+        audio_refine_steps=6,
+        audio_refine_denoise=0.5,
         steps=25,
         sampler_name="res_multistep",
         scheduler="simple",
@@ -388,6 +434,9 @@ class MiniMaxH3MotionDirector:
             source_overlap_frames=source_overlap_frames,
             audio_context_enabled=audio_context_enabled,
             color_reanchor_enabled=color_reanchor_enabled,
+            audio_refine_enabled=audio_refine_enabled,
+            audio_refine_steps=audio_refine_steps,
+            audio_refine_denoise=audio_refine_denoise,
             pin_renorm_enabled=pin_renorm_enabled,
             clear_vram_between_segments=clear_vram_between_segments,
             postprocess_config=postprocess_config,
