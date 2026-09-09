@@ -59,6 +59,13 @@ else:
 
     install_audio_drive_support()
 
+    # Guard the official H3 reference-audio encode against ComfyUI's broken OOM
+    # tiled fallback (latent_dim=2 wrapper over a 1-D waveform). Transparent:
+    # encodes untiled when VRAM allows (identical output), chunks only on OOM.
+    from .director.audio_vae_guard import install_audio_vae_guard  # noqa: E402
+
+    install_audio_vae_guard()
+
     from .nodes.director_output import MiniMaxH3MotionDirector  # noqa: E402
     from .nodes.director_inputs import (  # noqa: E402
         MiniMaxH3MotionDirectorAssets,
