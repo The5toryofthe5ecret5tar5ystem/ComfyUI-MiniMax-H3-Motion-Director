@@ -396,6 +396,13 @@ def analyze_resume_cache(node_id: str | None, **plan_inputs: Any) -> dict[str, A
         )
         if plan is None:
             return {"error": "empty plan"}
+        # The engine stamps plan.color_reanchor_enabled from the live widget at
+        # render time (executor_core_legacy), which is what the cached fingerprint
+        # was written with. Mirror that here so the cache comparison reflects the
+        # node's actual toggle instead of the dataclass default (False).
+        plan.color_reanchor_enabled = bool(
+            plan_inputs.get("color_reanchor_enabled", False)
+        )
         audio_generate = resolve_audio_mode(plan) == AUDIO_MODE_GENERATE
         stored_by_index = {
             int(entry["index"]): entry

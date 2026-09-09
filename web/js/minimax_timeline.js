@@ -11909,6 +11909,7 @@ class MiniMaxH3MotionDirectorEditor {
             width: Number(widgetVal("width")) || 0,
             height: Number(widgetVal("height")) || 0,
             ref_max_size: Number(widgetVal("ref_max_size")) || 0,
+            color_reanchor_enabled: Boolean(widgetVal("color_reanchor_enabled")) || false,
         };
         let data = null;
         try {
