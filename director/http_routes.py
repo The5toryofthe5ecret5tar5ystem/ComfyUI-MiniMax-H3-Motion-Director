@@ -335,7 +335,8 @@ async def minimax_resume_preview(request):
         keys = (
             "timeline_data", "task_type", "global_prompt", "total_frames",
             "frame_rate", "width", "height", "ref_max_size",
-            "motion_context_enabled", "i2v_groups", "r2v_groups",
+            "motion_context_enabled", "color_reanchor_enabled",
+            "i2v_groups", "r2v_groups",
         )
         inputs = {key: body.get(key) for key in keys if key in body and body.get(key) is not None}
         return web.json_response(analyze_resume_cache(node_id, **inputs))
