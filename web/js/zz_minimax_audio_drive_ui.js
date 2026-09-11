@@ -24,12 +24,14 @@ import {
     createAudioEditHistory,
     moveTrimSelection,
     orderDriveRows,
+    shouldCloseEditorBackdrop,
 } from "./minimax_audio_editor_core.mjs";
 
 const DIRECTOR_CLASS = "MiniMaxH3MotionDirector";
 const STYLE_ID = "mmx-audio-roles-style";
 const PANEL_CLASS = "mmx-audio-role-panel";
 const CARD_BOUND = "mmxAudioRoleBound";
+const BACKDROP_SELECTOR = ".mmx-audio-editor-backdrop";
 
 function words() {
     if (getLocale() === "en") return {
@@ -794,6 +796,58 @@ function wrap(nodeType) {
         return result;
     };
 }
+
+// ---------------------------------------------------------------------------
+// Audio editor backdrop guard
+// ---------------------------------------------------------------------------
+// Folded in from `zzzz_minimax_audio_editor_backdrop_guard.js` (2026-09-10). A press
+// that starts on the backdrop and ends on the backdrop closes the editor; a press that
+// starts inside the dialog and drifts out - or never touched the backdrop - must not.
+//
+// Registered on `document` in the capture phase so it decides before any element
+// handler sees the click, and it returns immediately while no editor is open, so it
+// costs nothing on the hot path.
+
+let activeBackdropGesture = null;
+
+function closestBackdrop(target) {
+    return target?.closest?.(BACKDROP_SELECTOR) || null;
+}
+
+document.addEventListener("pointerdown", (event) => {
+    const backdrop = closestBackdrop(event.target);
+    if (!backdrop) {
+        activeBackdropGesture = null;
+        return;
+    }
+    activeBackdropGesture = {
+        backdrop,
+        pointerDownWasBackdrop: event.target === backdrop,
+    };
+}, true);
+
+document.addEventListener("click", (event) => {
+    const backdrop = closestBackdrop(event.target);
+    if (!backdrop || activeBackdropGesture?.backdrop !== backdrop) {
+        activeBackdropGesture = null;
+        return;
+    }
+    const shouldClose = shouldCloseEditorBackdrop(
+        activeBackdropGesture.pointerDownWasBackdrop,
+        event.target === backdrop,
+    );
+    activeBackdropGesture = null;
+    // A drag that began inside the dialog and ended on the backdrop is not a
+    // dismissal - swallow it before anything else can act on it.
+    if (event.target === backdrop && !shouldClose) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }
+}, true);
+
+document.addEventListener("pointercancel", () => {
+    activeBackdropGesture = null;
+}, true);
 
 app.registerExtension({
     name: "MiniMaxH3.MotionDirector.AudioRoles",

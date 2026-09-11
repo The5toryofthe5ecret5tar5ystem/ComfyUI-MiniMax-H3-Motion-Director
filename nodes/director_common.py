@@ -270,7 +270,11 @@ def prepare_director_plan(
             runnable,
             timeline_segment_total=len(plan.segments),
         )
-        log.info("MiniMax H3 Motion Director: Mixed | %s", plan_summary(plan).replace("\n", " | "))
+        log.info(
+            "MiniMax H3 Motion Director: Mixed | %s",
+            plan_summary(plan, include_prompts=False).replace("\n", " | "),
+        )
+        log.debug("MiniMax H3 Motion Director: Mixed (full) | %s", plan_summary(plan).replace("\n", " | "))
         return plan
 
     task_key, ext_groups, family = validate_external_group_inputs(
@@ -306,6 +310,11 @@ def prepare_director_plan(
             family,
             len(ext_groups),
             task_key,
+            plan_summary(plan, include_prompts=False).replace("\n", " | "),
+        )
+        log.debug(
+            "MiniMax H3 Motion Director: external %s groups (full) | %s",
+            family,
             plan_summary(plan).replace("\n", " | "),
         )
         return plan
@@ -327,7 +336,8 @@ def prepare_director_plan(
         ref_max_size=ref_max_size,
         motion_context_enabled=motion_context_enabled,
     )
-    log.info(plan_summary(plan).replace("\n", " | "))
+    log.info(plan_summary(plan, include_prompts=False).replace("\n", " | "))
+    log.debug(plan_summary(plan).replace("\n", " | "))
     return plan
 
 

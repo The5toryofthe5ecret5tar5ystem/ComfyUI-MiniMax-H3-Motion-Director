@@ -95,3 +95,43 @@ panel's constant repaints.
 - **Reducing context/source frames** to skip work — changes continuity/output.
 - **Decoding fewer output frames** or downscaling the final decode — changes the
   result.
+
+## 5b. Client (dashboard / Director UI) — pass 2, 2026-09-09
+
+Four remaining client hot paths were found and fixed in `web/js` (all UI-only;
+**no effect on generated output, prompts, timeline data or queue payload**):
+
+1. **Replace-editor rAF loop** (`minimax_timeline.js::installReplaceWindowsMode`)
+   used to re-sync the Segment-bounds inputs and the Replace-mode rows on every
+   animation frame, forever, per Director node. The heavy per-row DOM sync is now
+   throttled to 200 ms (`BULK_SYNC_MS`); the bounds refresh is write-guarded (a
+   no-op frame costs a few compares and never touches the DOM); the cheap segment
+   normalization (`ensureReplaceConfigOnSeg`) intentionally still runs every tick
+   because it writes data the Replace feature reads.
+2. **Inputs-node poll** (`minimax_director_inputs.js`) — `syncInputsNode` now
+   early-returns on a cheap change signature (desired socket shape/names, link
+   presence, internal prompt/media state, editor-root identity) instead of doing
+   socket/DOM work every 250 ms; the root-identity check forces a full re-sync if
+   the Director's editor DOM is ever rebuilt (so lock classes/badges re-apply).
+   `resizeNode()` only calls `setSize` + `setDirtyCanvas` when the computed size
+   actually changed, so an idle poll no longer forces a canvas repaint ~4×/s.
+3. **Sections poll** (`minimax_director_sections.js`) — the body that re-asserts
+   widget visibility/labels now runs only when its locale/sampling signature
+   changes, when `scheduleSync` sets a dirty flag (load/configure/connections),
+   or when the widget array was replaced (workflow reload). Idle polls are a
+   no-op compare.
+4. **Locked-media guard** (`minimax_director_inputs.js`) — the six global
+   capture-phase listeners (pointerdown/click/dblclick/dragstart/dragover/drop)
+   are now installed lazily the first time a Director actually applies a lock
+   (`applyExternalLocks`) instead of at module load. Dashboards with no locked
+   slots carry zero global listeners; blocking behaviour is unchanged.
+
+Validation: `node --check` clean; files installed to the running ComfyUI at
+`custom_nodes/ComfyUI-MiniMax-H3-Motion-Director/web/js` (pre-change copies in
+`web/js/_perf_backup_<timestamp>/` inside the installed pack). Hard refresh
+(Ctrl+Shift+R) to load; no ComfyUI restart needed.
+
+Smoke checklist: add/remove a timeline group (sockets follow), connect an
+external Inputs node (locks + blocked-socket disconnect still fire), edit segment
+bounds (bar updates; typing focus not clobbered), toggle Replace mode (rows +
+normalization), load a workflow and queue once.

@@ -1886,9 +1886,18 @@ def execute_director_plan_core(
         )
         return True
 
+    # Cooperative Stop: instead of aborting immediately (which threw away every
+    # finished segment), we leave the loop and let the normal assemble path emit
+    # the completed prefix as a real partial result. ComfyUI's own cancel button
+    # still hard-aborts via InterruptProcessingException from inside sampling -
+    # only this node's own Stop request takes the graceful partial path.
+    stopped_early = False
     for seg in all_segments:
         if resume_state.stop_requested(node_id):
-            resume_state.raise_graceful_stop(node_id)
+            stopped_early = True
+            resume_state.mark_run_state(node_id, "stopped")
+            resume_state.clear_stop_request(node_id)
+            break
         if seg.index in run_indices:
             if (
                 resume_active
@@ -1987,6 +1996,34 @@ def execute_director_plan_core(
             f"{[i + 1 for i in passthrough_indices]} — run selection is honored; "
             "unselected gaps filled from cache/source for「全部导出」."
         )
+
+    # ------------------------------------------------------------------
+    # Partial export on Stop
+    # ------------------------------------------------------------------
+    # Everything below (Source Bridges, then assembly) is driven by run_list /
+    # all_export_results, so a stopped run only has to narrow those to the
+    # finished prefix. The resume manifest is deliberately NOT touched: only
+    # segments that actually completed are marked done, so Resume still picks up
+    # at the first unfinished segment.
+    if stopped_early and not [index for index in run_list if index in selected_results]:
+        # Nothing usable finished - keep the original hard-cancel semantics.
+        resume_state.raise_graceful_stop(node_id)
+    partial_export = None
+    if stopped_early:
+        from .partial_export import narrow_to_completed_prefix
+        partial_export = narrow_to_completed_prefix(
+            run_list=run_list,
+            completed=selected_results.keys(),
+            bridge_pairs=source_bridge_pairs,
+            segment_total=len(all_segments),
+        )
+        run_list = partial_export.run_list
+        run_indices = partial_export.run_indices
+        seg_total = len(run_list)
+        # Only bridge joins whose BOTH sides were generated are still resolvable.
+        source_bridge_pairs = partial_export.bridge_pairs
+        reports.extend(partial_export.report_lines())
+        warning_messages.append(partial_export.warning())
 
     def _report_resolved_preview(seg, frames: torch.Tensor) -> None:
         if int(frames.shape[0]) <= 0:
@@ -2217,14 +2254,16 @@ def execute_director_plan_core(
     _assembly_started = time.perf_counter()
     if plan.export_mode == "all":
         missing_all = [seg.index for seg in all_segments if seg.index not in all_export_results]
-        if missing_all:
+        if missing_all and not stopped_early:
             raise RuntimeError(
                 "Motion Director internal error: full export segment result(s) missing: "
                 f"{[i + 1 for i in missing_all]}"
             )
-        export_chunks = [all_export_results[int(seg.index)][0] for seg in all_segments]
-        export_audios = [all_export_results[int(seg.index)][1] for seg in all_segments]
-        export_segments = all_segments
+        # A stopped run exports exactly what it produced; a complete run still
+        # resolves to all_segments in the same order.
+        export_segments = [seg for seg in all_segments if int(seg.index) in all_export_results]
+        export_chunks = [all_export_results[int(seg.index)][0] for seg in export_segments]
+        export_audios = [all_export_results[int(seg.index)][1] for seg in export_segments]
     else:
         export_chunks = segment_outputs
         export_audios = segment_audios
@@ -2554,5 +2593,19 @@ def execute_director_plan_core(
         except Exception as exc:
             log.debug("Final result preview skipped: %s", exc)
     preview_manager.close()
-    resume_state.mark_run_state(node_id, "done")
+    if stopped_early:
+        # Present the plan as a partial run so downstream describes what was
+        # actually produced rather than what was requested:
+        #   * plan.run_indices labels the saved file with the segments it holds.
+        #   * plan.total_frames is the audio-export fallback on the split path
+        #     (segment export passes output_frame_end=None), which would otherwise
+        #     take source audio for the full requested length beside a much
+        #     shorter video.
+        # The merged path needs no padding guard: pad_or_trim_frames only trims.
+        # ``plan`` is per-run state built by prepare_director_plan for this call.
+        plan.run_indices = partial_export.run_indices
+        plan.total_frames = sum(
+            int(selected_results[index][0].shape[0]) for index in partial_export.run_list
+        )
+    resume_state.mark_run_state(node_id, "stopped" if stopped_early else "done")
     return combined, segment_outputs, export_audios, rendered_report

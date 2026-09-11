@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.3.3-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.4.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.3.3**
+> Current version: **v1.4.0**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,18 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.4.0 — partial export on Stop, undo/redo, presets, sweeps
+
+**Export the part that finished.** Pressing **Stop** no longer throws the run away. The engine finishes the current segment, assembles everything already completed into a real partial video, and records the run as `stopped` — leaving the resume manifest intact, so **Resume** still continues from the first unfinished segment. Stopping before *any* segment completes still cancels cleanly. ComfyUI's own **Cancel** button is unchanged: it aborts immediately and the segment caches make Resume work from there.
+
+**Undo / redo for the timeline.** `Ctrl+Z` / `Ctrl+Shift+Z` (`Ctrl+Y` also works) plus toolbar buttons. History is bounded at 50 steps and recorded from the single commit funnel, so every timeline edit is covered — including applying a preset. It deliberately does not fire while you are typing in a text field, so prompt editing keeps its own undo.
+
+**Named presets.** Save the current sampling / continuity / output settings under a name and re-apply them in a later project (**Presets…** in the output bar). A preset stores *settings only* — never your segments, prompts, task type or seed — so it cannot quietly rewrite a project. Shared references are opt-in behind a checkbox. Stored server-side in a single atomic JSON index; a corrupt index fails loudly instead of being silently replaced by an empty one.
+
+**Multi-seed sweep.** Render the same project N times with N different seeds in one click (`Takes` + **Sweep**) and compare the takes. Take seeds are hashed rather than `seed + 1`, because consecutive seeds can produce visibly correlated results. Every take forces `resume: false` — without that, each take would reuse the first take's segment caches and the sweep would spend N× the GPU time producing one video.
+
+**Fewer surprises before you queue.** **Validate** runs a pre-flight check (empty timeline, H3 frame-grid violations, missing references or audio, Character Replace setup mistakes, unknown source length) and reports problems in the output bar *before* a run starts. **Preview prompt** shows the exact text the model receives, including what the engine appends. **References…** cross-checks which reference slots your prompts mention against the files actually attached. Task types and segment modes now read in plain language, and segment length shows its seconds and snapped H3 frame count.
 
 ### Re-ground segments — stop visual / color drift on long runs
 
@@ -59,7 +71,7 @@ Global Refine is now skipped automatically (keeping the first-pass result) when 
 
 ### Tests + CI
 
-- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 123 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
+- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 326 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
 
 ### Example workflow
 

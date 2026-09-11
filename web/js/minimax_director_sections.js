@@ -429,6 +429,18 @@ function syncDirectorSections(node) {
     const locale = getLocale() === "en" ? "en" : "zh";
     const samplingState = getSamplingConnectionState(node.inputs || []);
     const showInternal = shouldShowInternalSampling(samplingState);
+    // Idle gate: the body below re-asserts widget visibility/labels and is too
+    // heavy to run on every poll. Run it only when something relevant changed,
+    // when scheduleSync set the dirty flag (load/configure/connections), or
+    // when the widget array was replaced (workflow reload / node rebuild).
+    const signature = `${locale}|${samplingState}|${showInternal ? 1 : 0}`;
+    const dirty = node._mmxSectionDirty === true;
+    const widgetsReplaced = node._mmxSectionWidgetsRef !== node.widgets;
+    if (!dirty && !widgetsReplaced && node._mmxSectionSignature === signature) return;
+    node._mmxSectionDirty = false;
+    node._mmxSectionWidgetsRef = node.widgets;
+    node._mmxSectionSignature = signature;
+
     let changed = false;
 
     const proxies = ensureSamplingProxies(node);
@@ -459,12 +471,6 @@ function syncDirectorSections(node) {
         ensureGapBefore(node, headerName, gapName);
     }
 
-    const signature = `${locale}|${samplingState}|${showInternal ? 1 : 0}`;
-    if (node._mmxSectionSignature !== signature) {
-        node._mmxSectionSignature = signature;
-        changed = true;
-    }
-
     if (changed) {
         const computed = node.computeSize?.();
         if (computed && Array.isArray(node.size)) {
@@ -479,6 +485,8 @@ function syncDirectorSections(node) {
 
 function scheduleSync(node, delay = 0) {
     if (!node) return;
+    // Force the idle-gated body to run on load/configure/connection changes.
+    node._mmxSectionDirty = true;
     clearTimeout(node._mmxSectionSyncTimeout);
     node._mmxSectionSyncTimeout = setTimeout(() => {
         node._mmxSectionSyncTimeout = null;

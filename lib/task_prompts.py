@@ -35,39 +35,39 @@ TASK_PROMPT_SPECS: tuple[TaskPromptSpec, ...] = (
     ),
     TaskPromptSpec(
         "i2v",
-        "图生视频(Image to Video)",
+        "图生视频(Start image to video)",
         "",
         "首帧图生音视频（ImageToVideo + first_frame）。",
     ),
     TaskPromptSpec(
         "fl2v",
-        "首尾帧生视频(First-Last Frame)",
+        "首尾帧生视频(First + last frame)",
         "",
         "首帧+尾帧约束（ImageToVideo + first_frame + last_frame）。",
     ),
     TaskPromptSpec(
         "r2v",
-        "参考主体生视频(Reference to Video)",
+        "参考主体生视频(Reference images to video)",
         "",
         "分组参考改视频（类似首尾帧分组）：每组可上传图片1–9、音频1–3、视频1–3；"
         "提示词用 <Picture N> / <Video K> / <Audio J>。源视频时间轴剪辑请用 v2v/rv2v。",
     ),
     TaskPromptSpec(
         "v2v",
-        "视频转视频(Video to Video)",
+        "视频转视频(Source video only)",
         "",
         "上传源视频后按时间轴分段编辑；每段源画面作为 <Video 1> 送入 ReferenceToVideo（无参考图槽）。",
     ),
     TaskPromptSpec(
         "rv2v",
-        "参考素材改视频(Reference Video Edit)",
+        "参考素材改视频(Source video + references)",
         "",
         "源视频时间轴编辑，可选参考图（图片1–9）与参考音频（音频1–3）；"
         "每段源画面为 <Video 1>，参考图用 <Picture N>，参考音频用 <Audio J>；无参考素材时等同 v2v。",
     ),
     TaskPromptSpec(
         "mixed",
-        "混合模式(Mixed)",
+        "混合模式(Mixed, per-segment)",
         "",
         "同一时间线逐段选择 T2V / I2V / FL2V / R2V / Source Video。"
         "Mixed 是 Director 元模式，每段执行前会编译成现有 H3 后端任务。",
