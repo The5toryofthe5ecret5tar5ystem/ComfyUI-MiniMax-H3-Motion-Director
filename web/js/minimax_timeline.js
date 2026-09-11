@@ -13102,10 +13102,16 @@ class MiniMaxH3MotionDirectorEditor {
         const next = Number(this._resumeNext ?? total);
         const running = this._isRunActive();
         const partial = total > 0 && next >= 0 && next < total;
-        const doneAny = (this._resumeDone?.size || 0) > 0 || next > 0;
+        // Finished segments can exist on disk with no done mark: a fresh run
+        // clears the manifest's done list, and an interrupted one never re-adds
+        // it. Resume reuses those CACHES, so cached work alone must be enough to
+        // offer it - otherwise the button stays greyed out with everything the
+        // engine needs sitting right there.
+        const cached = Number(this._resumeCachedComplete ?? 0);
+        const doneAny = (this._resumeDone?.size || 0) > 0 || next > 0 || cached > 0;
         controller.setRunControls({
             running,
-            canResume: !running && partial && next > 0,
+            canResume: !running && partial && (next > 0 || cached > 0),
             canRestart: running ? true : partial,
             canStop: running,
             canStartOver: !running && (partial || doneAny),
@@ -13137,6 +13143,7 @@ class MiniMaxH3MotionDirectorEditor {
             if (next > total) next = total;
             this._resumeTotal = total;
             this._resumeNext = next;
+            this._resumeCachedComplete = Number(data?.cached_complete ?? 0);
             this._resumeState = String(data?.state ?? "idle");
             // Reconcile the running flag against the engine's manifest state so
             // the Stop/Resume buttons recover even if a lifecycle event was missed.
