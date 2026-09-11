@@ -122,6 +122,8 @@ def build_mixed_director_plan(
         _load_ref_videos,
         _load_refs,
         _parse_run_selection,
+        _resume_enabled,
+        _resume_from_index,
         _resolve_export_mode,
         _run_selection_enabled,
     )
@@ -291,6 +293,9 @@ def build_mixed_director_plan(
         export_mode=_resolve_export_mode(output),
         run_indices=parsed_run_indices,
         run_select_enabled=_run_selection_enabled(raw),
+        # Same wiring as the gen builder - see director/gen_timeline.py.
+        resume=_resume_enabled(timeline),
+        resume_from=_resume_from_index(timeline),
     )
     plan.mixed_mode = True
     plan.mixed_schema_version = 1
