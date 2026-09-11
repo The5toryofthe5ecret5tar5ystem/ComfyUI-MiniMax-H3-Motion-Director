@@ -90,11 +90,32 @@ DECLARED_GROUP_HEADERS = [
 ]
 
 
+def _node_class():
+    """Import the node class, or skip when the environment cannot.
+
+    Importing the node package pulls in torch, and on a CPU-only CI runner torch is not
+    compiled with CUDA, so the *import itself* raises `AssertionError: Torch not
+    compiled with CUDA enabled`. That is an environment limitation, not a problem with
+    the mapping under test - and forcing a CUDA torch into CI just to read a dict would
+    be the wrong trade. Locally, where a CUDA torch is present, the order is verified
+    for real.
+
+    Honest limitation: this guard is therefore **not enforced in CI**. It still catches a
+    mid-list insertion on any machine that can load the node, which is where the mapping
+    is actually edited.
+    """
+    try:
+        from mmx_pkg.nodes.director import MiniMaxH3MotionDirector
+    except Exception as exc:  # noqa: BLE001 - any import failure here is environmental
+        if "cuda" in str(exc).lower():
+            pytest.skip(f"node module needs a CUDA-capable torch to import: {exc}")
+        raise
+    return MiniMaxH3MotionDirector
+
+
 def _declared_order() -> list[tuple[str, str]]:
     """The node's input order as it would be reported to the frontend."""
-    from mmx_pkg.nodes.director import MiniMaxH3MotionDirector
-
-    spec = MiniMaxH3MotionDirector.INPUT_TYPES()
+    spec = _node_class().INPUT_TYPES()
     order: list[tuple[str, str]] = []
     for group in ("required", "optional"):
         for name in spec.get(group, {}):
@@ -173,9 +194,7 @@ def test_every_declared_group_header_is_accounted_for():
 @pytest.mark.parametrize("name", DECLARED_GROUP_HEADERS)
 def test_group_headers_are_declared_as_bdgroup(name: str):
     """Group headers must stay BDGROUP-typed, not become real widgets."""
-    from mmx_pkg.nodes.director import MiniMaxH3MotionDirector
-
-    spec = MiniMaxH3MotionDirector.INPUT_TYPES()
+    spec = _node_class().INPUT_TYPES()
     entry = None
     for group in ("required", "optional"):
         if name in spec.get(group, {}):
