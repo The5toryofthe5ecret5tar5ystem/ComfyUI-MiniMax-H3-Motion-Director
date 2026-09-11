@@ -14,6 +14,33 @@ import {
     mountPostprocessUI,
 } from "./minimax_postprocess_ui.mjs?boot=postprocess_output_v9";
 import { mountOutputUI } from "./minimax_output_ui.mjs?boot=live_results_v2";
+import {
+    compareTimelineMirrors,
+    createUndoBuffer,
+    isTextEntryTarget,
+    isUndoShortcut,
+} from "./minimax_undo_buffer.mjs";
+import {
+    PRESET_WIDGET_NAMES,
+    collectPresetPayload,
+    describePresetPayload,
+    formatPresetSummary,
+    planPresetApply,
+} from "./minimax_director_presets.mjs";
+import {
+    createDirectorPreset,
+    deleteDirectorPreset,
+    getDirectorPreset,
+    listDirectorPresets,
+    updateDirectorPreset,
+} from "./minimax_director_presets_api.mjs";
+import {
+    SWEEP_MAX_TAKES,
+    expandSeedSweep,
+    formatTakeLabel,
+    isSweepActive,
+    parseSeedList,
+} from "./minimax_seed_sweep.mjs";
 import { resolveExternalGroupTerminal } from "./minimax_external_groups.mjs";
 import {
     CUSTOM_ASPECT_RATIO,
@@ -23,6 +50,7 @@ import {
     defaultFrameCount,
     durationToClampedMiniMaxFrames,
     framesToDurationSec,
+    alignMiniMaxFrameCount,
     preferredDurationSecFromFrames,
     roundDurationSec,
     genLayoutHint,
@@ -183,6 +211,10 @@ const CONTEXT_LINK_RADIUS = 10;
 const THUMB_MAX_W = 168;
 const THUMB_JPEG_Q = 0.55;
 const TIMELINE_SYNC_DEBOUNCE_MS = 500;
+
+// Timeline undo history depth. Snapshots are serialized timeline strings, so this
+// is a memory/undo-reach trade-off rather than a correctness knob.
+const UNDO_HISTORY_LIMIT = 50;
 const MAX_THUMBS_PER_SEGMENT = 20;
 const THUMB_PREFETCH_BATCH = 6;
 const DIRECTOR_MIN_WIDTH = 900;
@@ -2450,6 +2482,66 @@ function ensureReplaceConfigOnSeg(seg, cfg) {
     return seg;
 }
 
+/** Roles users think in, mapped to the native labels prompts actually use. */
+const REFERENCE_ROLE_LABELS = {
+    pic: { 1: "@face", 2: "@body", 3: "@room" },
+    aud: { 1: "@voice", 2: "@sfx" },
+    vid: { 1: "@motion" },
+};
+
+/**
+ * Cross-check the reference slots the prompts mention against the ones that
+ * actually have a file attached. Surfaces both halves of the "missing asset"
+ * problem: tags with nothing behind them, and attached files nothing uses.
+ */
+function auditReferenceSlots(timeline) {
+    const common = (timeline && timeline.r2vCommon) || {};
+    const segments = (timeline && timeline.segments) || [];
+    const attached = {
+        pic: (common.refs || []).length,
+        aud: (common.refAudios || []).length,
+        vid: (common.refVideos || []).length,
+    };
+    const used = { pic: new Set(), aud: new Set(), vid: new Set() };
+    const scan = (text) => {
+        const t = String(text || "");
+        for (const m of t.matchAll(/<Picture\s+(\d+)>/gi)) used.pic.add(Number(m[1]));
+        for (const m of t.matchAll(/<Audio\s+(\d+)>/gi)) used.aud.add(Number(m[1]));
+        for (const m of t.matchAll(/<Video\s+(\d+)>/gi)) used.vid.add(Number(m[1]));
+    };
+    scan(timeline && timeline.global && timeline.global.prompt);
+    for (const seg of segments) scan(seg && seg.prompt);
+
+    const rows = [];
+    const collect = (kind, label, attachedCount) => {
+        const usedNums = [...used[kind]];
+        const highest = Math.max(attachedCount, usedNums.length ? Math.max(...usedNums) : 0);
+        for (let n = 1; n <= highest; n += 1) {
+            const isAttached = n <= attachedCount;
+            const isUsed = used[kind].has(n);
+            if (!isAttached && !isUsed) continue;
+            rows.push({
+                kind,
+                slot: `<${label} ${n}>`,
+                role: (REFERENCE_ROLE_LABELS[kind] || {})[n] || "",
+                attached: isAttached,
+                used: isUsed,
+            });
+        }
+    };
+    collect("pic", "Picture", attached.pic);
+    collect("aud", "Audio", attached.aud);
+    collect("vid", "Video", attached.vid);
+
+    return {
+        rows,
+        attached,
+        missing: rows.filter((r) => r.used && !r.attached),
+        unused: rows.filter((r) => r.attached && !r.used),
+        segmentsWithOwnRefs: segments.filter((s) => ((s && s.refs) || []).length).length,
+    };
+}
+
 function h3AlignFrameCount(frames) {
     let n = Math.max(1, Math.round(Number(frames) || 1));
     while (n % 17 !== 5) n += 1;
@@ -2591,7 +2683,8 @@ function installSegmentBoundsBar(ed) {
         const rep = !!ed.timeline?.replaceMode;
         const segs = ed.timeline && ed.timeline.segments;
         const show = video && !rep && !!segs && segs.length > 0;
-        bar.style.display = show ? "flex" : "none";
+        const display = show ? "flex" : "none";
+        if (bar.style.display !== display) bar.style.display = display;
         if (!show) return;
         const active = document.activeElement;
         const focused = respectFocus && (active === startInput || active === endInput);
@@ -2602,8 +2695,13 @@ function installSegmentBoundsBar(ed) {
         const len = Math.max(0, parseInt(seg.length ?? seg.frameCount, 10) || 0);
         const end = start + len;
         if (!focused) {
-            startInput.value = formatBoundsValue(start, unit._unit, directorFps(ed));
-            endInput.value = formatBoundsValue(end, unit._unit, directorFps(ed));
+            // Write-guarded: a no-op refresh (the common per-frame case) costs
+            // only these compares and never touches the DOM.
+            const fpsNow = directorFps(ed);
+            const startText = formatBoundsValue(start, unit._unit, fpsNow);
+            const endText = formatBoundsValue(end, unit._unit, fpsNow);
+            if (startInput.value !== startText) startInput.value = startText;
+            if (endInput.value !== endText) endInput.value = endText;
         }
     };
     ed.root.insertBefore(bar, ed.mainBody);
@@ -3578,6 +3676,13 @@ function installReplaceWindowsMode(ed) {
 
     let raf = 0;
     let lastMode = null;
+    // Heavy per-row DOM syncing in Replace mode is throttled; the cheap live
+    // checks (mode flips, normalization, bounds refresh) stay per-frame.
+    let lastBulkSync = 0;
+    const BULK_SYNC_MS = 200;
+    const nowMs = () => (typeof performance !== "undefined" && performance.now
+        ? performance.now()
+        : Date.now());
     const tick = () => {
         raf = 0;
         if (!ed.root || !ed.root.isConnected) return;
@@ -3585,6 +3690,7 @@ function installReplaceWindowsMode(ed) {
         const rep = video && !!ed.timeline?.replaceMode;
         if (rep !== lastMode) {
             lastMode = rep;
+            lastBulkSync = 0; // entering Replace mode syncs rows immediately
             if (rep) {
                 const segs = ed.timeline.segments || [];
                 for (const seg of segs) {
@@ -3595,8 +3701,9 @@ function installReplaceWindowsMode(ed) {
             if (rep) renderRows();
         }
         if (rep) {
-            const fps = directorFps(ed);
             const segs = ed.timeline && ed.timeline.segments;
+            // Cheap normalization stays live: it writes data the replace
+            // feature reads, so it must never be skipped or visibility-gated.
             if (segs) {
                 let ensured = false;
                 segs.forEach((s) => {
@@ -3608,16 +3715,22 @@ function installReplaceWindowsMode(ed) {
                 if (ensured) commitLight();
                 if (segs.length !== rowsEl.children.length) renderRows();
             }
-            if (segs && rowsEl.children.length) {
-                [...rowsEl.children].forEach((row) => {
-                    const f = cfgFields.get(row);
-                    if (f) {
+            // Heavy per-row DOM sync is throttled to BULK_SYNC_MS; row inputs
+            // are the edited side, so nothing user-visible changes between ticks.
+            if (nowMs() - lastBulkSync >= BULK_SYNC_MS) {
+                lastBulkSync = nowMs();
+                if (segs && rowsEl.children.length) {
+                    const fps = directorFps(ed);
+                    for (const row of rowsEl.children) {
+                        const f = cfgFields.get(row);
+                        if (!f) continue;
                         const seg = segById(f.segId);
                         if (seg) syncRowValues(row, replaceConfigFromSeg(seg), seg, fps);
                     }
-                });
+                }
             }
         } else if (ed._segBoundsBar) {
+            // Write-guarded inside refresh(): a no-op frame costs a few compares.
             ed._segBoundsBar.refresh(true);
         }
         requestAnimationFrame(tick);
@@ -3802,6 +3915,13 @@ class MiniMaxH3MotionDirectorEditor {
         };
         initPhase("Generation state", () => this.ensureContextLinks());
         initPhase("Generation DOM", () => this.buildDOM());
+        this.installUndoTimelineKeys();
+        // Self-heal a missing source frame count (script-built workflows) after
+        // init settles; it is a no-op when the count is already known.
+        setTimeout(() => { void this._ensureSourceFrameCount(); }, 0);
+        // Compare the persisted mirrors once configure has restored them. Deliberately
+        // not part of the write path - see _checkTimelineMirrorIntegrity().
+        setTimeout(() => { this._checkTimelineMirrorIntegrity(); }, 0);
 
         // The Postprocess / Live Preview / Results pages are hidden until their
         // tab is opened, yet mounting them used to run synchronously inside the
@@ -4507,6 +4627,8 @@ class MiniMaxH3MotionDirectorEditor {
                         <span data-i18n="toolbar.selectAll">全选</span>
                     </label>
                     <button type="button" class="bd-btn bd-btn-danger" data-a="del" data-i18n="toolbar.deleteSegment" data-i18n-title="tooltip.deleteSegment">删除片段</button>
+                    <button type="button" class="bd-btn" data-a="undo" data-i18n="toolbar.undo" data-i18n-title="tooltip.undo" disabled>撤销</button>
+                    <button type="button" class="bd-btn" data-a="redo" data-i18n="toolbar.redo" data-i18n-title="tooltip.redo" disabled>重做</button>
                     <div class="bd-mode">
                         <button type="button" data-a="mode-global" class="active" data-i18n="toolbar.modeGlobal">全局模式</button>
                         <button type="button" data-a="mode-segment" data-i18n="toolbar.modeSegment">分段模式</button>
@@ -4639,10 +4761,29 @@ class MiniMaxH3MotionDirectorEditor {
                 <label><input type="checkbox" data-r="segment-continuity-cb"><span data-i18n="output.segmentContinuity">段间引导</span></label>
                 <span class="bd-meta" data-i18n="output.continuityOverlap">参考帧数</span>
                 <input type="number" class="bd-num" data-r="segment-continuity-overlap" min="1" max="81" step="4" value="9" style="width:48px">
+            </span>
+            <button type="button" class="bd-btn" data-a="validate-project" title="Check the project for problems before running">Validate</button>
+            <button type="button" class="bd-btn" data-a="shared-block" title="Edit the part every segment shares (subject_definitions, Camera, Scene, Audio)">Shared block...</button>
+            <button type="button" class="bd-btn" data-a="preview-prompt" title="Show the exact prompt the model will receive for each segment">Preview prompt</button>
+            <button type="button" class="bd-btn" data-a="replace-setup" title="Guided setup for Character Replace: source video, windows, masking, references">Replace setup...</button>
+            <button type="button" class="bd-btn" data-a="reference-audit" title="Which reference slots your prompts use, and which are still empty">References...</button>
+            <button type="button" class="bd-btn" data-a="presets" title="Save the current settings as a named preset, or apply a saved one">Presets...</button>
+            <span class="bd-sweep" title="Render the same project several times with different seeds and compare the takes">
+                <label data-i18n="sweep.takes">Takes</label>
+                <input type="number" class="bd-num" data-r="sweep-takes" min="1" max="12" step="1" value="1" style="width:44px">
+                <input type="text" class="bd-num" data-r="sweep-seeds" placeholder="seeds 1,2,3" style="width:96px">
+                <button type="button" class="bd-btn" data-a="sweep-run">Sweep</button>
             </span>`;
         this.r2vCommonToggle = mountR2vCommonToggle(outputBar);
         this.mainBody.appendChild(outputBar);
         this.outputBarEl = outputBar;
+
+        const validateFooter = document.createElement("div");
+        validateFooter.className = "bd-validate-footer";
+        validateFooter.setAttribute("data-r", "validate-footer");
+        validateFooter.style.cssText = "display:none;padding:6px 10px;font-size:11px;line-height:1.5;border-top:1px solid #2a2a2a;max-height:160px;overflow:auto;background:#141414;color:#ccc";
+        this.mainBody.appendChild(validateFooter);
+        this.validateFooterEl = validateFooter;
 
         // Model-result preview lives exclusively on the Output page.
         this.liveSampleEl = null;
@@ -4727,7 +4868,8 @@ class MiniMaxH3MotionDirectorEditor {
                 </div>
                 <div class="bd-gen-fc-row hidden" data-r="gen-seg-fc-row">
                     <span class="bd-label" data-i18n="panel.segmentFrames">片段帧数</span>
-                    <input type="number" class="bd-num" data-r="gen-seg-fc" min="1" max="${MAX_GEN_FRAMES}" value="124" style="width:72px">
+                    <input type="number" class="bd-num" data-r="gen-seg-fc" min="1" max="${MAX_GEN_FRAMES}" value="124" style="width:72px" title="MiniMax H3 frame grid: length must be 17k+5 (124f = 5s, 243f = 10s, 362f = 15s).">
+                    <span class="bd-meta" data-r="gen-seg-fc-hint"></span>
                 </div>
             </div>`;
         this.mainBody.appendChild(bottom);
@@ -4819,6 +4961,7 @@ class MiniMaxH3MotionDirectorEditor {
         this.genSegFcRow = this.root.querySelector('[data-r="gen-seg-fc-row"]');
         this.genDefaultFc = this.root.querySelector('[data-r="gen-default-fc"]');
         this.genSegFc = this.root.querySelector('[data-r="gen-seg-fc"]');
+        this.genSegFcHint = this.root.querySelector('[data-r="gen-seg-fc-hint"]');
         this.controlsBar = this.root.querySelector(".bd-controls");
         this.btnVideo = this.root.querySelector('[data-a="video"]');
         this.btnFl2vAddShot = this.root.querySelector('[data-a="fl2v-add-shot"]');
@@ -4873,6 +5016,1099 @@ class MiniMaxH3MotionDirectorEditor {
         if (this.segNegative) this.segNegative.value = v;
     }
 
+    _referenceAuditHost() {
+        if (!this._referenceAuditLayer) {
+            const host = this._directorOverlayLayer;
+            if (!host) return null;
+            const layer = document.createElement("div");
+            layer.className = "mmx-sb-layer";
+            layer.hidden = true;
+            host.appendChild(layer);
+            this._referenceAuditLayer = layer;
+            layer.addEventListener("click", (event) => {
+                if (event.target === layer) this._closeReferenceAudit();
+            });
+        }
+        return this._referenceAuditLayer;
+    }
+
+    _closeReferenceAudit() {
+        const layer = this._referenceAuditLayer;
+        if (layer) layer.hidden = true;
+    }
+
+    openReferenceAudit() {
+        this._sharedBlockStyle();
+        const layer = this._referenceAuditHost();
+        if (!layer) return;
+        layer.hidden = false;
+        this._renderReferenceAudit();
+    }
+
+    _renderReferenceAudit() {
+        const layer = this._referenceAuditLayer;
+        if (!layer) return;
+        const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => (
+            { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+        const audit = auditReferenceSlots(this.timeline);
+        layer.innerHTML = "";
+        const card = document.createElement("div");
+        card.className = "mmx-sb-card";
+
+        const head = document.createElement("div");
+        head.className = "mmx-sb-head";
+        head.innerHTML = "<span>Reference slots</span>";
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "mmx-sb-close";
+        close.textContent = "\u00d7";
+        close.onclick = () => this._closeReferenceAudit();
+        head.appendChild(close);
+
+        const body = document.createElement("div");
+        body.className = "mmx-sb-body";
+        const note = document.createElement("div");
+        note.className = "mmx-sb-note";
+        note.textContent = "Which slots your prompts mention, and which still have no file behind them. "
+            + "Attach files in Common References (the slots the prompts name are listed below).";
+        body.appendChild(note);
+
+        const summary = document.createElement("div");
+        summary.className = "mmx-sb-stats";
+        summary.textContent = `${audit.rows.length} slot(s) in play - `
+            + `${audit.missing.length} referenced but empty, ${audit.unused.length} attached but unused. `
+            + `${audit.segmentsWithOwnRefs} of ${(this.timeline?.segments || []).length} segment(s) carry their own references.`;
+        body.appendChild(summary);
+
+        if (!audit.rows.length) {
+            const empty = document.createElement("div");
+            empty.className = "mmx-sb-stats";
+            empty.textContent = "No reference tags found in the prompts and no common references attached.";
+            body.appendChild(empty);
+        }
+
+        for (const row of audit.rows) {
+            const el = document.createElement("div");
+            const state = row.attached && row.used ? "ok"
+                : row.used ? "missing" : "unused";
+            const color = state === "ok" ? "#7ceba4" : state === "missing" ? "#ff6b6b" : "#f2c879";
+            const mark = state === "ok" ? "\u2713" : state === "missing" ? "\u2717" : "!";
+            const detail = state === "ok" ? "attached and referenced"
+                : state === "missing" ? "referenced in prompts but NOT attached"
+                    : "attached but never referenced by any prompt";
+            el.style.cssText = "display:flex;align-items:center;gap:10px;border:1px solid #262b38;"
+                + "border-radius:8px;padding:7px 11px;background:#191c26";
+            el.innerHTML = `<div style="color:${color};font-weight:600;min-width:110px">${mark} ${esc(row.slot)}</div>`
+                + `<div class="mmx-sb-stats" style="min-width:70px">${esc(row.role)}</div>`
+                + `<div class="mmx-sb-stats">${esc(detail)}</div>`;
+            body.appendChild(el);
+        }
+
+        const actions = document.createElement("div");
+        actions.className = "mmx-sb-actions";
+        const done = document.createElement("button");
+        done.type = "button";
+        done.className = "mmx-sb-btn";
+        done.textContent = "Close";
+        done.onclick = () => this._closeReferenceAudit();
+        actions.appendChild(done);
+
+        card.append(head, body, actions);
+        layer.appendChild(card);
+    }
+
+    _replaceSetupHost() {
+        if (!this._replaceSetupLayer) {
+            const host = this._directorOverlayLayer;
+            if (!host) return null;
+            const layer = document.createElement("div");
+            layer.className = "mmx-sb-layer";
+            layer.hidden = true;
+            host.appendChild(layer);
+            this._replaceSetupLayer = layer;
+            layer.addEventListener("click", (event) => {
+                if (event.target === layer) this._closeReplaceSetup();
+            });
+        }
+        return this._replaceSetupLayer;
+    }
+
+    _closeReplaceSetup() {
+        const layer = this._replaceSetupLayer;
+        if (layer) layer.hidden = true;
+    }
+
+    openReplaceSetup() {
+        if (!this._directorNodeId?.()) return;
+        this._sharedBlockStyle();
+        const layer = this._replaceSetupHost();
+        if (!layer) return;
+        layer.hidden = false;
+        this._renderReplaceSetup();
+    }
+
+    /** Current option string for a task key, tolerant of label rewording. */
+    _taskTypeOptionFor(key) {
+        const w = this.taskTypeWidget || this.widget?.("task_type");
+        const raw = w?.options?.values ?? w?.options ?? [];
+        const list = Array.isArray(raw) ? raw : [];
+        return list.find((o) => String(o).startsWith(key + " \u2014 ") || String(o) === key) || key;
+    }
+
+    _replaceSetupUseVideoMode() {
+        const option = this._taskTypeOptionFor("rv2v");
+        if (this.taskTypeWidget) this.taskTypeWidget.value = option;
+        this.timeline.global = this.timeline.global || {};
+        this.timeline.global.taskType = option;
+        this.commit?.(false, { syncTimeline: true });
+        this._writeTimelineWidget?.();
+    }
+
+    _replaceSetupStatus() {
+        const video = this.timeline?.video || {};
+        const segments = this.timeline?.segments || [];
+        const common = this.timeline?.r2vCommon || {};
+        let samPrompt = "";
+        let kind = "";
+        let enabledCount = 0;
+        for (const seg of segments) {
+            const c = replaceConfigFromSeg(seg);
+            if (c.enabled) enabledCount += 1;
+            if (c.kind) kind = c.kind;
+            if (c.sam_prompt && !samPrompt) samPrompt = c.sam_prompt;
+        }
+        return {
+            taskKey: resolveTaskKey(this.getTaskKey?.() || this.taskTypeWidget?.value || ""),
+            videoName: String(video.videoFile || video.fileName || "").trim(),
+            sourceFrames: parseInt(video.sourceFrameCount || 0, 10) || 0,
+            totalFrames: this.getTotalFrames?.() || 0,
+            refCount: (common.refs || []).length,
+            audioCount: (common.refAudios || []).length,
+            segCount: segments.length,
+            enabledCount,
+            kind,
+            samPrompt,
+        };
+    }
+
+    /** Rebuild the window list as H3-aligned chunks covering the source video. */
+    _replaceSetupCreateWindows(seconds = 15) {
+        const total = this.getTotalFrames?.() || 0;
+        if (total <= 0) return 0;
+        const fps = this.getFrameRate?.() || 24;
+        const chunk = h3AlignFrameCount(Math.round(seconds * fps));
+        const prevSegs = this.timeline.segments || [];
+        const floorToGrid = (n) => { let v = Math.max(0, Math.floor(n)); while (v > 0 && v % 17 !== 5) v -= 1; return v; };
+        const specs = [];
+        let start = 0;
+        while (start + chunk <= total) {
+            specs.push([start, chunk]);
+            start += chunk;
+        }
+        const tail = floorToGrid(total - start);
+        if (tail >= 22) specs.push([start, tail]);
+        if (!specs.length) return 0;
+        const segs = specs.map(([segStart, len], i) => {
+            const prev = prevSegs[i];
+            const seg = {
+                id: uid(),
+                start: segStart,
+                length: len,
+                frameCount: len,
+                durationSec: roundDurationSec(len / fps),
+                prompt: String(prev?.prompt || ""),
+                negativePrompt: "",
+                taskType: "",
+                refs: [],
+                refAudios: [],
+                refVideos: [],
+                genImage: { imageFile: "", fileName: "" },
+                contextLink: {
+                    schema: "previous_context_link_v1",
+                    enabled: false, visual: false, audio: false,
+                },
+            };
+            // Fresh windows default to SAM3 auto-masking (needs no mask files);
+            // an existing window keeps whatever the user already chose.
+            const hadKind = !!(prev?.replace?.mask?.kind);
+            const cfg = { ...replaceConfigFromSeg(prev), enabled: true };
+            if (!hadKind) cfg.kind = "sam3";
+            ensureReplaceConfigOnSeg(seg, cfg);
+            return seg;
+        });
+        this.timeline.segments = segs;
+        this.timeline.replaceMode = true;
+        this.selectedIndex = 0;
+        this.commit?.(false, { syncTimeline: true });
+        this._writeTimelineWidget?.();
+        return segs.length;
+    }
+
+    /** Apply one masking choice to every window. */
+    _replaceSetupApplyMasking({ kind, samPrompt }) {
+        const segments = this.timeline.segments || [];
+        for (const seg of segments) {
+            const cfg = replaceConfigFromSeg(seg);
+            if (kind) cfg.kind = kind === "sam3" ? "sam3" : "frames";
+            if (samPrompt != null) cfg.sam_prompt = String(samPrompt);
+            ensureReplaceConfigOnSeg(seg, cfg);
+        }
+        this.commit?.(false, { syncTimeline: true });
+        this._writeTimelineWidget?.();
+    }
+
+    _replaceSetupEnableAll() {
+        const segments = this.timeline.segments || [];
+        for (const seg of segments) {
+            ensureReplaceConfigOnSeg(seg, { ...replaceConfigFromSeg(seg), enabled: true });
+        }
+        this.timeline.replaceMode = true;
+        this.commit?.(false, { syncTimeline: true });
+        this._writeTimelineWidget?.();
+    }
+
+    _renderReplaceSetup(message = "") {
+        const layer = this._replaceSetupLayer;
+        if (!layer) return;
+        const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => (
+            { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+        const st = this._replaceSetupStatus();
+        layer.innerHTML = "";
+        const card = document.createElement("div");
+        card.className = "mmx-sb-card";
+
+        const head = document.createElement("div");
+        head.className = "mmx-sb-head";
+        head.innerHTML = "<span>Character Replace setup</span>";
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "mmx-sb-close";
+        close.textContent = "\u00d7";
+        close.onclick = () => this._closeReplaceSetup();
+        head.appendChild(close);
+
+        const body = document.createElement("div");
+        body.className = "mmx-sb-body";
+        const note = document.createElement("div");
+        note.className = "mmx-sb-note";
+        note.textContent = "Replace re-renders chosen windows of a source video with your identity "
+            + "references while the background stays true to the source. Work down the list; "
+            + "per-window masking knobs (grow, feather, lead, render) stay in the window editor.";
+        body.appendChild(note);
+
+        const row = (title, status, ok, actionLabel, action) => {
+            const el = document.createElement("div");
+            el.style.cssText = "display:flex;align-items:center;gap:10px;justify-content:space-between;"
+                + "border:1px solid #262b38;border-radius:8px;padding:8px 11px;background:#191c26";
+            const left = document.createElement("div");
+            left.innerHTML = `<div style="font-weight:600;color:${ok ? "#7ceba4" : "#f2c879"}">`
+                + `${ok ? "\u2713" : "\u2717"} ${esc(title)}</div>`
+                + `<div class="mmx-sb-stats">${esc(status)}</div>`;
+            el.appendChild(left);
+            if (actionLabel && action) {
+                const b = document.createElement("button");
+                b.type = "button";
+                b.className = "mmx-sb-btn primary";
+                b.textContent = actionLabel;
+                b.onclick = () => {
+                    b.disabled = true;
+                    try {
+                        action();
+                    } catch (err) {
+                        console.warn("[MiniMax H3 Motion Director] replace setup:", err);
+                    }
+                    this._renderReplaceSetup();
+                };
+                el.appendChild(b);
+            }
+            return el;
+        };
+
+        body.appendChild(row(
+            "1. Video edit mode",
+            st.taskKey === "rv2v"
+                ? "Mode is rv2v (source video + references)."
+                : `Current mode is "${st.taskKey || "unknown"}". Replace needs rv2v.`,
+            st.taskKey === "rv2v",
+            st.taskKey === "rv2v" ? "" : "Use rv2v",
+            () => this._replaceSetupUseVideoMode(),
+        ));
+
+        body.appendChild(row(
+            "2. Source video",
+            st.videoName ? esc(st.videoName) : "No source video selected (upload one on the stage).",
+            !!st.videoName,
+            "", null,
+        ));
+
+        body.appendChild(row(
+            "3. Source frame count",
+            st.sourceFrames > 0
+                ? `${st.sourceFrames} frames detected.`
+                : "Unknown - windows cannot be laid out until this is known.",
+            st.sourceFrames > 0,
+            st.sourceFrames > 0 ? "" : "Detect frames",
+            () => { void this._ensureSourceFrameCount(); },
+        ));
+
+        body.appendChild(row(
+            "4. Identity references",
+            `${st.refCount} picture(s), ${st.audioCount} audio in Common References. `
+            + "Add the replacement face + full-body sheet there.",
+            st.refCount >= 2,
+            "", null,
+        ));
+
+        body.appendChild(row(
+            "5. Windows",
+            st.segCount > 0
+                ? `${st.segCount} window(s), ${st.enabledCount} enabled.`
+                : "No windows yet.",
+            st.segCount > 0,
+            st.segCount > 0 ? "Rebuild 15s" : "Create 15s windows",
+            () => this._replaceSetupCreateWindows(15),
+        ));
+
+        const samRow = document.createElement("div");
+        samRow.style.cssText = "display:flex;align-items:center;gap:10px;justify-content:space-between;"
+            + "border:1px solid #262b38;border-radius:8px;padding:8px 11px;background:#191c26";
+        const samLeft = document.createElement("div");
+        const samOk = st.kind === "sam3" ? !!st.samPrompt : true;
+        samLeft.innerHTML = `<div style="font-weight:600;color:${samOk ? "#7ceba4" : "#f2c879"}">`
+            + `${samOk ? "\u2713" : "\u2717"} 6. Masking</div>`
+            + `<div class="mmx-sb-stats">${st.kind === "sam3"
+                ? "SAM3 auto-mask - describe the subject to replace."
+                : "Mask frames from a directory (set per window)."}</div>`;
+        samRow.appendChild(samLeft);
+        const samWrap = document.createElement("div");
+        samWrap.style.cssText = "display:flex;gap:6px;align-items:center";
+        const samInput = document.createElement("input");
+        samInput.type = "text";
+        samInput.placeholder = "the woman";
+        samInput.value = st.samPrompt || "";
+        samInput.style.cssText = "background:#10121a;color:#dfe4ee;border:1px solid #333a4d;"
+            + "border-radius:7px;padding:6px 8px;font-size:12px;width:170px";
+        const samBtn = document.createElement("button");
+        samBtn.type = "button";
+        samBtn.className = "mmx-sb-btn primary";
+        samBtn.textContent = "Use SAM3";
+        samBtn.onclick = () => {
+            this._replaceSetupApplyMasking({ kind: "sam3", samPrompt: samInput.value.trim() });
+            this._renderReplaceSetup("SAM3 subject applied to every window.");
+        };
+        samWrap.append(samInput, samBtn);
+        samRow.appendChild(samWrap);
+        body.appendChild(samRow);
+
+        const maskMsg = document.createElement("div");
+        maskMsg.className = "mmx-sb-stats";
+        maskMsg.textContent = message;
+        body.appendChild(maskMsg);
+
+        const actions = document.createElement("div");
+        actions.className = "mmx-sb-actions";
+        const enable = document.createElement("button");
+        enable.type = "button";
+        enable.className = "mmx-sb-btn primary";
+        enable.textContent = "Enable replace on all windows";
+        enable.onclick = () => {
+            this._replaceSetupEnableAll();
+            this._renderReplaceSetup("Replace enabled on every window.");
+        };
+        const done = document.createElement("button");
+        done.type = "button";
+        done.className = "mmx-sb-btn";
+        done.textContent = "Done";
+        done.onclick = () => this._closeReplaceSetup();
+        actions.append(enable, done);
+
+        card.append(head, body, actions);
+        layer.appendChild(card);
+    }
+
+    _previewStyle() {
+        if (document.getElementById("mmx-preview-styles")) return;
+        const style = document.createElement("style");
+        style.id = "mmx-preview-styles";
+        style.textContent = `
+.mmx-pv-layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(8,10,16,.5);z-index:276}
+.mmx-pv-layer[hidden]{display:none!important}
+.mmx-pv-card{width:min(880px,100%);max-height:90%;display:flex;flex-direction:column;background:#14161d;border:1px solid #2c3140;border-radius:10px;box-shadow:0 18px 60px rgba(0,0,0,.6);font-size:13px;color:#dfe4ee}
+.mmx-pv-head{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid #262b38;font-weight:600}
+.mmx-pv-close{background:none;border:none;color:#9aa3b5;font-size:18px;cursor:pointer}
+.mmx-pv-body{padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+.mmx-pv-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mmx-pv-meta{color:#9aa3b5;font-size:12px;line-height:1.5}
+.mmx-pv-add{color:#f5c542;font-size:12px}
+.mmx-pv-ta{width:100%;min-height:300px;box-sizing:border-box;background:#10121a;color:#dfe4ee;border:1px solid #333a4d;border-radius:8px;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.45;resize:vertical}
+.mmx-pv-actions{display:flex;justify-content:flex-end;gap:10px;align-items:center;padding:11px 16px;border-top:1px solid #262b38}
+.mmx-pv-btn{background:#22263a;color:#dfe4ee;border:1px solid #333a4d;border-radius:8px;padding:7px 13px;cursor:pointer;font-size:12px}
+.mmx-pv-btn:hover{background:#2a2f47}
+.mmx-pv-select{background:#191c26;color:#dfe4ee;border:1px solid #333a4d;border-radius:7px;padding:6px 8px}
+`;
+        document.head.appendChild(style);
+    }
+
+    _previewHost() {
+        if (!this._previewLayer) {
+            const host = this._directorOverlayLayer;
+            if (!host) return null;
+            const layer = document.createElement("div");
+            layer.className = "mmx-pv-layer";
+            layer.hidden = true;
+            host.appendChild(layer);
+            this._previewLayer = layer;
+            layer.addEventListener("click", (event) => {
+                if (event.target === layer) this._closePromptPreview();
+            });
+        }
+        return this._previewLayer;
+    }
+
+    _closePromptPreview() {
+        const layer = this._previewLayer;
+        if (layer) layer.hidden = true;
+    }
+
+    async openPromptPreview() {
+        const nodeId = this._directorNodeId?.();
+        if (!nodeId) return;
+        this._previewStyle();
+        const layer = this._previewHost();
+        if (!layer) return;
+        layer.hidden = false;
+        this._renderPromptPreview([], "Building the prompts from the project...");
+        // Same self-heal as Validate so video modes report real frames.
+        await this._ensureSourceFrameCount();
+        const widgetVal = (name) => this.widget?.(name)?.value;
+        const postBody = {
+            node_id: nodeId,
+            timeline_data: widgetVal("timeline_data"),
+            task_type: widgetVal("task_type"),
+            global_prompt: widgetVal("global_prompt"),
+            total_frames: Number(widgetVal("total_frames")) || 0,
+            frame_rate: Number(widgetVal("frame_rate")) || 24,
+            width: Number(widgetVal("width")) || 0,
+            height: Number(widgetVal("height")) || 0,
+            ref_max_size: Number(widgetVal("ref_max_size")) || 0,
+            motion_context_enabled: Boolean(widgetVal("motion_context_enabled") ?? true),
+        };
+        try {
+            const response = await api.fetchApi("/minimax/motion-director/preview_prompt", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(postBody),
+            });
+            const data = await response.json();
+            if (data?.error) {
+                this._renderPromptPreview([], `Could not build the prompts: ${data.error}`);
+                return;
+            }
+            this._previewSegments = data?.segments || [];
+            this._previewIndex = Math.max(0, Math.min(
+                this.selectedIndex ?? 0, Math.max(0, this._previewSegments.length - 1)));
+            this._renderPromptPreview(this._previewSegments);
+        } catch (error) {
+            console.warn("[MiniMax H3 Motion Director] preview failed:", error);
+            this._renderPromptPreview([], `Preview failed: ${String(error?.message || error)}`);
+        }
+    }
+
+    _renderPromptPreview(segments = [], message = "") {
+        const layer = this._previewLayer;
+        if (!layer) return;
+        layer.innerHTML = "";
+        const card = document.createElement("div");
+        card.className = "mmx-pv-card";
+
+        const head = document.createElement("div");
+        head.className = "mmx-pv-head";
+        head.innerHTML = "<span>Effective prompt (what the model receives)</span>";
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "mmx-pv-close";
+        close.textContent = "\u00d7";
+        close.onclick = () => this._closePromptPreview();
+        head.appendChild(close);
+
+        const body = document.createElement("div");
+        body.className = "mmx-pv-body";
+        const meta = document.createElement("div");
+        meta.className = "mmx-pv-meta";
+        meta.textContent = message;
+        const row = document.createElement("div");
+        row.className = "mmx-pv-row";
+        const ta = document.createElement("textarea");
+        ta.className = "mmx-pv-ta";
+        ta.readOnly = true;
+        ta.spellcheck = false;
+
+        if (segments.length) {
+            const sel = document.createElement("select");
+            sel.className = "mmx-pv-select";
+            segments.forEach((s, i) => {
+                const opt = document.createElement("option");
+                opt.value = String(i);
+                opt.textContent = `Segment ${s.index + 1} - ${s.task_key} - ${s.frame_count}f`;
+                sel.appendChild(opt);
+            });
+            sel.value = String(this._previewIndex ?? 0);
+            const added = document.createElement("span");
+            added.className = "mmx-pv-add";
+            const apply = () => {
+                const i = Math.max(0, Math.min(parseInt(sel.value, 10) || 0, segments.length - 1));
+                this._previewIndex = i;
+                const s = segments[i];
+                ta.value = s.effective_prompt || "";
+                const src = s.source === "global" ? "global prompt (this segment's is empty)"
+                    : s.source === "empty" ? "empty prompt" : "this segment's own prompt";
+                meta.textContent = `Source: ${src}.`;
+                added.textContent = s.added
+                    ? `engine adds: ${s.added}`
+                    : "engine adds nothing (tags already present)";
+            };
+            sel.onchange = apply;
+            row.append(sel, added);
+            apply();
+        }
+        body.append(meta, row, ta);
+
+        const actions = document.createElement("div");
+        actions.className = "mmx-pv-actions";
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "mmx-pv-btn";
+        copy.textContent = "Copy";
+        copy.onclick = () => {
+            if (!ta.value) return;
+            navigator.clipboard?.writeText(ta.value).then(
+                () => { copy.textContent = "Copied"; setTimeout(() => { copy.textContent = "Copy"; }, 900); },
+                () => { copy.textContent = "Copy failed"; });
+        };
+        actions.appendChild(copy);
+
+        card.append(head, body, actions);
+        layer.appendChild(card);
+    }
+
+    // ---------------------------------------------------------------------
+    // Named presets
+    // ---------------------------------------------------------------------
+
+    _presetsStyle() {
+        if (document.getElementById("mmx-presets-styles")) return;
+        const style = document.createElement("style");
+        style.id = "mmx-presets-styles";
+        style.textContent = `
+.mmx-pr-layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(8,10,16,.5);z-index:275}
+.mmx-pr-layer[hidden]{display:none!important}
+.mmx-pr-card{width:min(760px,100%);max-height:90%;display:flex;flex-direction:column;background:#14161d;border:1px solid #2c3140;border-radius:10px;box-shadow:0 18px 60px rgba(0,0,0,.6);font-size:13px;color:#dfe4ee}
+.mmx-pr-head{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid #262b38;font-weight:600}
+.mmx-pr-close{background:none;border:none;color:#9aa3b5;font-size:18px;cursor:pointer}
+.mmx-pr-body{padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+.mmx-pr-save{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mmx-pr-input{flex:1 1 200px;min-width:160px;background:#10121a;color:#dfe4ee;border:1px solid #333a4d;border-radius:8px;padding:7px 10px;font-size:12px}
+.mmx-pr-check{display:flex;align-items:center;gap:6px;color:#b8c0d0;font-size:12px}
+.mmx-pr-note{color:#9aa3b5;font-size:12px;line-height:1.5}
+.mmx-pr-list{display:flex;flex-direction:column;gap:8px}
+.mmx-pr-empty{color:#9aa3b5;padding:10px 0}
+.mmx-pr-error{color:#e08a8a}
+.mmx-pr-row{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;border:1px solid #262b38;border-radius:8px;padding:9px 11px;background:#171a23}
+.mmx-pr-row-main{min-width:0;display:flex;flex-direction:column;gap:3px}
+.mmx-pr-row-name{font-weight:600;word-break:break-word}
+.mmx-pr-row-sum{color:#8fd0a8;font-size:11px}
+.mmx-pr-row-desc{color:#9aa3b5;font-size:11px;line-height:1.4;word-break:break-word}
+.mmx-pr-row-actions{display:flex;gap:6px;flex:0 0 auto}
+.mmx-pr-btn{background:#22263a;color:#dfe4ee;border:1px solid #333a4d;border-radius:8px;padding:6px 11px;cursor:pointer;font-size:12px}
+.mmx-pr-btn:hover{background:#2a2f47}
+.mmx-pr-btn.primary{background:#2f7a4f;border-color:#2f7a4f;color:#eafff2}
+.mmx-pr-btn.primary:hover{background:#36945f}
+.mmx-pr-foot{padding:9px 16px;border-top:1px solid #262b38;min-height:18px}
+.mmx-pr-status{font-size:12px;color:#9aa3b5}
+.mmx-pr-status[data-kind="ok"]{color:#8fd0a8}
+.mmx-pr-status[data-kind="warn"]{color:#e0c98a}
+.mmx-pr-status[data-kind="error"]{color:#e08a8a}
+`;
+        document.head.appendChild(style);
+    }
+
+    _presetsHost() {
+        if (!this._presetsLayer) {
+            const host = this._directorOverlayLayer;
+            if (!host) return null;
+            const layer = document.createElement("div");
+            layer.className = "mmx-pr-layer";
+            layer.hidden = true;
+            host.appendChild(layer);
+            this._presetsLayer = layer;
+            layer.addEventListener("click", (event) => {
+                if (event.target === layer) this._closePresetsManager();
+            });
+        }
+        return this._presetsLayer;
+    }
+
+    _closePresetsManager() {
+        if (this._presetsLayer) this._presetsLayer.hidden = true;
+    }
+
+    /** Current values of the preset-owned widgets, keyed by widget name. */
+    _presetWidgetValues() {
+        const values = {};
+        const widgets = this.node?.widgets || [];
+        for (const name of PRESET_WIDGET_NAMES) {
+            const widget = widgets.find((candidate) => candidate?.name === name);
+            if (widget) values[name] = widget.value;
+        }
+        return values;
+    }
+
+    _setPresetNotice(message, kind = "") {
+        this._presetsNotice = { message: String(message || ""), kind };
+        const el = this._presetsLayer?.querySelector('[data-pr="status"]');
+        if (!el) return;
+        el.textContent = this._presetsNotice.message;
+        el.dataset.kind = kind;
+    }
+
+    async openPresetsManager() {
+        this._presetsStyle();
+        const layer = this._presetsHost();
+        if (!layer) return;
+        layer.hidden = false;
+        layer.innerHTML = `
+            <div class="mmx-pr-card">
+              <div class="mmx-pr-head"><span>Presets</span><button type="button" class="mmx-pr-close" data-pr="close">\u00d7</button></div>
+              <div class="mmx-pr-body">
+                <div class="mmx-pr-save">
+                  <input type="text" class="mmx-pr-input" data-pr="name" placeholder="Preset name" maxlength="80">
+                  <label class="mmx-pr-check" title="Also store the shared reference block. Only enable this when the preset should attach those exact files.">
+                    <input type="checkbox" data-pr="refs"> Include shared references
+                  </label>
+                  <button type="button" class="mmx-pr-btn primary" data-pr="save">Save current settings</button>
+                </div>
+                <div class="mmx-pr-note">
+                  A preset stores the sampling, continuity and output settings. It never touches your
+                  segments, prompts, task type or seed.
+                </div>
+                <div class="mmx-pr-list" data-pr="list"></div>
+              </div>
+              <div class="mmx-pr-foot"><span class="mmx-pr-status" data-pr="status"></span></div>
+            </div>`;
+        layer.querySelector('[data-pr="close"]').onclick = () => this._closePresetsManager();
+        layer.querySelector('[data-pr="save"]').onclick = () => { void this._savePresetFromCurrent(); };
+        layer.querySelector('[data-pr="name"]').addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                void this._savePresetFromCurrent();
+            }
+        });
+        if (this._presetsNotice) this._setPresetNotice(this._presetsNotice.message, this._presetsNotice.kind);
+        await this._renderPresetsManager();
+    }
+
+    async _renderPresetsManager() {
+        const list = this._presetsLayer?.querySelector('[data-pr="list"]');
+        if (!list) return;
+        list.innerHTML = "";
+        const loading = document.createElement("div");
+        loading.className = "mmx-pr-empty";
+        loading.textContent = "Loading...";
+        list.appendChild(loading);
+
+        let records = [];
+        try {
+            const summaries = await listDirectorPresets();
+            // The list route is metadata-only (payloads stay off the wire until
+            // needed), so fetch each one to describe it in the row.
+            records = await Promise.all(
+                summaries.map(async (item) => {
+                    try {
+                        return await getDirectorPreset(item.id);
+                    } catch {
+                        return item;
+                    }
+                }),
+            );
+        } catch (error) {
+            list.innerHTML = "";
+            const failure = document.createElement("div");
+            failure.className = "mmx-pr-empty mmx-pr-error";
+            failure.textContent = `Could not load presets: ${error?.message || error}`;
+            list.appendChild(failure);
+            return;
+        }
+
+        this._presetsRecords = records.filter(Boolean);
+        list.innerHTML = "";
+        if (!this._presetsRecords.length) {
+            const empty = document.createElement("div");
+            empty.className = "mmx-pr-empty";
+            empty.textContent = "No presets yet. Name one above and save the current settings.";
+            list.appendChild(empty);
+            return;
+        }
+        for (const record of this._presetsRecords) list.appendChild(this._presetRow(record));
+    }
+
+    _presetRow(record) {
+        const row = document.createElement("div");
+        row.className = "mmx-pr-row";
+
+        const main = document.createElement("div");
+        main.className = "mmx-pr-row-main";
+        const name = document.createElement("div");
+        name.className = "mmx-pr-row-name";
+        // textContent everywhere: preset names are user input.
+        name.textContent = String(record?.name || "(unnamed)");
+        const summary = document.createElement("div");
+        summary.className = "mmx-pr-row-sum";
+        summary.textContent = formatPresetSummary(record?.payload);
+        main.appendChild(name);
+        main.appendChild(summary);
+        if (record?.description) {
+            const description = document.createElement("div");
+            description.className = "mmx-pr-row-desc";
+            description.textContent = String(record.description);
+            main.appendChild(description);
+        }
+        row.appendChild(main);
+
+        const actions = document.createElement("div");
+        actions.className = "mmx-pr-row-actions";
+        const apply = document.createElement("button");
+        apply.type = "button";
+        apply.className = "mmx-pr-btn primary";
+        apply.textContent = "Apply";
+        apply.onclick = () => {
+            const outcome = this._applyPresetRecord(record);
+            this._setPresetNotice(`Applied "${record.name}" - ${outcome}.`, "ok");
+        };
+        const rename = document.createElement("button");
+        rename.type = "button";
+        rename.className = "mmx-pr-btn";
+        rename.textContent = "Rename";
+        rename.onclick = async () => {
+            const next = window.prompt("Rename preset", String(record?.name || ""));
+            if (next == null) return;
+            const trimmed = String(next).trim();
+            if (!trimmed || trimmed === record.name) return;
+            try {
+                await updateDirectorPreset(record.id, { name: trimmed });
+            } catch (error) {
+                this._setPresetNotice(`Rename failed: ${error?.message || error}`, "error");
+                return;
+            }
+            this._setPresetNotice(`Renamed to "${trimmed}".`, "ok");
+            await this._renderPresetsManager();
+        };
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "mmx-pr-btn";
+        remove.textContent = "Delete";
+        remove.onclick = async () => {
+            if (!window.confirm(`Delete preset "${record?.name}"? This cannot be undone.`)) return;
+            try {
+                await deleteDirectorPreset(record.id);
+            } catch (error) {
+                this._setPresetNotice(`Delete failed: ${error?.message || error}`, "error");
+                return;
+            }
+            this._setPresetNotice(`Deleted "${record?.name}".`, "ok");
+            await this._renderPresetsManager();
+        };
+        actions.appendChild(apply);
+        actions.appendChild(rename);
+        actions.appendChild(remove);
+        row.appendChild(actions);
+        return row;
+    }
+
+    async _savePresetFromCurrent() {
+        const layer = this._presetsLayer;
+        if (!layer) return;
+        const nameEl = layer.querySelector('[data-pr="name"]');
+        const refsEl = layer.querySelector('[data-pr="refs"]');
+        const name = String(nameEl?.value || "").trim();
+        if (!name) {
+            this._setPresetNotice("Give the preset a name first.", "error");
+            nameEl?.focus();
+            return;
+        }
+
+        const widgetValues = this._presetWidgetValues();
+        // Report anything this node does not have, rather than saving a preset that
+        // is quietly missing half its settings on a different workflow.
+        const missing = PRESET_WIDGET_NAMES.filter((key) => !(key in widgetValues));
+        const payload = collectPresetPayload({
+            widgetValues,
+            timeline: this.timeline,
+            includeReferences: !!refsEl?.checked,
+        });
+
+        try {
+            await createDirectorPreset({ name, payload });
+        } catch (error) {
+            this._setPresetNotice(`Save failed: ${error?.message || error}`, "error");
+            return;
+        }
+
+        if (nameEl) nameEl.value = "";
+        if (refsEl) refsEl.checked = false;
+        this._setPresetNotice(
+            missing.length
+                ? `Saved "${name}". ${missing.length} setting(s) are not on this node, so they were not captured.`
+                : `Saved "${name}".`,
+            missing.length ? "warn" : "ok",
+        );
+        await this._renderPresetsManager();
+    }
+
+    /**
+     * Apply a preset. Returns a short human summary.
+     *
+     * `commit()` does the heavy lifting afterwards: it re-derives `timeline.output`
+     * from the controls (so continuity must be driven through its control, not the
+     * key), repaints, and records an undo entry - so applying a preset is undoable.
+     */
+    _applyPresetRecord(record) {
+        const payload = record?.payload || record;
+        const plan = planPresetApply({
+            payload,
+            widgetValues: this._presetWidgetValues(),
+            timeline: this.timeline,
+        });
+
+        const widgets = this.node?.widgets || [];
+        let written = 0;
+        for (const [key, value] of Object.entries(plan.widgets)) {
+            const widget = widgets.find((candidate) => candidate?.name === key);
+            if (!widget) continue;
+            widget.value = value;
+            written += 1;
+        }
+
+        if ("continuityEnabled" in plan.output && this.segmentContinuityCb) {
+            this.segmentContinuityCb.checked = !!plan.output.continuityEnabled;
+        }
+        if ("continuityOverlapFrames" in plan.output && this.segmentContinuityOverlap) {
+            const frames = parseInt(plan.output.continuityOverlapFrames, 10);
+            if (Number.isFinite(frames)) this.segmentContinuityOverlap.value = String(frames);
+        }
+        if (plan.r2vCommon) this.timeline.r2vCommon = plan.r2vCommon;
+
+        this.commit();
+
+        const parts = [`applied ${written} setting(s)`];
+        if (plan.unchanged.length) parts.push(`${plan.unchanged.length} already matched`);
+        if (plan.skipped.length) parts.push(`${plan.skipped.length} skipped`);
+        return parts.join(", ");
+    }
+
+    _sharedBlockStyle() {
+        if (document.getElementById("mmx-shared-block-styles")) return;
+        const style = document.createElement("style");
+        style.id = "mmx-shared-block-styles";
+        style.textContent = `
+.mmx-sb-layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(8,10,16,.5);z-index:275}
+.mmx-sb-layer[hidden]{display:none!important}
+.mmx-sb-card{width:min(880px,100%);max-height:90%;display:flex;flex-direction:column;background:#14161d;border:1px solid #2c3140;border-radius:10px;box-shadow:0 18px 60px rgba(0,0,0,.6);font-size:13px;color:#dfe4ee}
+.mmx-sb-head{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid #262b38;font-weight:600}
+.mmx-sb-close{background:none;border:none;color:#9aa3b5;font-size:18px;cursor:pointer}
+.mmx-sb-body{padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+.mmx-sb-note{color:#b8c0d0;line-height:1.5}
+.mmx-sb-stats{color:#9aa3b5;font-size:12px}
+.mmx-sb-ta{width:100%;min-height:340px;box-sizing:border-box;background:#10121a;color:#dfe4ee;border:1px solid #333a4d;border-radius:8px;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.45;resize:vertical}
+.mmx-sb-actions{display:flex;justify-content:flex-end;gap:10px;align-items:center;padding:11px 16px;border-top:1px solid #262b38}
+.mmx-sb-btn{background:#22263a;color:#dfe4ee;border:1px solid #333a4d;border-radius:8px;padding:7px 13px;cursor:pointer;font-size:12px}
+.mmx-sb-btn:hover{background:#2a2f47}
+.mmx-sb-btn.primary{background:#2f7a4f;border-color:#2f7a4f;color:#eafff2}
+.mmx-sb-btn.primary:hover{background:#36945f}
+`;
+        document.head.appendChild(style);
+    }
+
+    _sharedBlockHost() {
+        if (!this._sharedBlockLayer) {
+            const host = this._directorOverlayLayer;
+            if (!host) return null;
+            const layer = document.createElement("div");
+            layer.className = "mmx-sb-layer";
+            layer.hidden = true;
+            host.appendChild(layer);
+            this._sharedBlockLayer = layer;
+            layer.addEventListener("click", (event) => {
+                if (event.target === layer) this._closeSharedBlockEditor();
+            });
+        }
+        return this._sharedBlockLayer;
+    }
+
+    _closeSharedBlockEditor() {
+        const layer = this._sharedBlockLayer;
+        if (layer) layer.hidden = true;
+    }
+
+    _splitPromptSharedShot(prompt) {
+        const text = String(prompt || "");
+        const m = text.match(/^[ \t]*summary:[ \t]*$/m);
+        if (!m || m.index == null) return { shared: "", shot: text };
+        return { shared: text.slice(0, m.index).replace(/\s+$/, ""), shot: text.slice(m.index) };
+    }
+
+    openSharedBlockEditor() {
+        const segments = this.timeline?.segments || [];
+        if (!segments.length) return;
+        this._sharedBlockStyle();
+        const layer = this._sharedBlockHost();
+        if (!layer) return;
+        const first = this._splitPromptSharedShot(segments[0]?.prompt);
+        this._sharedBlockOriginal = first.shared;
+        this._renderSharedBlockEditor(first.shared, segments);
+        layer.hidden = false;
+    }
+
+    _renderSharedBlockEditor(shared, segments) {
+        const layer = this._sharedBlockLayer;
+        if (!layer) return;
+        layer.innerHTML = "";
+        const card = document.createElement("div");
+        card.className = "mmx-sb-card";
+        const matching = (segments || []).filter((seg) =>
+            this._splitPromptSharedShot(seg?.prompt).shared === shared).length;
+        const head = document.createElement("div");
+        head.className = "mmx-sb-head";
+        head.innerHTML = "<span>Shared prompt block</span>";
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "mmx-sb-close";
+        close.textContent = "\u00d7";
+        close.onclick = () => this._closeSharedBlockEditor();
+        head.appendChild(close);
+
+        const body = document.createElement("div");
+        body.className = "mmx-sb-body";
+        const note = document.createElement("div");
+        note.className = "mmx-sb-note";
+        note.textContent = "The part every segment shares: subject_definitions, Camera, Scene and the Audio rules. "
+            + "Applying replaces only that part in each segment; each shot's summary and detailed_description are left untouched.";
+        const stats = document.createElement("div");
+        stats.className = "mmx-sb-stats";
+        stats.textContent = `${matching} of ${segments.length} segments currently carry this exact block.`;
+        const ta = document.createElement("textarea");
+        ta.className = "mmx-sb-ta";
+        ta.value = shared || "";
+        ta.spellcheck = false;
+        body.append(note, stats, ta);
+
+        const actions = document.createElement("div");
+        actions.className = "mmx-sb-actions";
+        const countEl = document.createElement("span");
+        countEl.className = "mmx-sb-stats";
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "mmx-sb-btn";
+        cancel.textContent = "Cancel";
+        cancel.onclick = () => this._closeSharedBlockEditor();
+        const apply = document.createElement("button");
+        apply.type = "button";
+        apply.className = "mmx-sb-btn primary";
+        apply.textContent = "Apply to all segments";
+        apply.onclick = () => {
+            const updated = this._applySharedBlock(ta.value, segments, matching);
+            countEl.textContent = updated
+                ? `Updated ${updated} segment(s).` : "Nothing to update.";
+            if (updated) setTimeout(() => this._closeSharedBlockEditor(), 700);
+        };
+        actions.append(countEl, cancel, apply);
+
+        card.append(head, body, actions);
+        layer.appendChild(card);
+    }
+
+    _applySharedBlock(newShared, segments, matching) {
+        const next = String(newShared || "").replace(/\s+$/, "");
+        if (!segments || !segments.length) return 0;
+        const original = this._sharedBlockOriginal || "";
+        let updated = 0;
+        for (const seg of segments) {
+            if (!seg) continue;
+            const { shared, shot } = this._splitPromptSharedShot(seg.prompt);
+            // Rewrite segments that carry the original block; when no segment
+            // had one yet, adopt the whole prompt as the shot body.
+            const adopt = matching === 0 || shared === original;
+            if (!adopt) continue;
+            const shotBody = shot.trim();
+            if (!shotBody) continue;
+            seg.prompt = next ? `${next}\n\n${shotBody}` : shotBody;
+            updated += 1;
+        }
+        if (updated) this.commit(false, { syncTimeline: true });
+        return updated;
+    }
+
+    async validateProject() {
+        const nodeId = this._directorNodeId?.();
+        if (!nodeId) return;
+        // Fill a missing source frame count first so the rebuild sees real frames.
+        await this._ensureSourceFrameCount();
+        const widgetVal = (name) => this.widget?.(name)?.value;
+        const postBody = {
+            node_id: nodeId,
+            timeline_data: widgetVal("timeline_data"),
+            task_type: widgetVal("task_type"),
+            global_prompt: widgetVal("global_prompt"),
+            total_frames: Number(widgetVal("total_frames")) || 0,
+            frame_rate: Number(widgetVal("frame_rate")) || 24,
+            width: Number(widgetVal("width")) || 0,
+            height: Number(widgetVal("height")) || 0,
+            ref_max_size: Number(widgetVal("ref_max_size")) || 0,
+            motion_context_enabled: Boolean(widgetVal("motion_context_enabled") ?? true),
+        };
+        this._renderValidate([{ severity: "info", code: "checking", message: "Validating project..." }], {});
+        try {
+            const response = await api.fetchApi("/minimax/motion-director/validate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(postBody),
+            });
+            const data = await response.json();
+            this._renderValidate(data?.issues || [], data || {});
+        } catch (error) {
+            console.warn("[MiniMax H3 Motion Director] validate failed:", error);
+            this._renderValidate([{ severity: "error", code: "validate_failed", message: String(error?.message || error) }], {});
+        }
+    }
+
+    _renderValidate(issues, data = {}) {
+        const el = this.validateFooterEl;
+        if (!el) return;
+        if (!issues || !issues.length) {
+            el.style.display = "none";
+            return;
+        }
+        el.style.display = "block";
+        const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => (
+            { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+        const errors = issues.filter((i) => i.severity === "error");
+        const warnings = issues.filter((i) => i.severity === "warning");
+        const ok = errors.length === 0 && !issues.some((i) => i.severity === "error");
+        const total = data.segment_total;
+        const line = (i) => {
+            const seg = i.segment != null ? `Segment ${i.segment}: ` : "";
+            const color = i.severity === "error" ? "#ff6b6b"
+                : i.severity === "warning" ? "#f5c542" : "#7fd3ff";
+            return `<div style="color:${color}">- ${seg}${esc(i.message)}</div>`;
+        };
+        const head = ok
+            ? `\u2713 Ready${total != null ? ` - ${total} segments` : ""}`
+            : `\u2717 Problems found${total != null ? ` - ${total} segments` : ""}`;
+        el.innerHTML =
+            `<div style="margin-bottom:4px;font-weight:600;color:${ok ? "#4fff8f" : "#ff6b6b"}">` +
+            `${esc(head)} - ${errors.length} error(s), ${warnings.length} warning(s)</div>` +
+            issues.map(line).join("");
+    }
+
     bindEvents() {
         const bind = (sel, fn) => {
             const el = this.root.querySelector(sel);
@@ -4888,7 +6124,16 @@ class MiniMaxH3MotionDirectorEditor {
         bind('[data-a="smart-split"]', () => { void this.smartSplit(); });
         bind('[data-a="del-split"]', () => this.deleteSelectedSplitPoint());
         bind('[data-a="run-select-toggle"]', () => this.toggleRunSelectMode());
+        bind('[data-a="validate-project"]', () => { void this.validateProject(); });
+        bind('[data-a="shared-block"]', () => this.openSharedBlockEditor());
+        bind('[data-a="preview-prompt"]', () => { void this.openPromptPreview(); });
+        bind('[data-a="replace-setup"]', () => this.openReplaceSetup());
+        bind('[data-a="reference-audit"]', () => this.openReferenceAudit());
+        bind('[data-a="presets"]', () => { void this.openPresetsManager(); });
+        bind('[data-a="sweep-run"]', () => this.startSeedSweepRun());
         bind('[data-a="del"]', () => this.deleteSelectedSegment());
+        bind('[data-a="undo"]', () => this.undoTimeline());
+        bind('[data-a="redo"]', () => this.redoTimeline());
         bind('[data-a="mode-global"]', () => this.setEditMode("global"));
         bind('[data-a="mode-segment"]', () => this.setEditMode("segment"));
         bind('[data-a="play"]', () => this.togglePlay());
@@ -5187,6 +6432,47 @@ class MiniMaxH3MotionDirectorEditor {
     }
 
     widget(name) { return this.node.widgets?.find((w) => w.name === name); }
+
+    async _ensureSourceFrameCount() {
+        // Self-heal timelines that reference a source video but carry no frame
+        // count (e.g. a workflow built by a script): probe the file and fill it
+        // in. Never overwrites a known value, and only applies to video-edit
+        // modes (gen / fl2v / image-batch derive their totals from segments).
+        const video = this.timeline?.video || {};
+        const videoFile = String(video.videoFile || video.fileName || "").trim();
+        if (!videoFile) return false;
+        if (this.isMixedMode?.() || this.isFl2vMode?.() || this.isImageBatch?.() || this.isGenMode?.()) {
+            return false;
+        }
+        const known = parseInt(video.sourceFrameCount || 0, 10)
+            || (video.frameMap?.length || 0)
+            || (this._legacyFrames?.length || 0)
+            || (video.frames?.length || 0);
+        if (known > 0) return false;
+        try {
+            const probe = await this.probeVideoFile(
+                videoFile, video.subfolder || "", video.type || "input");
+            const fps = this.getFrameRate() || 24;
+            const total = Math.max(
+                1,
+                Math.round(Number(probe.duration || 0) * fps) || Number(probe.frame_count || 0),
+            );
+            video.width = video.width || Number(probe.width || 0);
+            video.height = video.height || Number(probe.height || 0);
+            video.duration = video.duration || Number(probe.duration || 0);
+            video.nativeFps = video.nativeFps || Number(probe.native_fps || 0) || null;
+            video.nativeFrameCount = video.nativeFrameCount || Number(probe.frame_count || 0) || null;
+            video.sourceFrameCount = total;
+            this.timeline.totalFrames = total;
+            console.log(`[MiniMax H3 Motion Director] auto-derived source frames: ${total} (${videoFile})`);
+            this.commit(false, { syncTimeline: true });
+            this._writeTimelineWidget();
+            return true;
+        } catch (err) {
+            console.warn("[MiniMax H3 Motion Director] frame auto-derive failed:", err);
+            return false;
+        }
+    }
 
     hasVideo() {
         const v = this.timeline?.video || {};
@@ -6660,9 +7946,32 @@ class MiniMaxH3MotionDirectorEditor {
         const seg = this.timeline.segments[this.selectedIndex];
         if (!seg) return;
         const minFc = minFrameCount(this.getTaskKey());
-        seg.frameCount = clamp(parseInt(this.genSegFc?.value, 10) || minFc, minFc, MAX_GEN_FRAMES);
+        const typed = clamp(parseInt(this.genSegFc?.value, 10) || minFc, minFc, MAX_GEN_FRAMES);
+        // MiniMax H3 only accepts 17k+5 lengths; snap up so an off-grid value
+        // can never be committed.
+        seg.frameCount = alignMiniMaxFrameCount(typed);
         if (this.genSegFc) this.genSegFc.value = seg.frameCount;
+        this._updateSegFcHint(seg);
         this.commit();
+    }
+
+    _updateSegFcHint(seg = null) {
+        const el = this.genSegFcHint;
+        if (!el) return;
+        const s = seg || this.timeline?.segments?.[this.selectedIndex];
+        if (!s) { el.textContent = ""; return; }
+        const fps = this.getFrameRate() || 24;
+        const fc = Math.max(5, parseInt(s.frameCount ?? s.length, 10) || 0);
+        const secs = framesToDurationSec(fc, fps);
+        const snapped = fc + (((5 - (fc % 17)) % 17 + 17) % 17);
+        const onGrid = fc % 17 === 5;
+        el.textContent = onGrid
+            ? `${secs.toFixed(2)}s`
+            : `${secs.toFixed(2)}s - snaps to ${snapped}f`;
+        el.style.color = onGrid ? "" : "#f5c542";
+        el.title = onGrid
+            ? `On the H3 grid (17k+5) - ${fc} frames at ${fps} fps`
+            : `Off the H3 grid - the next valid length is ${snapped} frames`;
     }
 
     genSplitAtFrame(frame) {
@@ -7961,6 +9270,195 @@ class MiniMaxH3MotionDirectorEditor {
         this.syncOutputToWidgets();
     }
 
+    // ---------------------------------------------------------------------
+    // Timeline undo / redo
+    // ---------------------------------------------------------------------
+    // Every timeline mutation funnels through commit(), which records a snapshot
+    // afterwards. Nothing else pushes history, so undo/redo stays coherent even
+    // for the many code paths that mutate this.timeline directly.
+
+    _ensureUndoBuffer() {
+        if (!this._undoBuffer) {
+            this._undoBuffer = createUndoBuffer({ limit: UNDO_HISTORY_LIMIT });
+        }
+        return this._undoBuffer;
+    }
+
+    _undoSnapshot() {
+        try {
+            if (this.isMixedMode()) return JSON.stringify(this._mixedPayload());
+            return JSON.stringify(this.buildTimelinePayload());
+        } catch (error) {
+            console.warn("[MiniMax H3 Motion Director] undo snapshot failed:", error);
+            return null;
+        }
+    }
+
+    /** Seed history from the current state without creating an entry. */
+    seedUndoTimeline() {
+        const buffer = this._ensureUndoBuffer();
+        buffer.reset(this._undoSnapshot());
+        this._syncUndoControls?.();
+    }
+
+    _recordUndoSnapshot() {
+        const buffer = this._ensureUndoBuffer();
+        const snapshot = this._undoSnapshot();
+        if (snapshot == null) return;
+        if (buffer.record(snapshot).changed) this._syncUndoControls?.();
+    }
+
+    canUndoTimeline() {
+        return !!this._undoBuffer?.canUndo;
+    }
+
+    canRedoTimeline() {
+        return !!this._undoBuffer?.canRedo;
+    }
+
+    undoTimeline() {
+        return this._applyUndoStep("undo");
+    }
+
+    redoTimeline() {
+        return this._applyUndoStep("redo");
+    }
+
+    _applyUndoStep(direction) {
+        const buffer = this._undoBuffer;
+        if (!buffer) return false;
+        const snapshot = direction === "undo" ? buffer.undo() : buffer.redo();
+        if (snapshot == null) {
+            this._flashUndoTimelineNotice(
+                direction === "undo" ? t("undo.nothingToUndo") : t("undo.nothingToRedo"),
+            );
+            return false;
+        }
+        return this._applyUndoSnapshot(snapshot);
+    }
+
+    _applyUndoSnapshot(snapshot) {
+        const buffer = this._undoBuffer;
+        try {
+            // Suppressed: restoring a snapshot must not push new history.
+            buffer.suppress(() => {
+                const payload = JSON.parse(snapshot);
+                const isMixed = String(payload?.timelineMode || "").trim().toLowerCase() === "mixed";
+                if (isMixed) {
+                    this.mixedTimeline = normalizeMixedTimeline(payload);
+                    if (this.node?.id != null) this.mixedTimeline.nodeId = String(this.node.id);
+                } else {
+                    const totalFrames =
+                        Number(this.totalFramesWidget?.value ?? this.timeline?.totalFrames ?? 0) || 0;
+                    this.timeline = parseTimeline(snapshot, totalFrames, Number(this.timeline?.frameRate || 24));
+                }
+                const count = this.timeline?.segments?.length || 1;
+                this.selectedIndex = clamp(Number(this.selectedIndex) || 0, 0, Math.max(0, count - 1));
+                this.commit(true, { syncTimeline: true });
+            });
+        } catch (error) {
+            console.warn("[MiniMax H3 Motion Director] undo apply failed:", error);
+            return false;
+        }
+        this._syncUndoControls?.();
+        return true;
+    }
+
+    /** Reflect history availability on the toolbar buttons. */
+    _syncUndoControls() {
+        const undoBtn = this.root?.querySelector?.('[data-a="undo"]');
+        if (undoBtn) undoBtn.disabled = !this.canUndoTimeline();
+        const redoBtn = this.root?.querySelector?.('[data-a="redo"]');
+        if (redoBtn) redoBtn.disabled = !this.canRedoTimeline();
+    }
+
+    _flashUndoTimelineNotice(message) {
+        const el = this.smartSplitMsgEl;
+        if (!el || !message) return;
+        el.textContent = message;
+        el.classList.remove("hidden");
+        clearTimeout(this._undoNoticeTimer);
+        this._undoNoticeTimer = setTimeout(() => {
+            el.textContent = "";
+            el.classList.add("hidden");
+        }, 2500);
+    }
+
+    /**
+     * Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl+Y).
+     *
+     * Bound on window but scoped to events originating inside this editor, so it
+     * cannot steal the shortcut from other nodes. Text fields keep their own native
+     * undo - undoing a half-typed prompt is worse than not undoing at all.
+     */
+    installUndoTimelineKeys() {
+        if (this._undoKeysInstalled) return;
+        this._undoKeysInstalled = true;
+        this._undoKeyHandler = (event) => {
+            const { undo, redo } = isUndoShortcut(event);
+            if (!undo && !redo) return;
+            const target = event.target;
+            const inside =
+                (this.root && this.root.contains?.(target)) ||
+                (this.container && this.container.contains?.(target)) ||
+                target === this.root ||
+                target === this.container;
+            if (!inside) return;
+            if (isTextEntryTarget(target)) return;
+            const applied = undo ? this.undoTimeline() : this.redoTimeline();
+            if (!applied) return;
+            event.preventDefault();
+            event.stopPropagation();
+        };
+        window.addEventListener("keydown", this._undoKeyHandler, true);
+    }
+
+    disposeUndoTimelineKeys() {
+        if (this._undoKeyHandler) {
+            window.removeEventListener("keydown", this._undoKeyHandler, true);
+        }
+        this._undoKeyHandler = null;
+        this._undoKeysInstalled = false;
+        clearTimeout(this._undoNoticeTimer);
+    }
+
+    /**
+     * Confirm the two persisted `timeline_data` mirrors still agree.
+     *
+     * They are read in a fixed precedence order on load (named wins), so a
+     * present-but-different mirror silently changes which state a reload restores.
+     * Surfaced through the pre-flight footer rather than swallowed.
+     *
+     * Run at load, never on write: the editor rewrites the live widget during load
+     * normalisation and on every commit, so comparing the live value against the
+     * saved snapshots reports drift on any freshly opened, perfectly healthy file.
+     */
+    _checkTimelineMirrorIntegrity() {
+        const state = this.node?.properties?.mmx_director_widget_state;
+        if (!state || typeof state !== "object") return null;
+        const result = compareTimelineMirrors({
+            named: this.node?.widgets_values_named?.timeline_data,
+            properties: state.timeline_data,
+        });
+        if (result.ok) {
+            this._lastMirrorWarning = null;
+            return null;
+        }
+        // Writes are debounced but frequent - only re-render when the drift changes.
+        if (result.message === this._lastMirrorWarning) return result;
+        this._lastMirrorWarning = result.message;
+        console.warn("[MiniMax H3 Motion Director] timeline mirror drift:", result.message);
+        this._renderValidate(
+            [{
+                severity: "error",
+                code: "timeline_mirror_drift",
+                message: result.message,
+            }],
+            {},
+        );
+        return result;
+    }
+
     commit(skipRender = false, { syncTimeline = true } = {}) {
         if (this.isMixedMode()) {
             this._syncMixedFromSharedWidgets();
@@ -7969,6 +9467,7 @@ class MiniMaxH3MotionDirectorEditor {
             this.updateVideoNameLabel?.();
             this.updateRunSelectUI?.();
             this.node?.setDirtyCanvas?.(true, false);
+            this._recordUndoSnapshot();
             return;
         }
         this.syncFromWidgets();
@@ -7997,6 +9496,7 @@ class MiniMaxH3MotionDirectorEditor {
             else this.updateSelectionUI();
         }
         refreshDirectorContinuityUi(this.node, this);
+        this._recordUndoSnapshot();
     }
 
     normalizeSegments() {
@@ -10858,6 +12358,7 @@ class MiniMaxH3MotionDirectorEditor {
         if (this.isGenMode() && !this.isGlobalMode()) {
             const fc = liveSeg.frameCount ?? liveSeg.length ?? defaultFrameCount(this.getTaskKey());
             if (this.genSegFc) this.genSegFc.value = fc;
+            this._updateSegFcHint(liveSeg);
         }
         if (this.isFl2vMode()) updateFl2vDetailUI(this);
     }
@@ -11697,7 +13198,124 @@ class MiniMaxH3MotionDirectorEditor {
         if (typeof node.setDirtyCanvas === "function") node.setDirtyCanvas(true, true);
     }
 
-    _queueRunWithIntent({ resume = false, from = null, reseed = false, freshClear = false } = {}) {
+    /** The seed widget, or null when this node has none. */
+    _seedWidget() {
+        return (this.node?.widgets || []).find((widget) => widget?.name === "seed") || null;
+    }
+
+    /**
+     * Queue the graph exactly once with the given run intent.
+     *
+     * `app.queuePrompt()` snapshots the graph synchronously, which is what lets a
+     * sweep stamp a different seed between calls.
+     */
+    _queueOnce({ resume = false, from = null } = {}) {
+        if (this._destroyed) return false;
+        this._applyRunIntent({ resume, from });
+        if (typeof this.commit === "function") {
+            this.commit(true, { syncTimeline: false });
+        }
+        this.ensureRunSelectionSerialized?.();
+        this.flushTimelineSync?.();
+        this._directorModalController?.setPage?.("live");
+        if (typeof app?.queuePrompt !== "function") return false;
+        app.queuePrompt();
+        return true;
+    }
+
+    /**
+     * Read the sweep controls and queue a sweep.
+     *
+     * An explicit seed list wins over the take count; otherwise the takes are derived
+     * from the current seed so a sweep is reproducible.
+     */
+    startSeedSweepRun() {
+        if (this._isRunActive()) {
+            this._flashUndoTimelineNotice?.("A run is already active.");
+            return;
+        }
+        const takesEl = this.root?.querySelector?.('[data-r="sweep-takes"]');
+        const seedsEl = this.root?.querySelector?.('[data-r="sweep-seeds"]');
+
+        const rawList = String(seedsEl?.value || "").trim();
+        const parsed = rawList ? parseSeedList(rawList) : null;
+        if (parsed && !parsed.seeds.length) {
+            // Never silently substitute derived seeds for a list the user typed.
+            this._flashUndoTimelineNotice?.(
+                `No usable seeds in that list (ignored: ${parsed.invalid.join(", ")}).`,
+            );
+            return;
+        }
+
+        const expansion = expandSeedSweep({
+            count: parseInt(takesEl?.value, 10) || 1,
+            seeds: parsed ? parsed.seeds : undefined,
+            baseSeed: Number(this._seedWidget()?.value) || 0,
+        });
+        if (expansion.error) {
+            this._flashUndoTimelineNotice?.(expansion.error);
+            return;
+        }
+        if (!isSweepActive(expansion.seeds.length)) {
+            this._flashUndoTimelineNotice?.(
+                `Set Takes to 2-${SWEEP_MAX_TAKES}, or list two or more seeds, to sweep.`,
+            );
+            return;
+        }
+
+        this._sweepQueued = null;
+        this._queueRunWithIntent({ sweep: expansion.seeds });
+        if (parsed && parsed.invalid.length) {
+            this._flashUndoTimelineNotice?.(
+                `Sweeping ${expansion.seeds.length} takes; ignored ${parsed.invalid.join(", ")}.`,
+            );
+        }
+    }
+
+    /**
+     * Queue the same project once per seed.
+     *
+     * Every take forces `resume: false`: with resume enabled take 2 would reuse take
+     * 1's segment caches and every take would come out identical, which would make the
+     * whole feature a no-op that still costs the same GPU time.
+     */
+    _startSeedSweep(seeds) {
+        const seedWidget = this._seedWidget();
+        if (!seedWidget) {
+            this._flashUndoTimelineNotice?.("This node has no seed widget to sweep.");
+            return false;
+        }
+
+        const originalSeed = seedWidget.value;
+        const queued = [];
+        this._setRunActive(true);
+        try {
+            for (const seed of seeds) {
+                seedWidget.value = seed;
+                if (!this._queueOnce({ resume: false, from: null })) break;
+                queued.push(seed);
+            }
+        } catch (error) {
+            console.error("[MiniMax H3 Motion Director] Seed sweep queue failed:", error);
+        } finally {
+            // The node keeps the user's seed; the takes carry their own.
+            seedWidget.value = originalSeed;
+        }
+
+        if (!queued.length) {
+            this._stopRequested = false;
+            this._setRunActive(false);
+            this._syncRunControls?.();
+            return false;
+        }
+
+        this._sweepQueued = { seeds: queued, total: queued.length };
+        this.node?.setDirtyCanvas?.(true, false);
+        this._syncRunControls?.();
+        return true;
+    }
+
+    _queueRunWithIntent({ resume = false, from = null, reseed = false, freshClear = false, sweep = null } = {}) {
         if (this._destroyed) return;
         if (freshClear) {
             this._resumeDone = new Set();
@@ -11706,6 +13324,14 @@ class MiniMaxH3MotionDirectorEditor {
             this._resumeState = "idle";
         }
         this._stopRequested = false;
+
+        // A sweep replaces the normal single queue: N takes, N seeds, no resume.
+        const sweepSeeds = Array.isArray(sweep) ? sweep : null;
+        if (sweepSeeds && isSweepActive(sweepSeeds.length)) {
+            this._startSeedSweep(sweepSeeds);
+            return;
+        }
+
         this._applyRunIntent({ resume, from });
         if (reseed) this._rollSeed();
         this._setRunActive(true);
@@ -12283,6 +13909,7 @@ class MiniMaxH3MotionDirectorEditor {
     _onRunInactive() {
         this._setRunActive(false);
         this._stopRequested = false;
+        this._sweepQueued = null;
         const pending = this._pendingRestart;
         this._pendingRestart = null;
         if (pending) {

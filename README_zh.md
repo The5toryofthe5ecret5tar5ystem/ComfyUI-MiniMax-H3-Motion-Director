@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.3.3-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.4.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -9,7 +9,8 @@
 > - **Re-ground 分段（防累积漂移）**：时间线每段边界下方新增 **R 圆圈**，左键切换（开启后变琥珀色）。开启的段落会从「链首 root」而非上一段重新锚定上下文，用于长片每 3–5 段设置一次，配合 Latent Scale Lock 与 Color Re-anchor 抑制色彩/画面漂移。
 > - **性能修复**：修复打开 Director 面板时因超长提示词逐字裁剪导致的长时间卡顿（改为二分查找 `fitCanvasText`，实测约快 525 倍）；批量卡片启用 `content-visibility` 优化滚动。
 > - **新版 ComfyUI 兼容**：H3 节点改为关键字传参，兼容 v0.34.x 之后 io.Schema / ComfyNode 重写版 ComfyUI，修复 `//: 'str' and 'int'` 崩溃。
-> - **测试与 CI**：`python -m pytest`（123 个测试，无需 ComfyUI 即可运行）+ 前端 jsdom 测试，CI 见 `.github/workflows/tests.yml`。
+> - **v1.4.0 新增**：**Stop 部分导出**（停止时把已完成片段合成为可用的部分视频，Resume 仍从第一个未完成片段继续）、**时间线撤销/重做**（Ctrl+Z / Ctrl+Shift+Z，输入框内不会抢撤销）、**命名预设**（只保存采样/接续/输出设置，不含片段、提示词与种子）、**多种子 Sweep**（同一项目按不同种子渲染多次对比）、以及 **Validate / Preview prompt / References** 预检工具。
+> - **测试与 CI**：`python -m pytest`（326 个测试，无需 ComfyUI 即可运行）+ 前端 jsdom 测试，CI 见 `.github/workflows/tests.yml`。
 > - **示例工作流**：`example_workflows/` 内含可直接运行的 **ref2va** 示例与配套 AI 生成参考图。
 >
 > 英文详情见 [Improvements in this fork](README.md#-improvements-in-this-fork)；示例默认模型下载见 [Models used by the example workflow](README.md#models-used-by-the-example-workflow-defaults)。
@@ -22,7 +23,7 @@
 
 在一个生产界面中完成 `T2V / I2V / FL2V / R2V / V2V / RV2V`，按片段混合不同生成方式，在镜头之间传递画面与生成音频上下文，只重跑需要修改的片段，管理可复用素材，实时预览生成过程，完成后期精修并导出最终视频，而不需要把 ComfyUI 节点图堆成一堵墙。
 
-> 当前版本：**v1.3.3**
+> 当前版本：**v1.4.0**
 
 <!-- IMAGE SLOT 1
 把 Mixed + Selective Run 主截图放到：

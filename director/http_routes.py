@@ -20,6 +20,7 @@ from aiohttp import web
 from server import PromptServer
 
 from .face_refine_validation import compatible_sam_models
+from .director_presets_routes import register_director_preset_routes
 from .material_library_routes import register_material_library_routes
 from .video_export import (
     FINAL_VIDEO_REGISTRY,
@@ -592,6 +593,36 @@ async def minimax_test_mask(request):
     return web.json_response(result)
 
 
+async def minimax_validate_project(request):
+    """Pre-flight validation: rebuild the plan + static checks, no GPU work."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    from .preflight import PLAN_INPUT_KEYS, validate_project
+
+    node_id = str(body.get("node_id") or "").strip() or None
+    inputs = {k: body[k] for k in PLAN_INPUT_KEYS if k in body}
+    return web.json_response(validate_project(node_id, **inputs))
+
+
+async def minimax_preview_prompt(request):
+    """Engine-accurate effective prompt per segment (no GPU work)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    from .prompt_preview import PLAN_INPUT_KEYS, preview_prompts
+
+    node_id = str(body.get("node_id") or "").strip() or None
+    inputs = {k: body[k] for k in PLAN_INPUT_KEYS if k in body}
+    return web.json_response(preview_prompts(node_id, **inputs))
+
+
 def register_routes() -> bool:
     """Register MiniMax H3 Motion Director HTTP routes on the ComfyUI PromptServer."""
     global _ROUTES_REGISTERED
@@ -615,9 +646,12 @@ def register_routes() -> bool:
     _register_route(routes, "GET", "/minimax/motion-director/resume_status", minimax_resume_status)
     _register_route(routes, "GET", "/minimax/motion-director/resume_preview", minimax_resume_preview)
     _register_route(routes, "POST", "/minimax/motion-director/resume_preview", minimax_resume_preview)
+    _register_route(routes, "POST", "/minimax/motion-director/validate", minimax_validate_project)
+    _register_route(routes, "POST", "/minimax/motion-director/preview_prompt", minimax_preview_prompt)
     _register_route(routes, "POST", "/minimax/motion-director/stop_request", minimax_stop_request)
     _register_route(routes, "POST", "/minimax/motion-director/clear_run", minimax_clear_run)
     register_material_library_routes(routes)
+    register_director_preset_routes(routes)
     _ROUTES_REGISTERED = True
     log.info("MiniMax H3 Motion Director HTTP routes registered")
     return True

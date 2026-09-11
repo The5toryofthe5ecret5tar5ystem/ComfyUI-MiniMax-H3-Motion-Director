@@ -55,7 +55,7 @@ test("backdrop closes only when the pointer gesture starts and ends on the backd
   assert.equal(core.shouldCloseEditorBackdrop(false, false), false);
 });
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 const uiSource = readFileSync(new URL("../zz_minimax_audio_drive_ui.js", import.meta.url), "utf8");
 
 test("audio timeline drag uses light commit and stable vertical ordering", () => {
@@ -75,11 +75,23 @@ test("audio editor exposes draggable selection playhead undo redo and explicit c
   assert.equal(uiSource.includes("moveTrimSelection("), true);
 });
 
-const backdropGuardSource = readFileSync(new URL("../zzzz_minimax_audio_editor_backdrop_guard.js", import.meta.url), "utf8");
-
 test("audio editor backdrop guard suppresses drag-release clicks without disabling deliberate backdrop clicks", () => {
-  assert.equal(backdropGuardSource.includes("shouldCloseEditorBackdrop("), true);
-  assert.equal(backdropGuardSource.includes('document.addEventListener("pointerdown"'), true);
-  assert.equal(backdropGuardSource.includes('document.addEventListener("click"'), true);
-  assert.equal(backdropGuardSource.includes("stopImmediatePropagation()"), true);
+  // Folded from zzzz_minimax_audio_editor_backdrop_guard.js on 2026-09-10. The guard
+  // now lives in the module that owns the backdrop, so there is no load-order
+  // coupling left to get wrong.
+  assert.equal(uiSource.includes("shouldCloseEditorBackdrop("), true);
+  assert.equal(uiSource.includes('document.addEventListener("pointerdown"'), true);
+  assert.equal(uiSource.includes('document.addEventListener("click"'), true);
+  assert.equal(uiSource.includes("stopImmediatePropagation()"), true);
+  // The predicate is shared, not reimplemented inline.
+  assert.equal(uiSource.includes("shouldCloseEditorBackdrop,"), true, "predicate must be imported");
+});
+
+test("the backdrop guard override file no longer exists", () => {
+  // A stray copy would be auto-loaded by ComfyUI and register a duplicate listener.
+  assert.equal(
+    existsSync(new URL("../zzzz_minimax_audio_editor_backdrop_guard.js", import.meta.url)),
+    false,
+    "the folded override must not come back",
+  );
 });

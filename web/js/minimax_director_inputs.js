@@ -190,10 +190,17 @@ function syncInputShape(node, desired) {
 function resizeNode(node, minWidth = 330) {
     const computed = node.computeSize?.();
     if (!computed) return;
-    node.setSize?.([
-        Math.max(minWidth, Number(node.size?.[0]) || Number(computed[0]) || minWidth),
-        Number(computed[1]) || Number(node.size?.[1]) || 100,
-    ]);
+    const width = Math.max(minWidth, Number(node.size?.[0]) || Number(computed[0]) || minWidth);
+    const height = Number(computed[1]) || Number(node.size?.[1]) || 100;
+    const current = node.size;
+    if (Array.isArray(current)
+        && Math.abs(Number(current[0]) - width) < 0.5
+        && Math.abs(Number(current[1]) - height) < 0.5) {
+        // No size change: skip setSize + canvas dirty so an idle poll never
+        // triggers a needless canvas repaint.
+        return;
+    }
+    node.setSize?.([width, height]);
     node.setDirtyCanvas?.(true, true);
 }
 
@@ -233,6 +240,11 @@ function applyExternalLocks(director, mediaGroups, promptGroups, mode) {
     const prompts = new Set([...promptGroups].map(Number).filter((value) => value > 0));
     director._mmxExternalMediaLocks = media;
     director._mmxExternalPromptLocks = prompts;
+
+    // Install the page-level pointer/drag guard only once a lock actually
+    // exists - it is what blocks interacting with locked slots. Dashboards
+    // without locks now carry zero global capture listeners.
+    if (media.size + prompts.size > 0) installLockedMediaGuard();
 
     const editor = director?._minimaxEditor;
     const root = editor?.container || editor?.root;
@@ -330,15 +342,52 @@ function syncInputsNode(node) {
     const directors = downstreamDirectors(node);
     if (!directors.length) {
         cleanupInputsNode(node);
+        node._mmxInputsSig = null;
+        node._mmxInputsRootRef = null;
         return;
     }
     const director = directors[0];
+    // Legacy-socket migration stays live and cheap (early-returns when absent),
+    // so it is intentionally outside the change-signature gate below.
     stripLegacyDirectorInputs(director);
 
     const mode = directorMode(director);
     const timeline = directorTimeline(director);
     const count = directorGroupCount(timeline, mode);
     const desired = desiredDirectorInputSockets(mode, count);
+
+    // Force a full re-sync if the Director's editor DOM was replaced: the lock
+    // classes/badges live in that DOM and must be re-applied to the new nodes.
+    const rootRef = director?._minimaxEditor?.container
+        || director?._minimaxEditor?.root
+        || null;
+    if (node._mmxInputsRootRef !== rootRef) {
+        node._mmxInputsRootRef = rootRef;
+        node._mmxInputsSig = null;
+    }
+
+    // Change signature: on ticks where nothing that matters changed (desired
+    // shape/names, link presence, internal prompt/media state) skip every
+    // socket and DOM write. The 250 ms poll then costs only this string build.
+    const sigParts = [
+        director.id,
+        mode,
+        count,
+        desired.length,
+        (node.inputs || []).map((input) => input?.name || "").join(","),
+    ];
+    for (let index = 0; index < desired.length; index += 1) {
+        const spec = desired[index];
+        const input = node.inputs?.[index];
+        const linked = input?.link != null ? 1 : 0;
+        const internal = spec.kind === "prompt"
+            ? (timelineGroupHasInternalPrompt(timeline, spec.group, mode) ? 1 : 0)
+            : (timelineGroupHasInternalMedia(timeline, spec.group, mode) ? 1 : 0);
+        sigParts.push(`${spec.name}:${spec.kind}:${spec.group}:${linked}:${internal}`);
+    }
+    const signature = sigParts.join("|");
+    if (node._mmxInputsSig === signature) return;
+    node._mmxInputsSig = signature;
 
     syncInputShape(node, desired);
     syncBlockedSockets(node, director, desired, timeline, mode);
@@ -353,14 +402,26 @@ function syncAssetsNode(node) {
     const targets = downstreamAssetTargets(node);
     if (!targets.length) return;
     const target = targets[0];
+    const mode = target.inputsNode?._mmxDirectorMode || target.mode;
+    const desired = desiredAssetSockets(mode);
+    const signature = [
+        target.id,
+        mode,
+        target.group ?? "",
+        desired.length,
+        (node.inputs || []).map((input) => input?.name || "").join(","),
+        node._mmxAssetMode ?? "",
+    ].join("|");
+    if (node._mmxAssetSig === signature) return;
+    node._mmxAssetSig = signature;
+
     if (targets.length > 1) {
         console.warn("[MiniMax H3 Motion Director] One Director Assets node is connected to multiple asset sockets; the first socket controls its profile.");
     }
-    const mode = target.inputsNode?._mmxDirectorMode || target.mode;
     if (node._mmxAssetMode && node._mmxAssetMode !== mode) {
         disconnectAndRemoveAllInputs(node);
     }
-    syncInputShape(node, desiredAssetSockets(mode));
+    syncInputShape(node, desired);
     node._mmxAssetMode = mode;
     node._mmxAssetGroup = target.group;
     resizeNode(node, 300);
@@ -466,7 +527,6 @@ function wrapDirectorMigration(nodeType) {
 }
 
 ensureStyles();
-installLockedMediaGuard();
 
 app.registerExtension({
     name: "MiniMaxH3.MotionDirector.UnifiedInputs",

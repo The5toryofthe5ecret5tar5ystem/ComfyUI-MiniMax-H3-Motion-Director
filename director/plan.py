@@ -245,6 +245,41 @@ def load_source_video_from_timeline(timeline: dict) -> torch.Tensor:
     return load_timeline_segment(timeline, 0, max(1, total))
 
 
+def _r2v_common_list(timeline: dict, key: str) -> list[dict]:
+    """Common References (``r2vCommon``) list, tolerating snake_case aliases.
+
+    Mirrors how the prompt-batch builder reads the same block so both plan
+    builders agree on where shared references live.
+    """
+    block = timeline.get("r2vCommon") or timeline.get("r2v_common") or {}
+    if not isinstance(block, dict):
+        return []
+    aliases = {
+        "refs": ("refs",),
+        "refAudios": ("refAudios", "ref_audios"),
+        "refVideos": ("refVideos", "ref_videos"),
+    }.get(key, (key,))
+    for alias in aliases:
+        value = block.get(alias)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _fallback_common_refs(timeline: dict, seg_task_key: str, key: str) -> list[dict]:
+    """Common References to use when a segment carries none of its own.
+
+    Keeps the video timeline aligned with the prompt-batch builder (which always
+    resolves from ``r2vCommon``), while respecting which tasks can consume each
+    kind of reference at all.
+    """
+    if key == "refs" and seg_task_key in CONTEXT_REFERENCE_EXCLUDED_KEYS:
+        return []
+    if key == "refAudios" and seg_task_key not in {"r2v", "rv2v"}:
+        return []
+    return _r2v_common_list(timeline, key)
+
+
 def _load_refs(ref_list: list[dict]) -> list[SegmentRef]:
     refs: list[SegmentRef] = []
     for item in ref_list or []:
@@ -605,7 +640,7 @@ def build_director_plan(
     if edit_mode not in ("global", "segment"):
         edit_mode = "global"
 
-    task_type = global_block.get("taskType") or global_task_type or "v2v — 视频转视频(Video to Video)"
+    task_type = global_block.get("taskType") or global_task_type or "v2v — 视频转视频(Source video only)"
     prompt = global_block.get("prompt") or global_prompt or ""
     global_refs = _load_refs(global_block.get("refs") or [])
     global_ref_audios = _load_ref_audios(
@@ -712,6 +747,15 @@ def build_director_plan(
             seg_ref_video = dict(seg_data.get("referenceVideo") or seg_data.get("reference_video") or {})
 
         seg_task_key = resolve_task_key(seg_task)
+        # Unify the two plan builders: the prompt-batch builder resolves an empty
+        # segment reference set from the Common References (r2vCommon), so do the
+        # same on the video timeline - identical projects must behave identically.
+        # A segment's own refs still win when it has any.
+        if not seg_refs:
+            seg_refs = _load_refs(_fallback_common_refs(timeline, seg_task_key, "refs"))
+        if not seg_ref_audios:
+            seg_ref_audios = _load_ref_audios(
+                _fallback_common_refs(timeline, seg_task_key, "refAudios"))
         seg_refs = segment_refs_for_context(seg_task_key, seg_refs)
         seg_ref_audios = segment_ref_audios_for_context(seg_task_key, seg_ref_audios)
         ref_start = start if continuous_ref and seg_task_key == "ads2v" else 0
@@ -878,7 +922,14 @@ def refs_to_kwargs_for_context(task_key: str, refs: list[SegmentRef]) -> dict[st
     return refs_to_kwargs(segment_refs_for_context(task_key, refs))
 
 
-def plan_summary(plan: DirectorPlan) -> str:
+def plan_summary(plan: DirectorPlan, *, include_prompts: bool = True) -> str:
+    """Human-readable plan description.
+
+    ``include_prompts=False`` drops the per-segment prompt previews. The builder is
+    re-run on every rebuild - including every Validate click - so the prompt-free
+    form is what gets logged at INFO, keeping scene text out of the console
+    scrollback. The full text stays available at DEBUG (and in the run report).
+    """
     mode = str(plan.raw.get("timelineMode") or "")
     if mode in ("gen_blank", "gen_image", "prompt_batch", "image_batch", "fl2v"):
         if mode == "fl2v":
@@ -894,6 +945,12 @@ def plan_summary(plan: DirectorPlan) -> str:
             f"Global task: {get_task_prompt_spec(plan.global_task_type).label}",
         ]
         for seg in plan.segments:
+            if not include_prompts:
+                lines.append(
+                    f"  #{seg.index + 1} [{seg.start_frame}:{seg.end_frame}] "
+                    f"{seg.frame_count}f — {seg.task_key}"
+                )
+                continue
             lines.append(
                 f"  #{seg.index + 1} [{seg.start_frame}:{seg.end_frame}] "
                 f"{seg.frame_count}f — {seg.task_key} — {seg.prompt[:60]}{'…' if len(seg.prompt) > 60 else ''}"
@@ -935,6 +992,12 @@ def plan_summary(plan: DirectorPlan) -> str:
         )
     lines.append(f"Global task: {get_task_prompt_spec(plan.global_task_type).label}")
     for seg in plan.segments:
+        if not include_prompts:
+            lines.append(
+                f"  #{seg.index + 1} [{seg.start_frame}:{seg.end_frame}] "
+                f"{seg.frame_count}f — {seg.task_key}"
+            )
+            continue
         lines.append(
             f"  #{seg.index + 1} [{seg.start_frame}:{seg.end_frame}] "
             f"{seg.frame_count}f — {seg.task_key} — {seg.prompt[:60]}{'…' if len(seg.prompt) > 60 else ''}"
