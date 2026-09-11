@@ -21,6 +21,20 @@
 export const RESUME_START_FRESH = "fresh";
 
 /**
+ * The <option> that means "let the engine decide".
+ *
+ * This is the correct default, and not just a convenience. The resume dialog's
+ * per-segment analysis cannot reproduce `plan.cache_settings`, because that
+ * value embeds the loaded model identity, the external sampler/sigmas and the
+ * post-process config - none of which the analysis endpoint receives. Without
+ * it, `segment_cache_fingerprint()` omits `context_dependency`, so *every*
+ * cached segment compares unequal and reads as "stale". The engine, by
+ * contrast, builds `cache_settings` right before it resolves the resume index,
+ * so it alone can judge the caches truthfully.
+ */
+export const RESUME_START_AUTO = "auto";
+
+/**
  * Coerce a UI value into a resume index.
  *
  * @returns {number|null} a non-negative integer, or null for "engine decides".
@@ -35,7 +49,9 @@ export function parseResumeIndex(value) {
     if (typeof value !== "string") return null;
     const text = value.trim();
     // A blank string is an *absent* choice, not segment 0.
-    if (text === "" || text === RESUME_START_FRESH) return null;
+    if (text === "" || text === RESUME_START_FRESH || text === RESUME_START_AUTO) {
+        return null;
+    }
     const parsed = Number(text);
     return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
 }

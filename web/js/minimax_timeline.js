@@ -42,6 +42,7 @@ import {
     parseSeedList,
 } from "./minimax_seed_sweep.mjs";
 import {
+    RESUME_START_AUTO,
     RESUME_START_FRESH,
     buildResumeRun,
     parseResumeIndex,
@@ -13714,6 +13715,16 @@ class MiniMaxH3MotionDirectorEditor {
         // otherwise picking it would silently re-render from S1 anyway.
         const options = [];
         const optionValues = [];
+        // Auto comes first and is selected by default: the engine is the only
+        // party that can judge these caches (see RESUME_START_AUTO), so it
+        // should decide unless the player deliberately overrides it. The
+        // analysis below can only compare the fields it can rebuild, so treat
+        // its verdict as a hint, never as the decision.
+        const likely = (Number.isFinite(recommended) && recommended >= 0 && recommended < total)
+            ? " · " + this._resumeText(`预计从 S${recommended + 1} 开始`, `likely from S${recommended + 1}`)
+            : "";
+        options.push(`<option value="${RESUME_START_AUTO}">${this._resumeText("自动 · 复用全部有效缓存", "Auto · reuse everything still valid")}${likely}</option>`);
+        optionValues.push(RESUME_START_AUTO);
         options.push(`<option value="${RESUME_START_FRESH}">${this._resumeText("从头开始（清空缓存重跑）", "Start Over (clear caches, fresh run)")}</option>`);
         optionValues.push(RESUME_START_FRESH);
         if (total > 0) {
@@ -13778,15 +13789,13 @@ class MiniMaxH3MotionDirectorEditor {
 
         const startSelect = layer.querySelector('[data-rd="start"]');
         if (startSelect) {
-            // `recommended` is not always one of the rendered options: the
-            // option list only offers starts whose whole prefix is reusable,
-            // and `-1`/`total-1` can fall outside it. Assigning .value in that
-            // case leaves the <select> reporting "", which Number() reads as 0
-            // — "resume from S1". Pick a value that really exists instead.
-            const desired = allReusable && total > 0
-                ? Math.max(0, total - 1)
-                : recommended;
-            startSelect.value = resolveSelectChoice(desired, optionValues, "0");
+            // Default to Auto. Seeding this with the analysis' own suggestion
+            // pinned the dialog to whatever the (incomplete) rebuild concluded
+            // - which, because cache_settings cannot be rebuilt outside a run,
+            // was always "From S1". Pick a value that really exists too: an
+            // unoffered value leaves the <select> reporting "", which Number()
+            // then reads as 0.
+            startSelect.value = resolveSelectChoice(RESUME_START_AUTO, optionValues, RESUME_START_AUTO);
         }
         const applyBtn = layer.querySelector('[data-rd="apply"]');
         const nodeFixable = Boolean(firstComplete && !this._resumeResMatches(firstComplete, cur));
