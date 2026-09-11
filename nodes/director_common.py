@@ -391,6 +391,14 @@ def analyze_resume_cache(node_id: str | None, **plan_inputs: Any) -> dict[str, A
     """
     if node_id is None:
         return {"error": "no node id"}
+    # `color_reanchor_enabled` is consumed below rather than forwarded: it is a
+    # post-build stamp on the plan, not a prepare_director_plan() parameter.
+    # Passing it through raised TypeError, which the caller/route surfaced as a
+    # generic error, so the frontend treated the authoritative analysis as
+    # unavailable and silently fell back to its heuristic — losing the exact
+    # per-segment reasons and making a doomed Resume look like a healthy one.
+    plan_kwargs = dict(plan_inputs)
+    color_reanchor = plan_kwargs.pop("color_reanchor_enabled", False)
     try:
         from ..director.audio_export import AUDIO_MODE_GENERATE, resolve_audio_mode
         from ..director import resume_state
@@ -402,7 +410,7 @@ def analyze_resume_cache(node_id: str | None, **plan_inputs: Any) -> dict[str, A
 
         plan = prepare_director_plan(
             unique_id=node_id,
-            **plan_inputs,
+            **plan_kwargs,
         )
         if plan is None:
             return {"error": "empty plan"}
@@ -410,9 +418,7 @@ def analyze_resume_cache(node_id: str | None, **plan_inputs: Any) -> dict[str, A
         # render time (executor_core_legacy), which is what the cached fingerprint
         # was written with. Mirror that here so the cache comparison reflects the
         # node's actual toggle instead of the dataclass default (False).
-        plan.color_reanchor_enabled = bool(
-            plan_inputs.get("color_reanchor_enabled", False)
-        )
+        plan.color_reanchor_enabled = bool(color_reanchor)
         audio_generate = resolve_audio_mode(plan) == AUDIO_MODE_GENERATE
         stored_by_index = {
             int(entry["index"]): entry
