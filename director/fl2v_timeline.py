@@ -568,6 +568,8 @@ def build_fl2v_director_plan(
         SegmentPlan,
         SegmentRef,
         _parse_run_selection,
+        _resume_enabled,
+        _resume_from_index,
         _run_selection_enabled,
         _resolve_export_mode,
     )
@@ -769,4 +771,7 @@ def build_fl2v_director_plan(
             frozenset(selected_plan_indices) if run_sel is not None else None
         ),
         run_select_enabled=_run_selection_enabled(timeline),
+        # Same wiring as the gen builder - see director/gen_timeline.py.
+        resume=_resume_enabled(timeline),
+        resume_from=_resume_from_index(timeline),
     )
