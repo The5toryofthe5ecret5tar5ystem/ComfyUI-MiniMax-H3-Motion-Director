@@ -318,6 +318,14 @@ def sample_single_stage(
                 disable_pbar=disable_pbar,
                 seed=int(seed),
             )
+        except torch.OutOfMemoryError:
+            # Let this reach the executor, which already reports a CUDA OOM
+            # properly ("ran out of VRAM during H3 sampling", plus the knobs
+            # that actually help). The blanket handler below used to catch it
+            # first and re-raise it as "your SAMPLER is incompatible with
+            # NestedTensor", which is both wrong and expensive to chase: the
+            # real fault is a sequence too long to fit.
+            raise
         except Exception as exc:
             raise RuntimeError(
                 "Motion Director external SAMPLER failed while sampling the H3 "
