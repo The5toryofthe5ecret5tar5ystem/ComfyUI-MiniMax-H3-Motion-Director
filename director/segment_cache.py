@@ -340,6 +340,51 @@ def load_segment_audio_cache(
         return None
 
 
+def segment_audio_cache_status(
+    node_id: str | None,
+    seg: SegmentPlan,
+    plan: DirectorPlan,
+) -> str:
+    """hit / missing / stale / unverified for a segment's full generated audio.
+
+    The audio payload carries the *same* fingerprint as the video cache, so it
+    is subject to the same problem as :func:`segment_cache_status_provisional`:
+    without ``plan.cache_settings`` the rebuilt fingerprint cannot contain
+    ``context_dependency``, and a strict compare rejects audio that was written
+    minutes ago. Resume runs with audio generation would then never skip a
+    segment, because ``segment_reusable`` requires this audio payload too.
+    """
+    if not node_id:
+        return "missing"
+    root = _cache_root(node_id)
+    if root is None:
+        return "missing"
+    audio_path = root / f"seg_{seg.index:04d}.audio.pt"
+    if not audio_path.is_file():
+        return "missing"
+    try:
+        payload = torch.load(audio_path, map_location="cpu", weights_only=True)
+    except Exception:
+        return "error"
+    if not isinstance(payload, dict):
+        return "error"
+    stored = payload.get("fingerprint")
+    if not isinstance(stored, dict):
+        return "stale"
+    expected = segment_cache_fingerprint(seg, plan)
+    if not isinstance(expected, dict):
+        return "stale"
+    if stored == expected:
+        return "hit"
+    if isinstance(getattr(plan, "cache_settings", None), dict):
+        # The chain is recomputable here, so a mismatch is a real one.
+        return "stale"
+    differing = {key for key in set(stored) | set(expected) if stored.get(key) != expected.get(key)}
+    if differing == {CONTEXT_CHAIN_KEY} and CONTEXT_CHAIN_KEY not in expected:
+        return "unverified"
+    return "stale"
+
+
 def segment_cache_status(
     node_id: str | None,
     seg: SegmentPlan,

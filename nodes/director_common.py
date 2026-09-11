@@ -396,14 +396,14 @@ def resolve_analysis_resume_index(
     the *preview* more optimistic, never a run more wrong.
     """
     from ..director.segment_cache import (
-        load_segment_audio_cache,
+        segment_audio_cache_status,
         segment_cache_status_provisional,
     )
 
     for seg in plan.segments:
         if segment_cache_status_provisional(node_id, seg, plan) not in {"hit", "unverified"}:
             return int(seg.index)
-        if audio_generate and load_segment_audio_cache(node_id, seg, plan) is None:
+        if audio_generate and segment_audio_cache_status(node_id, seg, plan) not in {"hit", "unverified"}:
             return int(seg.index)
     return len(plan.segments)
 
