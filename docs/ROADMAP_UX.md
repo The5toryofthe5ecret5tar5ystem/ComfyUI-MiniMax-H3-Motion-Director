@@ -1,7 +1,7 @@
 # Roadmap - Director UX Tiers 2 & 3
 
 Status: planning document. Tiers 0 and 1 are implemented (see "Completed" below), and
-items 1-4 plus the logging half of item 8 are implemented. Items 5, 6 and 7 are not
+items 1-6 and 8 are implemented. Item 7 was measured and closed as not justified.
 started.
 
 This is a *revised* plan: research for it changed the ranking versus the original
@@ -466,10 +466,51 @@ future change to the set of unmanaged headers fails loudly.
 
 ### 7. Plan-builder code merge  *(carried over, high risk)*
 
-The semantic divergence is already fixed (see Completed). Merging `gen_timeline.py` and
-the classic `plan.py` loop into one builder is a multi-thousand-line refactor on top of a
-load-order-coupled override stack. Only worth doing if the two paths keep causing bugs;
-if so, do it *after* item 5 (fold overrides first) so there is less to thread.
+**Status: premise measured, NOT JUSTIFIED (2026-09-10). Recommend closing without doing it.**
+
+The item's justification was that the two builders "keep causing bugs" through divergence.
+Measured rather than assumed:
+
+**There is no duplicated code to merge.** Comparing the two modules by AST, the sets of
+function names are **disjoint** — `plan.py ∪ gen_timeline.py` share **zero** helper names:
+
+```
+plan.py          : 42 functions
+gen_timeline.py  : 21 functions   (all 21 gen-only)
+mixed_plan.py    :  6 functions
+shared names plan ∩ gen : []
+```
+
+`gen_timeline.py` imports nothing from `plan.py`. The dependency runs one way:
+`plan.py` imports `build_gen_director_plan` / `is_gen_timeline` and **dispatches** to the
+gen builder for gen-mode timelines. These are two sibling implementations for two different
+project shapes, not a copy-paste pair — so "merging them into one builder" is not a
+de-duplication, it is a rewrite of two distinct things into one.
+
+**No fix has ever had to be applied twice.** Commit history:
+
+| | count |
+|---|---|
+| commits touching `plan.py` | 19 |
+| commits touching `gen_timeline.py` | 9 |
+| **commits touching BOTH** | **7** |
+| of those, `fix:` commits | **0** |
+
+The seven shared commits are six `feat:` and one `perf:` — i.e. deliberate symmetric feature
+work ("this mode also needs the feature"), which a merge would not eliminate: you would
+still be changing both behaviours, just inside one file.
+
+**Method note (a trap worth recording).** My first pass used
+`git log -- director/plan.py director/gen_timeline.py` and read the output as "commits that
+touched both". `git log -- <a> <b>` is a **union**, not an intersection — it lists commits
+touching either path. That made a `gen_timeline.py`-only fix look like a duplicated fix and
+briefly appeared to support the merge. The counts above come from intersecting the two
+per-file commit sets explicitly.
+
+**If the overlap ever does become painful**, the proportionate remedy is a shared helper
+layer plus a *symmetry test* that asserts a behaviour for both builders in one place — which
+converts "remember to change both" into "the test tells you". That is a fraction of the cost
+and risk of a ~2,000-line merge, and it is the thing to reach for first.
 
 ---
 
@@ -487,7 +528,12 @@ if so, do it *after* item 5 (fold overrides first) so there is less to thread.
 - **Unify the three i18n stores** (`minimax_i18n.js`, `minimax_mixed_i18n.mjs`,
   `minimax_material_library_i18n.mjs`). Low value, purely hygiene. **Still open.**
 
-### 5, 6, 7 - not started
+### 5, 6, 7 - resolved
+
+Item 5 closed after folding one override and fixing the served-duplicate bug; the rest was
+found to need no restructuring. Item 6's precondition is met and its bulk was already
+delivered. Item 7 was measured and closed as not justified. See each section above for the
+evidence.
 
 Items 5 (fold the `zz_*` overrides), 6 (collapse the widget surface) and 7 (plan-builder
 merge) are untouched. Item 6 still carries its own precondition from the original plan:
