@@ -385,6 +385,8 @@ def build_gen_director_plan(
         _load_ref_videos,
         _load_refs,
         _parse_run_selection,
+        _resume_enabled,
+        _resume_from_index,
         _run_selection_enabled,
         _resolve_export_mode,
         segment_ref_audios_for_context,
@@ -676,4 +678,12 @@ def build_gen_director_plan(
         export_mode=export_mode,
         run_indices=_parse_run_selection(timeline, len(segments)),
         run_select_enabled=_run_selection_enabled(timeline),
+        # Resume has to be honoured on THIS builder too. build_director_plan
+        # gained resume/resume_from, but gen_timeline never did - so a
+        # prompt_batch timeline (the Director's normal mode) silently ignored the
+        # frontend's resumeRun and re-rendered from segment 1, while the Resume
+        # dialog - which only inspects the on-disk caches - happily reported the
+        # prefix as reusable. That mismatch is what made Resume look broken.
+        resume=_resume_enabled(timeline),
+        resume_from=_resume_from_index(timeline),
     )
