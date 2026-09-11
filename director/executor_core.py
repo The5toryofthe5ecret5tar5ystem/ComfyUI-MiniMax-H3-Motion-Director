@@ -141,6 +141,29 @@ def _append_segment_final_report(
     return (report or "") + "\n" + "\n".join(lines)
 
 
+def _settle_resume_manifest(node_id: str | None) -> None:
+    """Never leave the run manifest reading "running" once a call has returned.
+
+    Only the normal and graceful-stop exits write a terminal state, so an
+    interrupted or crashed run left ``state: "running"`` behind - and the
+    frontend clears its run-active flag only when the manifest is NOT running
+    (see refreshResumeState), so a frozen "running" kept Stop/Resume disabled
+    until the next run happened to start.
+
+    Only ever corrects a stuck "running"; a genuine "done"/"stopped" is left
+    exactly as the engine wrote it, so this cannot mask a real outcome.
+    """
+    try:
+        from . import resume_state
+
+        if resume_state.resume_status(node_id).get("state") != "running":
+            return
+        resume_state.mark_run_state(node_id, "stopped")
+    except Exception as exc:
+        # Bookkeeping must never break a render that otherwise succeeded.
+        _legacy.log.debug("Resume manifest settle skipped: %s", exc)
+
+
 def execute_director_plan_core(
     plan,
     *,
@@ -212,7 +235,10 @@ def execute_director_plan_core(
     # Source Bridge pixels do not exist until both nominal segments are ready.
     # Keep the preserved assembled Face Refine path for those timelines.
     if not face_config["enabled"] or source_bridge_pairs:
-        return _legacy.execute_director_plan_core(plan, **call_kwargs)
+        try:
+            return _legacy.execute_director_plan_core(plan, **call_kwargs)
+        finally:
+            _settle_resume_manifest(node_id)
 
     run_indices = (
         plan.run_indices
@@ -435,7 +461,10 @@ def execute_director_plan_core(
     )
     runner.__kwdefaults__ = dict(_legacy.execute_director_plan_core.__kwdefaults__ or {})
 
-    combined, segment_outputs, segment_audios, report = runner(plan, **call_kwargs)
+    try:
+        combined, segment_outputs, segment_audios, report = runner(plan, **call_kwargs)
+    finally:
+        _settle_resume_manifest(node_id)
     if pending_seam is not None or trim_cursor != len(generated_segments):
         raise RuntimeError(
             "Face Refine lifecycle error: final segment state was not completed for every generated segment."

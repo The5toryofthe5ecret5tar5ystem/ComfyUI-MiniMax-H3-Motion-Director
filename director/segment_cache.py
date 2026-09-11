@@ -363,6 +363,56 @@ def segment_cache_status(
         return "error"
 
 
+#: Fingerprint entry that only a run can recompute (see below).
+CONTEXT_CHAIN_KEY = "context_dependency"
+
+
+def segment_cache_status_provisional(
+    node_id: str | None,
+    seg: SegmentPlan,
+    plan: DirectorPlan,
+) -> str:
+    """Cache status for the Resume *preview*, honest about what it cannot prove.
+
+    The preview cannot rebuild ``plan.cache_settings``: that dict embeds the
+    loaded model's class and options, the external sampler and its sigmas, and
+    the post-process config - none of which the analysis endpoint receives.
+    ``segment_cache_fingerprint()`` emits ``context_dependency`` only when
+    ``cache_settings`` is a dict, so a rebuild without one can never equal the
+    stored fingerprint, and every segment reads as stale - including ones
+    written seconds earlier.
+
+    So: compare everything else, and return ``"unverified"`` rather than
+    ``"stale"`` when the context chain is the only difference. A real settings
+    change still reports ``"stale"``. This is safe because the preview decides
+    nothing by itself - the engine re-checks every cache with full information
+    before skipping a segment, and re-samples anything that fails.
+    """
+    strict = segment_cache_status(node_id, seg, plan)
+    if strict != "stale":
+        return strict
+    if isinstance(getattr(plan, "cache_settings", None), dict):
+        # The chain *is* recomputable here, so the stale verdict is real.
+        return strict
+    root = _cache_root(node_id)
+    if root is None:
+        return strict
+    try:
+        stored = json.loads((root / f"seg_{seg.index:04d}.meta.json").read_text(encoding="utf-8"))
+        expected = segment_cache_fingerprint(seg, plan)
+    except Exception:
+        return "error"
+    if not isinstance(stored, dict) or not isinstance(expected, dict):
+        return strict
+    differing = {
+        key for key in set(stored) | set(expected)
+        if stored.get(key) != expected.get(key)
+    }
+    if differing == {CONTEXT_CHAIN_KEY} and CONTEXT_CHAIN_KEY not in expected:
+        return "unverified"
+    return strict
+
+
 def segment_reusable(
     node_id: str | None,
     seg: SegmentPlan,

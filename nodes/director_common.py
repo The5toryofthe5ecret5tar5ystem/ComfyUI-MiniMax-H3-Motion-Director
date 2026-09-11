@@ -380,6 +380,34 @@ _RESUME_FINGERPRINT_LABELS: list[tuple[str, str]] = [
 ]
 
 
+def resolve_analysis_resume_index(
+    node_id: str | None,
+    plan: Any,
+    *,
+    audio_generate: bool,
+) -> int:
+    """Preview-only twin of ``segment_cache.resolve_resume_from_index``.
+
+    Same contract - the first index whose cache cannot be reused, or the segment
+    count when every one can - but it uses the provisional status, so a segment
+    whose only unverifiable difference is the context-producer chain still
+    counts as reusable. The engine re-checks every cache with the real
+    ``cache_settings`` before it actually skips anything, so this can only make
+    the *preview* more optimistic, never a run more wrong.
+    """
+    from ..director.segment_cache import (
+        load_segment_audio_cache,
+        segment_cache_status_provisional,
+    )
+
+    for seg in plan.segments:
+        if segment_cache_status_provisional(node_id, seg, plan) not in {"hit", "unverified"}:
+            return int(seg.index)
+        if audio_generate and load_segment_audio_cache(node_id, seg, plan) is None:
+            return int(seg.index)
+    return len(plan.segments)
+
+
 def analyze_resume_cache(node_id: str | None, **plan_inputs: Any) -> dict[str, Any]:
     """Authoritative per-segment cache analysis for the Resume popup.
 
@@ -403,9 +431,10 @@ def analyze_resume_cache(node_id: str | None, **plan_inputs: Any) -> dict[str, A
         from ..director.audio_export import AUDIO_MODE_GENERATE, resolve_audio_mode
         from ..director import resume_state
         from ..director.segment_cache import (
+            CONTEXT_CHAIN_KEY,
+            load_segment_audio_cache,
             segment_cache_fingerprint,
-            segment_cache_status,
-            resolve_resume_from_index,
+            segment_cache_status_provisional,
         )
 
         plan = prepare_director_plan(
@@ -427,12 +456,16 @@ def analyze_resume_cache(node_id: str | None, **plan_inputs: Any) -> dict[str, A
         segments: list[dict[str, Any]] = []
         for seg in plan.segments:
             idx = int(seg.index)
-            status = segment_cache_status(node_id, seg, plan)
+            status = segment_cache_status_provisional(node_id, seg, plan)
             out: dict[str, Any] = {
                 "index": idx,
                 "timeline_index": int(getattr(seg, "timeline_index", idx)),
                 "status": status,
             }
+            if status == "unverified":
+                # Everything reproducible matched; only the context-producer
+                # chain is unknown, and only a run can recompute it.
+                out["unverified"] = [CONTEXT_CHAIN_KEY]
             cached = stored_by_index.get(idx)
             if cached:
                 out["cached"] = cached
@@ -460,15 +493,20 @@ def analyze_resume_cache(node_id: str | None, **plan_inputs: Any) -> dict[str, A
                 except Exception as exc:
                     out["reason_error"] = str(exc)
             segments.append(out)
-        resume_from = int(resolve_resume_from_index(
-            node_id, plan.segments, plan,
-            audio_generate=audio_generate,
+        resume_from = int(resolve_analysis_resume_index(
+            node_id, plan, audio_generate=audio_generate,
         ))
         return {
             "node_id": node_id,
             "authoritative": True,
             "segment_total": len(plan.segments),
             "audio_generate": audio_generate,
+            # False means the context-producer chain could not be rechecked
+            # outside a run, so an "unverified" segment may still turn out to
+            # need a re-sample. The engine decides; this is only a preview.
+            "context_chain_verifiable": isinstance(
+                getattr(plan, "cache_settings", None), dict
+            ),
             "segments": segments,
             "resume_from": resume_from,
         }
