@@ -137,8 +137,12 @@ assert.ok(
 const preset = slice('        const startSelect = layer.querySelector(\'[data-rd="start"]\');', "        const applyBtn =");
 
 assert.ok(
-    preset.includes('resolveSelectChoice(desired, optionValues, "0")'),
-    "the preset must pick a value that is really offered",
+    preset.includes("resolveSelectChoice(RESUME_START_AUTO, optionValues, RESUME_START_AUTO)"),
+    "the dialog must default to Auto, not to the analysis' own suggestion",
+);
+assert.ok(
+    !/resolveSelectChoice\(desired/.test(preset),
+    "seeding the select from the incomplete rebuild is what pinned it to S1",
 );
 assert.ok(
     !/startSelect\.value = String\(/.test(preset),
@@ -154,7 +158,16 @@ assert.equal(
     pushes,
     "every rendered option must also be registered in optionValues",
 );
-assert.ok(pushes >= 3, "fresh + S1 + at least one reuse option");
+assert.ok(pushes >= 4, "auto + fresh + S1 + at least one reuse option");
+assert.ok(
+    optionsBlock.includes("optionValues.push(RESUME_START_AUTO)"),
+    "Auto must be a real <option>, or the select cannot default to it",
+);
+assert.ok(
+    optionsBlock.indexOf("optionValues.push(RESUME_START_AUTO)")
+        < optionsBlock.indexOf('optionValues.push("0")'),
+    "Auto should lead the list so it reads as the default",
+);
 assert.ok(
     optionsBlock.includes('optionValues.push("0")'),
     'the "0" fallback must exist whenever total > 0',

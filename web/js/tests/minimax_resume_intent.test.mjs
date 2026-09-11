@@ -8,6 +8,7 @@
 
 import assert from "node:assert/strict";
 import {
+    RESUME_START_AUTO,
     RESUME_START_FRESH,
     buildResumeRun,
     parseResumeIndex,
@@ -23,6 +24,12 @@ assert.equal(parseResumeIndex("   "), null, "whitespace must not become 0");
 assert.equal(parseResumeIndex(null), null);
 assert.equal(parseResumeIndex(undefined), null);
 assert.equal(parseResumeIndex(RESUME_START_FRESH), null, '"fresh" is not an index');
+
+// "Auto" is the dialog's default and must mean "engine decides", never index 0.
+assert.equal(parseResumeIndex(RESUME_START_AUTO), null, '"auto" means engine decides');
+assert.equal(parseResumeIndex("auto"), null);
+assert.equal(parseResumeIndex(" auto "), null);
+assert.equal(buildResumeRun({ resume: true, from: RESUME_START_AUTO }).from, null);
 
 // Junk must not be coerced into a real segment number.
 assert.equal(parseResumeIndex("abc"), null);
