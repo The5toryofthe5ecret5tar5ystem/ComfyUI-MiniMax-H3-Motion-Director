@@ -206,7 +206,8 @@ def resume_status(node_id: Any) -> dict[str, Any]:
     everything is done.  ``segment_total`` is the total from the last run.
     """
     if node_id is None:
-        return {"state": "idle", "segment_total": 0, "done": [], "next": 0}
+        return {"state": "idle", "segment_total": 0, "done": [], "next": 0,
+                "cached_complete": 0}
     data = _read_manifest(node_id)
     done_map = data.get("done") or {}
     total = int(data.get("segment_total") or 0)
@@ -215,6 +216,17 @@ def resume_status(node_id: Any) -> dict[str, Any]:
     next_index = 0
     while next_index in done_set:
         next_index += 1
+    # A Resume reuses the on-disk segment CACHES, not this done list, so the UI
+    # must not require a done mark to offer it. A fresh run clears ``done``
+    # (begin_run with reset_done=True) and an interrupted one never re-adds it,
+    # yet its finished segments stay perfectly reusable - which left Resume
+    # permanently greyed out while 31 cache files sat on disk.
+    try:
+        cached_complete = sum(
+            1 for entry in segment_cache_preview(node_id) if entry.get("complete")
+        )
+    except Exception:  # never let a cache read break the status call
+        cached_complete = 0
     return {
         "node_id": str(node_id),
         "state": str(data.get("state") or "idle"),
@@ -222,6 +234,7 @@ def resume_status(node_id: Any) -> dict[str, Any]:
         "segment_total": max(0, total),
         "done": done,
         "next": min(max(0, next_index), max(0, total)),
+        "cached_complete": int(cached_complete),
     }
 
 
