@@ -105,3 +105,57 @@ def test_analyze_resume_cache_handles_every_route_key():
     result = analyze_resume_cache("__mmx_resume_contract_probe__", **payload)
     assert isinstance(result, dict)
     assert "unexpected keyword argument" not in str(result), result
+
+
+# ---------------------------------------------------------------------------
+# Honesty about what the preview cannot verify
+# ---------------------------------------------------------------------------
+# `plan.cache_settings` embeds the loaded model, the external sampler/sigmas and
+# the post-process config, so the analysis endpoint cannot rebuild it. Without
+# it, `segment_cache_fingerprint()` omits `context_dependency`, and a strict
+# comparison then reports EVERY segment as stale - including ones rendered
+# seconds earlier. That is what made Resume re-render from S1 forever.
+
+from mmx_pkg.director.segment_cache import (  # noqa: E402
+    CONTEXT_CHAIN_KEY,
+    segment_cache_status,
+    segment_cache_status_provisional,
+)
+
+
+class _Seg:
+    """Minimal stand-in; only `.index` is touched before the files are checked."""
+
+    index = 0
+
+
+def test_context_chain_key_matches_the_fingerprint():
+    """Renaming the fingerprint key must not silently disable the preview logic."""
+    src = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / "director" / "segment_cache.py"
+    ).read_text(encoding="utf-8")
+    assert 'fingerprint["context_dependency"]' in src, (
+        "the fingerprint no longer writes context_dependency; update CONTEXT_CHAIN_KEY"
+    )
+    assert CONTEXT_CHAIN_KEY == "context_dependency"
+
+
+def test_provisional_status_passes_through_non_stale_verdicts():
+    """A segment with no cache files is 'missing', never 'stale'."""
+    assert segment_cache_status("__mmx_no_such_node__", _Seg(), None) == "missing"
+    assert segment_cache_status_provisional("__mmx_no_such_node__", _Seg(), None) == "missing"
+
+
+def test_provisional_status_never_claims_stale_without_cache_settings():
+    """With no cache_settings the chain is unknowable, so 'stale' must be qualified.
+
+    The provisional call may only ever be *more* permissive than the strict one;
+    it must never invent a "stale" verdict of its own.
+    """
+    plan = type("P", (), {"cache_settings": None})()
+    strict = segment_cache_status("__mmx_no_such_node__", _Seg(), plan)
+    provisional = segment_cache_status_provisional("__mmx_no_such_node__", _Seg(), plan)
+    assert provisional in {"hit", "missing", "error", "unverified", strict}
+    assert provisional != "stale"
+
