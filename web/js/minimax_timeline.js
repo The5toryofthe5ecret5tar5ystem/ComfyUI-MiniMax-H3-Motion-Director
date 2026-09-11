@@ -41,6 +41,12 @@ import {
     isSweepActive,
     parseSeedList,
 } from "./minimax_seed_sweep.mjs";
+import {
+    RESUME_START_FRESH,
+    buildResumeRun,
+    parseResumeIndex,
+    resolveSelectChoice,
+} from "./minimax_resume_intent.mjs";
 import { resolveExternalGroupTerminal } from "./minimax_external_groups.mjs";
 import {
     CUSTOM_ASPECT_RATIO,
@@ -13175,14 +13181,12 @@ class MiniMaxH3MotionDirectorEditor {
     _applyRunIntent({ resume = false, from = null } = {}) {
         const timeline = this.timeline;
         if (!timeline) return;
-        if (resume) {
-            timeline.resumeRun = {
-                enabled: true,
-                from: from == null ? null : Number(from),
-            };
-        } else {
-            timeline.resumeRun = { enabled: false, from: null };
-        }
+        // Every resume path funnels through here, so the coercion lives in
+        // minimax_resume_intent.mjs: `from` keeps a genuine 0 ("re-render from
+        // S1") but a blank/unknown value becomes null so the engine resolves
+        // the resume point from the caches. `Number("")` is 0, so doing this
+        // inline used to turn an unset start point into "start at segment 1".
+        timeline.resumeRun = buildResumeRun({ resume, from });
     }
 
     _rollSeed() {
@@ -13709,12 +13713,16 @@ class MiniMaxH3MotionDirectorEditor {
         // Only offer a start whose whole prefix the engine will actually reuse,
         // otherwise picking it would silently re-render from S1 anyway.
         const options = [];
-        options.push(`<option value="fresh">${this._resumeText("从头开始（清空缓存重跑）", "Start Over (clear caches, fresh run)")}</option>`);
+        const optionValues = [];
+        options.push(`<option value="${RESUME_START_FRESH}">${this._resumeText("从头开始（清空缓存重跑）", "Start Over (clear caches, fresh run)")}</option>`);
+        optionValues.push(RESUME_START_FRESH);
         if (total > 0) {
             options.push(`<option value="0">${this._resumeText("S1 开始 · 全部重渲染（不复用）", "From S1 · render all (no reuse)")}</option>`);
+            optionValues.push("0");
             for (let k = 1; k < total; k += 1) {
                 if (!prefixReusable(k)) continue;
                 options.push(`<option value="${k}">${this._resumeText(`S${k + 1} 开始 · 复用 S1–S${k}`, `From S${k + 1} · reuse S1–S${k}`)}</option>`);
+                optionValues.push(String(k));
             }
         }
 
@@ -13770,11 +13778,15 @@ class MiniMaxH3MotionDirectorEditor {
 
         const startSelect = layer.querySelector('[data-rd="start"]');
         if (startSelect) {
-            if (allReusable && total > 0) {
-                startSelect.value = String(Math.max(0, total - 1));
-            } else {
-                startSelect.value = String(recommended);
-            }
+            // `recommended` is not always one of the rendered options: the
+            // option list only offers starts whose whole prefix is reusable,
+            // and `-1`/`total-1` can fall outside it. Assigning .value in that
+            // case leaves the <select> reporting "", which Number() reads as 0
+            // — "resume from S1". Pick a value that really exists instead.
+            const desired = allReusable && total > 0
+                ? Math.max(0, total - 1)
+                : recommended;
+            startSelect.value = resolveSelectChoice(desired, optionValues, "0");
         }
         const applyBtn = layer.querySelector('[data-rd="apply"]');
         const nodeFixable = Boolean(firstComplete && !this._resumeResMatches(firstComplete, cur));
@@ -13812,7 +13824,7 @@ class MiniMaxH3MotionDirectorEditor {
             this._resumeDialogQueued = true;
             const value = startSelect?.value;
             this._resumeDialogClose();
-            if (value === "fresh") {
+            if (value === RESUME_START_FRESH) {
                 const nodeId = this._directorNodeId();
                 if (nodeId) {
                     void api.fetchApi("/minimax/motion-director/clear_run", {
@@ -13830,12 +13842,11 @@ class MiniMaxH3MotionDirectorEditor {
                 this._queueRunWithIntent({ freshClear: true });
                 return;
             }
-            const from = value == null ? null : Number(value);
-            if (from == null || Number.isNaN(from)) {
-                this._queueRunWithIntent({ resume: true });
-            } else {
-                this._queueRunWithIntent({ resume: true, from });
-            }
+            const from = parseResumeIndex(value);
+            // `from == null` means "no explicit start point" and lets the
+            // engine resolve the resume index from the caches. A genuine 0 is
+            // preserved as "re-render from S1".
+            this._queueRunWithIntent({ resume: true, from });
         });
         layer.querySelector('[data-rd="apply"]')?.addEventListener("click", () => {
             const caches = [...this._resumeCachedSegmentsByIndex().values()]
@@ -13857,14 +13868,14 @@ class MiniMaxH3MotionDirectorEditor {
         if (this._isRunActive()) {
             // Live: re-roll the currently rendering segment — interrupt now and
             // auto-re-queue a resume from it with a fresh seed once the run stops.
-            const from = this._runCurrentSegment;
-            this._pendingRestart = { from: from == null ? null : Number(from) };
+            const from = parseResumeIndex(this._runCurrentSegment);
+            this._pendingRestart = { from };
             this._interruptRun();
             return;
         }
         const total = Number(this._resumeTotal || this.timeline?.segments?.length || 0);
-        const next = Number(this._resumeNext ?? total);
-        if (total > 0 && next < total) {
+        const next = parseResumeIndex(this._resumeNext ?? total);
+        if (total > 0 && next != null && next < total) {
             this._queueRunWithIntent({ resume: true, from: next, reseed: true });
         } else {
             // Nothing cached yet — just a fresh run under a new seed.
