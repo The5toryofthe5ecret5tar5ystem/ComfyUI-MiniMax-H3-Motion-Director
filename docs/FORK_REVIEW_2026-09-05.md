@@ -1,6 +1,6 @@
 # Fork Review — MiniMax H3 Motion Director (2026-09-05)
 
-**Fork:** `Wakapedia/ComfyUI-MiniMax-H3-Motion-Director`
+**Fork:** `The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`
 **Upstream:** `j955229/ComfyUI-MiniMax-H3-Motion-Director` @ `f993906` (v1.2.0, last upstream commit 2026-08-20)
 **Scope:** Full engineering pass over the Python backend, frontend, tests/CI, docs and repo hygiene.
 **Method:** Static review, import/architecture mapping, execution of both test suites, and targeted verification of each claim below (no claim is speculative).
