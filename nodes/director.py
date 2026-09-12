@@ -526,6 +526,7 @@ class MiniMaxH3MotionDirector:
             report,
             export_source_images=export_source_images,
             segment_audios=segment_audios,
+            postprocess=postprocess,
         )
         pipeline_seconds = time.perf_counter() - run_started
         if final_run_id is not None:

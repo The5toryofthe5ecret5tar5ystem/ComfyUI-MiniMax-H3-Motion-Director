@@ -21,6 +21,7 @@ from ..director.audio_export import (
     resolve_audio_mode,
     source_audio_report_note,
 )
+from ..director.audio_refine import apply_plan_audio_refine
 from ..director.frame_align import pad_or_trim_frames
 from ..director.gen_timeline import is_prompt_batch_timeline, is_video_batch_task_key
 from ..director.plan import build_director_plan, count_all_timeline_segments, count_timeline_segments, plan_summary
@@ -613,6 +614,7 @@ def finalize_director_outputs(
     *,
     export_source_images: bool = False,
     segment_audios: list | None = None,
+    postprocess: dict | None = None,
 ):
     is_batch = is_prompt_batch_timeline(plan.raw, plan.global_task_key)
     export_segments = plan.export_mode == "segments"
@@ -644,6 +646,18 @@ def finalize_director_outputs(
     audio_frame_end = frame_count if not split_for_audio else None
     audio_mode = resolve_audio_mode(plan)
     use_generated = audio_mode == AUDIO_MODE_GENERATE
+    audio_config = (postprocess or {}).get("audio_refine")
+
+    # Model audio is processed BEFORE the builder so that a merged export still
+    # gets one space per scene: after the merge there is only one track left to
+    # apply a single room to.  Source-extracted audio has no per-segment model
+    # track to pre-process, so it is handled on the built outputs instead.
+    audio_note = ""
+    if use_generated and segment_audios:
+        segment_audios, audio_note = apply_plan_audio_refine(
+            plan, segment_audios, config=audio_config
+        )
+
     audio_out, source_fallback = build_director_audio_outputs(
         plan,
         images_out,
@@ -652,6 +666,9 @@ def finalize_director_outputs(
         segment_audios=segment_audios if use_generated else None,
         audio_mode=audio_mode,
     )
+    if not (use_generated and segment_audios):
+        audio_out, audio_note = apply_plan_audio_refine(plan, audio_out, config=audio_config)
+    report = report + audio_note
     report = report + source_audio_report_note(
         plan,
         audio_out,

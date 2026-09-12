@@ -318,6 +318,7 @@ class MiniMaxH3MotionDirector(_BaseDirector):
             report,
             export_source_images=export_source_images,
             segment_audios=segment_audios,
+            postprocess=postprocess,
         )
 
         if final_run_id is not None:
