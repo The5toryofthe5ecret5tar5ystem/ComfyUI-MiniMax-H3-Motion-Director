@@ -3697,7 +3697,8 @@ function installReplaceWindowsMode(ed) {
 
     ed._refreshReplaceUI = refreshVisibility;
 
-    let raf = 0;
+    let raf = 0;          // pending requestAnimationFrame handle (0 = none)
+    let idleTimer = 0;    // pending slow-poll timer used while the node is quiet
     let lastMode = null;
     // Heavy per-row DOM syncing in Replace mode is throttled; the cheap live
     // checks (mode flips, normalization, bounds refresh) stay per-frame.
@@ -3706,6 +3707,41 @@ function installReplaceWindowsMode(ed) {
     const nowMs = () => (typeof performance !== "undefined" && performance.now
         ? performance.now()
         : Date.now());
+    // An idle Director node has nothing to animate: _segBoundsBar.refresh is
+    // write-guarded and only moves when the timeline under it changes, so the
+    // per-frame checks are pure overhead while nothing is happening. Drop off
+    // requestAnimationFrame entirely unless the node is actually being used
+    // (replace mode, playback, settling, or the pointer over it) - 60 wakeups a
+    // second becomes about 4, and _wakeReplaceLoop restores full rate instantly
+    // on hover so the slow poll never costs interaction latency.
+    const IDLE_POLL_MS = 250;
+    const isBusy = () => {
+        if (!ed.root || !ed.root.isConnected) return false;
+        if (directorIsVideoMode(ed) && ed.timeline?.replaceMode) return true;
+        return Boolean(ed.isPlaying || ed._pauseSettling || ed._isHovering);
+    };
+
+    const schedule = () => {
+        if (isBusy()) {
+            raf = requestAnimationFrame(tick);
+            return;
+        }
+        raf = 0;
+        if (idleTimer) return;
+        idleTimer = setTimeout(() => {
+            idleTimer = 0;
+            raf = requestAnimationFrame(tick);
+        }, IDLE_POLL_MS);
+    };
+
+    ed._wakeReplaceLoop = () => {
+        if (idleTimer) {
+            clearTimeout(idleTimer);
+            idleTimer = 0;
+        }
+        if (!raf) schedule();
+    };
+
     const tick = () => {
         raf = 0;
         if (!ed.root || !ed.root.isConnected) return;
@@ -3756,9 +3792,9 @@ function installReplaceWindowsMode(ed) {
             // Write-guarded inside refresh(): a no-op frame costs a few compares.
             ed._segBoundsBar.refresh(true);
         }
-        requestAnimationFrame(tick);
+        schedule();
     };
-    requestAnimationFrame(tick);
+    schedule();
     setToggleLabel();
     // Show the replace editor immediately if the timeline already has the flag.
     if (ed.timeline?.replaceMode && directorIsVideoMode(ed)) {
@@ -6447,7 +6483,7 @@ class MiniMaxH3MotionDirectorEditor {
             this.canvas.title = "";
         });
 
-        this.root.addEventListener("mouseenter", () => { this._isHovering = true; });
+        this.root.addEventListener("mouseenter", () => { this._isHovering = true; this._wakeReplaceLoop?.(); });
         this.root.addEventListener("mouseleave", () => { this._isHovering = false; });
         this._onKeyDown = createTimelineShortcutHandler({
             timelineElement: () => this.canvas,
