@@ -2048,6 +2048,16 @@ function moveDirectorDomWidgetToEnd(node) {
 
 const PERF_WIDGET_ORDER = ["bd_grp_perf", "clear_vram_between_segments", "export_source_images"];
 
+// Appended to the shared block so the audio path never voices reference material.
+// H3 generates video AND audio from the same text, so a bare trigger token or a
+// quoted phrase sitting in the shared block is a shape it can read aloud. The
+// shot's own <d> lines stay the only voiced content (TALK-CONTROL governs those).
+const SHARED_SILENCE_MARKER =
+    "SHARED-BLOCK-CONTROL: nothing above is spoken, narrated, announced or voiced. "
+    + "Every line in this shared block is reference material for the model only - "
+    + "never dialogue, never read aloud, never captions or on-screen text. "
+    + "Only the <d> lines in the shot that follows this block are ever voiced.";
+
 function moveDirectorPerfWidgetsBeforeTimeline(node) {
     const dom = node?._minimaxDomWidget;
     if (!node?.widgets?.length) return;
@@ -5931,6 +5941,11 @@ class MiniMaxH3MotionDirectorEditor {
 .mmx-sb-btn:hover{background:#2a2f47}
 .mmx-sb-btn.primary{background:#2f7a4f;border-color:#2f7a4f;color:#eafff2}
 .mmx-sb-btn.primary:hover{background:#36945f}
+.mmx-sb-guard{display:flex;align-items:center;gap:7px;color:#dfe4ee;font-size:12px;cursor:pointer;user-select:none}
+.mmx-sb-guard input{cursor:pointer;margin:0}
+.mmx-sb-guard.already{opacity:.65}
+.mmx-sb-risk{color:#ffcf8a;background:rgba(120,80,20,.18);border:1px solid #6b5320;border-radius:7px;padding:8px 10px;line-height:1.45;font-size:12px}
+.mmx-sb-risk[hidden]{display:none!important}
 `;
         document.head.appendChild(style);
     }
@@ -5975,6 +5990,31 @@ class MiniMaxH3MotionDirectorEditor {
         layer.hidden = false;
     }
 
+    _sharedBlockHasMarker(text) {
+        return /SHARED-BLOCK-CONTROL:/i.test(String(text || ""));
+    }
+
+    _withSilenceMarker(text) {
+        const body = String(text || "").replace(/\s+$/, "");
+        if (!body) return "";
+        if (this._sharedBlockHasMarker(body)) return body;
+        return `${body}\n${SHARED_SILENCE_MARKER}`;
+    }
+
+    // Shapes H3's audio path is most likely to voice out of reference text.
+    _sharedBlockVoiceRisks(text) {
+        // Strip the guard line first. It names <d>, so leaving it in would report
+        // the guard itself as a voiceable shape every time the dialog is reopened.
+        const t = String(text || "")
+            .replace(/^[^\n]*SHARED-BLOCK-CONTROL:[^\n]*$/gim, " ");
+        const risks = [];
+        const quoted = t.match(/"[^"\n]{2,60}"/g) || t.match(/'[^'\n]{2,60}'/g) || [];
+        if (quoted.length) risks.push(`${quoted.length} quoted phrase(s), e.g. ${quoted[0]}`);
+        if (/<d>/i.test(t)) risks.push("a <d> dialogue block");
+        if (/\b(says|whispers|moans|sighs|speaks|mutters)\s*:/i.test(t)) risks.push("a speech verb before a colon");
+        return risks;
+    }
+
     _renderSharedBlockEditor(shared, segments) {
         const layer = this._sharedBlockLayer;
         if (!layer) return;
@@ -6002,11 +6042,49 @@ class MiniMaxH3MotionDirectorEditor {
         const stats = document.createElement("div");
         stats.className = "mmx-sb-stats";
         stats.textContent = `${matching} of ${segments.length} segments currently carry this exact block.`;
+
+        const guardRow = document.createElement("label");
+        guardRow.className = "mmx-sb-guard";
+        const guard = document.createElement("input");
+        guard.type = "checkbox";
+        guard.checked = true;
+        guardRow.append(guard, document.createTextNode(
+            " Append \"never spoken\" guard (SHARED-BLOCK-CONTROL)"));
+
+        const markerNote = document.createElement("div");
+        markerNote.className = "mmx-sb-stats";
+        markerNote.textContent = this._sharedBlockHasMarker(shared)
+            ? "Guard already present in this block."
+            : "The guard line is added once, at the end of the block.";
+
+        const riskNote = document.createElement("div");
+        riskNote.className = "mmx-sb-risk";
+        const risks = this._sharedBlockVoiceRisks(shared);
+        if (risks.length) {
+            riskNote.textContent = "May be voiced aloud: " + risks.join("; ")
+                + ". The guard helps, but the safest fix is to remove the quoting or move it into the shot's <d> lines.";
+            riskNote.hidden = false;
+        } else {
+            riskNote.hidden = true;
+        }
+
         const ta = document.createElement("textarea");
         ta.className = "mmx-sb-ta";
         ta.value = shared || "";
         ta.spellcheck = false;
-        body.append(note, stats, ta);
+        ta.addEventListener("input", () => {
+            const live = this._sharedBlockVoiceRisks(ta.value);
+            if (live.length) {
+                riskNote.textContent = "May be voiced aloud: " + live.join("; ")
+                    + ". The guard helps, but the safest fix is to remove the quoting or move it into the shot's <d> lines.";
+                riskNote.hidden = false;
+            } else {
+                riskNote.hidden = true;
+            }
+            guardRow.classList.toggle("already", this._sharedBlockHasMarker(ta.value));
+        });
+
+        body.append(note, stats, guardRow, markerNote, riskNote, ta);
 
         const actions = document.createElement("div");
         actions.className = "mmx-sb-actions";
@@ -6022,7 +6100,7 @@ class MiniMaxH3MotionDirectorEditor {
         apply.className = "mmx-sb-btn primary";
         apply.textContent = "Apply to all segments";
         apply.onclick = () => {
-            const updated = this._applySharedBlock(ta.value, segments, matching);
+            const updated = this._applySharedBlock(ta.value, segments, matching, guard.checked);
             countEl.textContent = updated
                 ? `Updated ${updated} segment(s).` : "Nothing to update.";
             if (updated) setTimeout(() => this._closeSharedBlockEditor(), 700);
@@ -6033,9 +6111,11 @@ class MiniMaxH3MotionDirectorEditor {
         layer.appendChild(card);
     }
 
-    _applySharedBlock(newShared, segments, matching) {
-        const next = String(newShared || "").replace(/\s+$/, "");
+    _applySharedBlock(newShared, segments, matching, appendGuard) {
+        let next = String(newShared || "").replace(/\s+$/, "");
         if (!segments || !segments.length) return 0;
+        // Guard by default; never double it.
+        if (appendGuard !== false) next = this._withSilenceMarker(next);
         const original = this._sharedBlockOriginal || "";
         let updated = 0;
         for (const seg of segments) {
