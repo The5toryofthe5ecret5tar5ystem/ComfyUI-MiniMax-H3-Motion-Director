@@ -150,8 +150,9 @@ invalidation, suppression incl. on throw, reset/clear, mirror comparison incl. k
 independence / absent vs differing mirrors / unparseable JSON, shortcut + text-field
 rules) and `web/js/tests/minimax_undo_wiring.test.mjs` (recording in both commit
 branches and after normalisation, suppressed restore, scoped keyboard binding,
-disposal, button binds, i18n keys, guard on both write branches). JS suite 12/15 (3
-skipped - need a ComfyUI frontend checkout), baseline was 10/13.
+disposal, button binds, i18n keys, guard on both write branches). JS suite was 12/15 at the
+time (3
+skipped - need a ComfyUI frontend checkout), against a baseline of 10/13. (Current: 19/22.)
 
 **Not done here.** History does not survive a page reload and is not shared across
 nodes (per-editor instance). `seedUndoTimeline()` exists for an explicit reset on
@@ -466,7 +467,14 @@ future change to the set of unmanaged headers fails loudly.
 
 ### 7. Plan-builder code merge  *(carried over, high risk)*
 
-**Status: premise measured, NOT JUSTIFIED (2026-09-10). Recommend closing without doing it.**
+**Status: verdict stands (do NOT merge) - but the 2026-09-10 EVIDENCE IS WRONG.
+Re-measured and corrected 2026-09-12.**
+
+The conclusion was reached by comparing *function names* across the two modules and finding
+the sets disjoint. That measurement is sound, and "do not merge" is still the right call.
+What it failed to detect is **behavioural divergence** - a field present in one builder and
+absent from its siblings, which leaves no trace whatsoever in symbol overlap. See
+"Counter-evidence" at the end of this section.
 
 The item's justification was that the two builders "keep causing bugs" through divergence.
 Measured rather than assumed:
@@ -487,7 +495,9 @@ gen builder for gen-mode timelines. These are two sibling implementations for tw
 project shapes, not a copy-paste pair — so "merging them into one builder" is not a
 de-duplication, it is a rewrite of two distinct things into one.
 
-**No fix has ever had to be applied twice.** Commit history:
+**The claim that "no fix has ever had to be applied twice", recorded here on 2026-09-10, was
+DISPROVEN on 2026-09-12.** It was an artefact of measuring commits and symbol names rather
+than behaviour. Kept verbatim below as the record of what was believed at the time:
 
 | | count |
 |---|---|
@@ -507,10 +517,51 @@ touching either path. That made a `gen_timeline.py`-only fix look like a duplica
 briefly appeared to support the merge. The counts above come from intersecting the two
 per-file commit sets explicitly.
 
-**If the overlap ever does become painful**, the proportionate remedy is a shared helper
-layer plus a *symmetry test* that asserts a behaviour for both builders in one place — which
-converts "remember to change both" into "the test tells you". That is a fraction of the cost
-and risk of a ~2,000-line merge, and it is the thing to reach for first.
+**The overlap did become painful - two days after this was written.** See Counter-evidence.
+The remedy predicted here is exactly the one that worked, and it is now implemented:
+a symmetry test that asserts a behaviour for **every** builder in one place, which converts
+"remember to change both" into "the test tells you". That remains a fraction of the cost
+and risk of a ~2,000-line merge, and it should stay the first thing to reach for.
+
+#### Counter-evidence (2026-09-12)
+
+`Resume` was wired into `build_director_plan` in `director/plan.py` and **nowhere else**. Four
+sibling builders construct their own `DirectorPlan` and silently dropped the fields:
+
+```
+plan.py            build_director_plan               resume wired
+ gen_timeline.py    build_gen_director_plan           0 references   <- prompt_batch, THE UI'S MODE
+fl2v_timeline.py   build_fl2v_director_plan          0 references
+mixed_plan.py      build_mixed_director_plan         0 references
+external_groups.py build_plan_from_external_groups   0 references
+```
+
+Observed from a real queued prompt carrying `resumeRun {enabled: true, from: 6}`:
+
+```
+_resume_enabled(timeline)  -> True     (the helpers were fine)
+_resume_from_index         -> 6
+plan.resume                -> False    (dropped by the builder)
+plan.resume_from           -> None
+```
+
+`resume_active` was therefore `False`, `begin_run(reset_done=True)` wiped the done marks,
+and the run re-rendered from segment 1 - while the Resume dialog, which reads the on-disk
+caches, reported the prefix as perfectly reusable. The user saw "Resume from S7" start at
+group 1/7. **A symbol-level comparison cannot see this class of defect at all.**
+
+Two durable lessons:
+
+1. **Duplicated *construction sites* are the risk, not duplicated *functions*.** Five
+different modules each build a complete `DirectorPlan` field list. Disjoint helper names
+gave false comfort.
+2. **The prescribed remedy works.** `tests/test_resume_reaches_plan_builders.py` scans
+`director/*.py` for `DirectorPlan(` and requires the resume fields. On its first run it
+found `external_groups.py` - a fourth instance that had been missed by hand. That is the
+symmetry test doing precisely what it was predicted to do.
+
+Verdict unchanged: **do not merge the builders.** Prefer the symmetry test, and when adding a
+field to a builder, check the other four.
 
 ---
 
@@ -532,13 +583,26 @@ and risk of a ~2,000-line merge, and it is the thing to reach for first.
 
 Item 5 closed after folding one override and fixing the served-duplicate bug; the rest was
 found to need no restructuring. Item 6's precondition is met and its bulk was already
-delivered. Item 7 was measured and closed as not justified. See each section above for the
-evidence.
+delivered. Item 7 was measured and closed as not justified - **a verdict that still stands,
+though its 2026-09-10 justification was disproven on 2026-09-12** (see Counter-evidence).
+See each section above for the evidence.
 
-Items 5 (fold the `zz_*` overrides), 6 (collapse the widget surface) and 7 (plan-builder
-merge) are untouched. Item 6 still carries its own precondition from the original plan:
-widget order is read positionally in places, so **freeze the indices and assert the
-mapping in a test before reordering anything**. Item 7 should follow item 5.
+**The in-repo freeze exists; the risk is now cross-repo.** `tests/test_director_input_order.py`
+(10 tests) already pins the declaration order, the required/optional split and the six
+section-header indices, with probe-verified detection power. That covers this repository.
+
+It does not cover the consumers outside it. `qwen_md_to_workflow.py` (prompts tree, outside
+version control) hard-codes the **serialized** indices `widgets_values[1]` = global_prompt,
+`[10]` = total_frames and `[11]` = timeline_data, and validates that all three mirror to the
+other two sync sites; the shared-template fixer locates `[39]` = clear_vram_between_segments
+by a two-key signature match against its neighbour. Verified against five real workflow files
+(2026-09-12).
+
+**Two index spaces - do not conflate them.** The *declaration* order puts `timeline_data` at
+14 (as this file notes above); the *serialized* `widgets_values` array puts it at 11, because
+link inputs are not serialized while BDGROUP headers are. The wizard depends on the
+serialized numbering, and nothing outside this repo is covered by CI - so a widget inserted
+mid-list breaks saved workflows AND the wizard, silently, at every layer. **Append only.**
 
 ---
 
@@ -546,8 +610,8 @@ mapping in a test before reordering anything**. Item 7 should follow item 5.
 
 | Layer | Command |
 |---|---|
-| Python suite | `PYTHONPATH=<ComfyUI> <embedded_py> -m pytest tests/ -p no:warnings -q` (211 tests) |
-| JS suite | `npm test` (10/13; 3 need a ComfyUI frontend checkout) |
+| Python suite | `PYTHONPATH=<ComfyUI> <embedded_py> -m pytest tests/ -p no:warnings -q` (344 tests, 2026-09-12) |
+| JS suite | `npm test` (19/22; 3 need a ComfyUI frontend checkout) |
 | Syntax | `node --check web/js/minimax_timeline.js`, `py_compile` |
 | Integration | symlink repo to `/tmp/packval/mdpack`, put ComfyUI on `sys.path`, stub `plan.load_timeline_segment` -> `torch.zeros` when no real video is needed |
 | Pure logic | keep algorithms in module-scope functions (e.g. `auditReferenceSlots`, `_fallback_common_refs`) so they can be tested without ComfyUI |
