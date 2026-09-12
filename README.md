@@ -1,10 +1,10 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.4.0-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.5.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
-> **Maintained fork** — upstream features plus **Re-ground segments (anti-drift)**, a big **Generation-tab UI performance fix**, **newer-ComfyUI compatibility**, **CI**, and a ready-to-run **ref2va example workflow**. See [✨ Improvements in this fork](#-improvements-in-this-fork).
+> **Maintained fork** — upstream features plus a **per-scene Audio Room**, **Re-ground segments (anti-drift)**, a big **Generation-tab UI performance fix**, **newer-ComfyUI compatibility**, **CI**, and a ready-to-run **ref2va example workflow**. See [✨ Improvements in this fork](#-improvements-in-this-fork).
 
 **One Director. From a single MiniMax H3 shot to a complete multi-segment video project.**
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.4.0**
+> Current version: **v1.5.0**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,22 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.5.0 — Audio Room: a real space, chosen per scene
+
+**Generated audio no longer has to sound like a camera mic.** A new **Audio Room** column in the postprocess panel places the model's audio in an actual space. Pick a named room — `bedroom`, `bathroom`, `bar`, `office`, `car`, `hall`, `cathedral`, `outdoor` or `dry` — and all six reverberation parameters are set for you; choose **Custom** and dial them yourself: reverberance, HF damping, room size, stereo depth, pre-delay and wet gain. A separate **Level** section adds normalise and gain.
+
+**Per scene, not per project.** A scene can declare its own space with a `room` field in the timeline, so a bathroom scene and a bedroom scene in one render stop sharing a single acoustic setting.
+
+**It cannot invalidate a cache.** The chain runs at output assembly, downstream of the segment audio cache, and model audio is processed *before* the merge so a merged export still gets one space per scene. Turning a room on or changing it invalidates no segment, no context cache and no finished render — which is why it stays out of the segment cache fingerprint.
+
+**Stereo is preserved, and failures are loud.** Built on SoX, which the render toolchain already shells out to (auto-detected; `pacman -S sox` on Arch/CachyOS). It replaces a third-party effects node that read `waveform[0, 0]` and returned **mono** from stereo input, returned the original audio silently on every failure, and round-tripped through 16-bit PCM. Here the channel count and sample count are preserved, and a track that cannot be processed is left dry and *named in the report* rather than passing through as though it worked.
+
+**Never-spoken guard.** H3 generates audio from the same text it renders, so a bare token or quoted phrase sitting in shared reference material is a shape it can read aloud. A checkbox on the shared prompt block appends an explicit control line marking that block as reference-only.
+
+**Resume correctness pass.** Four separate plan builders — the `prompt_batch`/gen path, `fl2v`, `mixed` and `external_groups` — were each dropping the resume flag, so Resume quietly restarted from segment 1 on those timeline shapes. The engine now decides the start point rather than the dialog, the preview and its audio check no longer have blind spots, and a stopped run no longer stays marked `running`. A structural test now scans every builder for the resume fields, which is how the fourth instance was found.
+
+**Other fixes.** A CUDA **out-of-memory** in the external sampler was reported as "the sampler does not support MiniMax H3 inputs", sending you after the wrong problem; OOM now surfaces as OOM. The Replace-windows timeline loop ran at display rate for as long as a node sat on the canvas, even while idle; it now drops to a slow poll when nothing is happening and returns to full rate on hover, and the frame handle is stored so it can actually be cancelled.
 
 ### v1.4.0 — partial export on Stop, undo/redo, presets, sweeps
 

@@ -464,9 +464,11 @@ Segment caches live under your ComfyUI output directory in `minimax_seg_cache/<n
 
 ---
 
-## 16. Postprocess: Global Refine, Upscale and Face Refine
+## 16. Postprocess: Global Refine, Upscale, Face Refine and Audio Room
 
 ![Post-processing](images/tutorial/08-postprocess.webp)
+
+The panel has three columns: **Global Refine**, **Face Refine** and **Audio Room**.
 
 | # | Control | What it does |
 |---:|---|---|
@@ -482,10 +484,32 @@ Segment caches live under your ComfyUI output directory in `minimax_seg_cache/<n
 | 10 | Pasteback | Mask, blend and color matching controls |
 | 11 | Advanced Settings | Less commonly changed parameters |
 
+### Audio Room
+
+Places the model's **generated** audio in an actual space instead of leaving it dry on the camera mic. It never touches source audio: with **Audio mode: source** the video keeps the original track exactly as it is.
+
+| Control | What it does |
+|---|---|
+| **Audio Room** master | Enables the stage. Off by default, and nothing downstream changes while it is off. |
+| **Room** | A named space, or **Custom**. A named room sets all six values at once: `dry`, `bedroom`, `bathroom`, `bar`, `office`, `car`, `hall`, `cathedral`, `outdoor`. |
+| **Reverb** | Master for the reverberation itself. Off leaves only the Level controls. |
+| **Reverberance / HF Damping / Room Size / Stereo Depth / Pre-delay / Wet Gain** | The six SoX parameters. They appear only when **Room** is set to Custom. **HF damping** matters most for realism: high damping reads as soft furnishings and bedding, low damping as tile and glass. |
+| **Normalize / Gain (dB)** | Level section. Normalise balances the track; gain adjusts it. |
+| **Limiter / SoX Path** | Advanced. The limiter clamps peaks when gain is positive. SoX is auto-detected; the path only needs setting if `sox` is not on PATH. |
+| **Per-segment** | Also applies the chain as each segment is produced, so per-segment previews carry the room sound. This **joins the segment cache fingerprint**, so anything already rendered must be re-rendered. Leave it off unless you specifically want wet previews. |
+
+**Per-scene spaces.** A scene can declare its own room through a `room` field in the timeline, overriding the panel's choice for that scene only. There is no timeline widget for it yet, so it is set in the timeline data (accepted keys: `room`, `roomPreset`, `room_preset`). This is what lets a bathroom scene and a bedroom scene in the same render stop sharing one acoustic setting; a scene that sets nothing falls back to the panel's room.
+
+**Why it is safe to experiment with.** The chain runs at output assembly, *after* the segment audio cache is written, and model audio is processed before segments are merged so that a merged export still gets one space per scene. Enabling it, changing a room, or switching presets therefore invalidates **no segment, no context cache and no finished render**. Only **Per-segment** changes cache identity.
+
+**Ordering note.** Reverb runs before levelling, deliberately: normalising first would let the reverberant tail push the result into clipping, because the reverb adds energy on top of an already-peaked dry signal.
+
+**Requires SoX** on PATH (`sudo pacman -S sox` on Arch/CachyOS). It is auto-detected. If a track cannot be processed it is left dry and named in the report, rather than failing the render.
+
 ### Recommended production order
 
 ```text
-Low-resolution first pass → Check content/motion/composition → Reroll failed segments → Lock the shots → Global Refine / Upscale → Face Refine → Final Result
+Low-resolution first pass → Check content/motion/composition → Reroll failed segments → Lock the shots → Global Refine / Upscale → Face Refine → Audio Room → Final Result
 ```
 
 If Global Refine fails, the completed first-pass result is retained. If Face Refine cannot find a usable face or the stage fails, the assembled result remains available instead of invalidating the whole pipeline.

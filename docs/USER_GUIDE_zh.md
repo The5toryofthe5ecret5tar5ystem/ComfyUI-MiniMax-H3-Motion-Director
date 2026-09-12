@@ -364,9 +364,11 @@ Segment Result 只能**向后引用**：后面的段可以引用前面的结果�
 
 ---
 
-## 14. 后期处理：Global Refine、Upscale、Face Refine
+## 14. 后期处理：Global Refine、Upscale、Face Refine、Audio Room
 
 ![Post-processing](images/tutorial/08-postprocess.webp)
+
+面板共三栏：**Global Refine**、**Face Refine** 与 **Audio Room**。
 
 | 编号 | 控件 | 用途 |
 |---:|---|---|
@@ -382,10 +384,32 @@ Segment Result 只能**向后引用**：后面的段可以引用前面的结果�
 | 10 | 回贴 | Mask、Blend、Color Match 等回贴控制 |
 | 11 | 高级设置 | 展开较少需要调整的参数 |
 
+### Audio Room（逐场景声场）
+
+把模型**生成**的音频放进真实空间，而不是贴在摄影机麦克风上的干声。它不会动源音频：设置为 **Audio mode: source** 时，影片完全保留原始音轨。
+
+| 控件 | 用途 |
+|---|---|
+| **Audio Room** 总开关 | 控制是否执行该阶段。默认关闭，关闭时下游行为完全不变。 |
+| **Room** | 选择命名空间或 **Custom**。命名空间会一次性设定全部六个参数：`dry`、`bedroom`、`bathroom`、`bar`、`office`、`car`、`hall`、`cathedral`、`outdoor`。 |
+| **Reverb** | 混响总开关；关闭后只保留电平部分。 |
+| **Reverberance / HF Damping / Room Size / Stereo Depth / Pre-delay / Wet Gain** | 六个 SoX 参数，仅在 **Room** 为 Custom 时显示。其中 **HF Damping（高频衰减）** 最影响真实感：数值高听起来像软装、床品；数值低像瓷砖与玻璃。 |
+| **Normalize / Gain (dB)** | 电平部分。标准化用于平衡音量，增益用于整体调整。 |
+| **Limiter / SoX Path** | 高级选项。增益为正时用限幅器抑制削波；SoX 会自动检测，只有不在 PATH 中时才需要手动指定路径。 |
+| **Per-segment** | 同时在每个片段生成时就处理，使逐片段预览也带空间感。它会**计入片段缓存指纹**，因此已渲染的内容必须重渲。除非确实需要带湿声的预览，否则建议保持关闭。 |
+
+**逐场景声场。** 每个片段可以在时间线中用 `room` 字段声明自己的空间，仅覆盖该片段（未声明的片段仍然使用面板里的设置）。目前时间线还没有对应控件，需要写在时间线数据里（可接受的键：`room`、`roomPreset`、`room_preset`）。这样同一支影片里的浴室与卧室就不再共用一套声场。
+
+**为什么可以放心尝试。** 该处理在输出组装阶段执行，位于片段音频缓存写入**之后**；而且模型音频是在合并**之前**逐片段处理的，所以合并导出同样能得到逐场景的空间。因此开启、更换空间或切换预设都**不会**使任何片段、上下文缓存或已完成渲染失效。只有 **Per-segment** 会改变缓存标识。
+
+**顺序说明。** 混响放在电平之前是刻意的：先标准化会让混响尾巴把结果推到削波，因为混响是在已经接近峰值的干声之上叠加能量。
+
+**依赖 SoX**（Arch/CachyOS：`sudo pacman -S sox`），会自动检测。某条音轨处理失败时会保持干声并**在报告中点名**，而不会让整个渲染失败。
+
 ### 推荐生产流程
 
 ```text
-低分辨率第一遍 → 检查内容/动作/构图 → 重抽失败片段 → 固定保留结果 → Global Refine / Upscale → Face Refine → Final Result
+低分辨率第一遍 → 检查内容/动作/构图 → 重抽失败片段 → 固定保留结果 → Global Refine / Upscale → Face Refine → Audio Room → Final Result
 ```
 
 如果 Global Refine 失败，Director 会保留已经完成的第一遍结果；Face Refine 没有检测到可用人脸或执行失败时，也会保留已组装结果，而不是把整条管线作废。
