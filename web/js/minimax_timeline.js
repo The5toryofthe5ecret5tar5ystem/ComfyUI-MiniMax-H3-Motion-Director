@@ -9,10 +9,11 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import {
     PostprocessConfigStore,
+    audioRefineSummary,
     faceRefineSummary,
     globalRefineSummary,
     mountPostprocessUI,
-} from "./minimax_postprocess_ui.mjs?boot=postprocess_output_v9";
+} from "./minimax_postprocess_ui.mjs?boot=postprocess_output_v10";
 import { mountOutputUI } from "./minimax_output_ui.mjs?boot=live_results_v2";
 import {
     compareTimelineMirrors,
@@ -882,9 +883,12 @@ function postprocessProxyState(node, section) {
     const store = getNodePostprocessStore(node);
     const config = store?.get?.();
     const enabled = !!config?.[section]?.enabled;
-    const label = section === "global_refine" ? t("postprocess.global") : t("postprocess.face");
+    const label = section === "global_refine" ? t("postprocess.global")
+        : section === "audio_refine" ? t("postprocess.audio") : t("postprocess.face");
     const summary = section === "global_refine"
         ? globalRefineSummary(config, Number(node.widgets?.find((w) => w.name === "width")?.value || 864), Number(node.widgets?.find((w) => w.name === "height")?.value || 480), getLocale())
+        : section === "audio_refine"
+        ? audioRefineSummary(config, getLocale())
         : faceRefineSummary(config, getLocale());
     return { enabled, label, summary };
 }
@@ -940,6 +944,8 @@ function installDirectorPostprocessUi(node) {
         ["mmx_global_refine_summary", "global_refine", 18, drawPostprocessSummary, "summary"],
         ["mmx_face_refine_proxy", "face_refine", 24, drawPostprocessToggle, "toggle"],
         ["mmx_face_refine_summary", "face_refine", 18, drawPostprocessSummary, "summary"],
+        ["mmx_audio_refine_proxy", "audio_refine", 24, drawPostprocessToggle, "toggle"],
+        ["mmx_audio_refine_summary", "audio_refine", 18, drawPostprocessSummary, "summary"],
     ];
     const proxies = specs.map(([name, section, height, draw, kind]) => {
         let widget = node.widgets.find((item) => item.name === name);

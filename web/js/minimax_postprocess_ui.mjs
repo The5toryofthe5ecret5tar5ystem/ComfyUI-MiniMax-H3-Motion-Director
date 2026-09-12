@@ -1,5 +1,14 @@
+const ROOM_NAMES = ["dry", "bedroom", "bathroom", "bar", "office", "car", "hall", "cathedral", "outdoor"];
+
+// Short forms for the one-line summary; the dropdown uses the longer labels.
+const ROOM_SHORT = {
+    dry: ["Dry", "干声"], bedroom: ["Bedroom", "卧室"], bathroom: ["Bathroom", "浴室"],
+    bar: ["Bar", "酒吧"], office: ["Office", "办公室"], car: ["Car", "车内"],
+    hall: ["Hall", "大厅"], cathedral: ["Cathedral", "教堂"], outdoor: ["Outdoor", "室外"],
+};
+
 const DEFAULT_CONFIG = Object.freeze({
-    version: 9,
+    version: 11,
     global_refine: {
         enabled: false, mode: "refine", second_sampling_enabled: true, result_previews_enabled: false, denoise: 0.25, steps: 0,
         seed_mode: "inherit", seed_offset: 1, skip_fl2v: false,
@@ -23,6 +32,12 @@ const DEFAULT_CONFIG = Object.freeze({
         denoise_smooth: 9, mask_dilation: 24, feather_scales_with_crop: false,
         sam_model: "", sam_threshold: 0.93, sam_dilation: 0, sam_temporal_smooth: 5,
     },
+    audio_refine: {
+        version: 1, enabled: false, per_segment: false, room: "", reverb_enabled: true,
+        reverberance: 40, hf_damping: 55, room_scale: 45, stereo_depth: 70,
+        pre_delay_ms: 12, wet_gain_db: -2, normalize: false, gain_db: 0,
+        use_limiter: true, sox_path: "",
+    },
     preview: { enabled: true, preview_frames: 8, preview_fps: 12, max_resolution: 1024, jpeg_quality: 80, preview_every: 1 },
     save: {
         auto_save: false, filename_prefix: "video/MiniMaxH3_Director",
@@ -32,6 +47,13 @@ const DEFAULT_CONFIG = Object.freeze({
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const inChoice = (value, choices, fallback) => choices.includes(String(value || "").toLowerCase()) ? String(value || "").toLowerCase() : fallback;
+// Mirrors the Python _float(): an empty or missing value falls back to the
+// default, whereas Number("") would silently become 0 and clamp to the low bound.
+const clampNum = (value, fallback, low, high) => {
+    if (value === "" || value === null || value === undefined || typeof value === "boolean") return fallback;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(low, Math.min(high, parsed)) : fallback;
+};
 
 const POST_TEXT = {
     en: {
@@ -46,6 +68,14 @@ const POST_TEXT = {
         runtime_detected: "Runtime detected (validated when generation starts)",
         missing_no_downgrade: "Not installed (stage will fail without downgrade)",
         lbh_note: "Director scans compatible MiniMax H3 learned-latent checkpoints from models/latent_upscale_models automatically. Select a checkpoint below; its 2D/3D architecture is detected from the weights. No separate LBH custom node is required.",
+        audio_title: "Audio Room",
+        audio_note: "Puts generated audio in a space instead of leaving it dry on the camera mic. A scene can set its own room with a room field in the timeline; this is the fallback for scenes that do not, and the level control for all of them.",
+        audio_room: "Room", audio_level: "Level", audio_advanced: "Advanced",
+        audio_preset_note: "A named room sets all six values at once. Choose Custom to set them yourself.",
+        audio_custom_note: "Reverb runs before level, so the tail cannot push the result into clipping.",
+        audio_sox_note: "Requires SoX on PATH. Leave the path empty to auto-detect.",
+        audio_final_only: "Applied once to the finished track. Segment caches stay valid.",
+        audio_per_segment_note: "Also applied per segment, so previews carry the room - but this invalidates segment caches.",
     },
     zh: {
         global_title: "全局精修", face_title: "人脸精修", sampling: "二次采样",
@@ -59,6 +89,14 @@ const POST_TEXT = {
         runtime_detected: "已检测到运行库（生成时验证）",
         missing_no_downgrade: "未安装（此阶段会失败，不会自动降级）",
         lbh_note: "Director 会自动扫描 models/latent_upscale_models 中兼容的 MiniMax H3 Learned Latent checkpoint。只需选择模型，2D/3D 架构会直接从权重自动识别；无需另装 LBH 自定义节点。",
+        audio_title: "音频空间",
+        audio_note: "让生成的音频带上空间感，而不是贴着脸的干声。每个片段可用时间线里的 room 字段指定自己的空间；这里是未指定时的默认值，以及所有片段的电平控制。",
+        audio_room: "空间", audio_level: "电平", audio_advanced: "高级",
+        audio_preset_note: "选择命名空间会一次性设定全部六个参数。选择「自定义」可自行填写。",
+        audio_custom_note: "混响在电平之前处理，避免尾音把结果推到削波。",
+        audio_sox_note: "需要 PATH 中存在 SoX。路径留空表示自动检测。",
+        audio_final_only: "仅在成品音轨上处理一次，不会使片段缓存失效。",
+        audio_per_segment_note: "同时对每个片段处理，预览会带空间感，但会使片段缓存失效。",
     },
 };
 
@@ -99,6 +137,19 @@ const POST_LABELS = {
     "face_refine.mask_dilation": ["Mask Dilation (canvas px)", "遮罩扩张（画布 px）"], "face_refine.feather_scales_with_crop": ["Legacy canvas feather", "旧式画布羽化"],
     "face_refine.sam_model": ["SAM Model", "SAM 模型"], "face_refine.sam_threshold": ["SAM Threshold", "SAM 阈值"],
     "face_refine.sam_dilation": ["SAM Dilation", "SAM 扩张"], "face_refine.sam_temporal_smooth": ["SAM Temporal", "SAM 时序平滑"],
+    "audio_refine.room": ["Room", "空间"],
+    "audio_refine.reverb_enabled": ["Reverb", "混响"],
+    "audio_refine.reverberance": ["Reverberance %", "混响量 %"],
+    "audio_refine.hf_damping": ["HF Damping %", "高频衰减 %"],
+    "audio_refine.room_scale": ["Room Size %", "空间尺寸 %"],
+    "audio_refine.stereo_depth": ["Stereo Depth %", "立体声深度 %"],
+    "audio_refine.pre_delay_ms": ["Pre-delay (ms)", "预延迟（ms）"],
+    "audio_refine.wet_gain_db": ["Wet Gain (dB)", "湿声增益（dB）"],
+    "audio_refine.normalize": ["Normalize", "标准化"],
+    "audio_refine.gain_db": ["Gain (dB)", "增益（dB）"],
+    "audio_refine.use_limiter": ["Limiter", "限幅器"],
+    "audio_refine.per_segment": ["Per-segment", "逐片段"],
+    "audio_refine.sox_path": ["SoX Path", "SoX 路径"],
 };
 
 const POST_OPTION_LABELS = {
@@ -134,6 +185,18 @@ const POST_OPTION_LABELS = {
     "face_refine.paste_region": { face_rect: ["Face rectangle", "人脸区域"], full_crop: ["Full crop", "完整裁切区"] },
     "face_refine.undetected_frames": { fade: ["Fade", "淡出"], skip: ["Skip", "跳过"] },
     "face_refine.fallback_detector": { none: ["None", "无"] },
+    "audio_refine.room": {
+        "": ["Custom (six values below)", "自定义（下方六个参数）"],
+        dry: ["Dry / studio (no space)", "干声 / 录音棚（无空间）"],
+        bedroom: ["Bedroom (soft, damped)", "卧室（柔软吸音）"],
+        bathroom: ["Bathroom (tiled, bright)", "浴室（瓷砖，明亮）"],
+        bar: ["Bar / tavern", "酒吧 / 酒馆"],
+        office: ["Office / kitchen", "办公室 / 厨房"],
+        car: ["Car interior", "车内"],
+        hall: ["Hall / warehouse", "大厅 / 仓库"],
+        cathedral: ["Cathedral / church", "教堂"],
+        outdoor: ["Outdoor / open air", "室外 / 开阔地"],
+    },
 };
 
 export function normalizePostprocessConfig(raw) {
@@ -142,8 +205,8 @@ export function normalizePostprocessConfig(raw) {
     }
     raw = raw && typeof raw === "object" ? raw : {};
     const result = clone(DEFAULT_CONFIG);
-    for (const key of ["global_refine", "face_refine", "preview", "save"]) {
-        const legacy = key === "global_refine" ? raw.globalRefine : key === "face_refine" ? raw.faceRefine : null;
+    for (const key of ["global_refine", "face_refine", "audio_refine", "preview", "save"]) {
+        const legacy = { global_refine: raw.globalRefine, face_refine: raw.faceRefine, audio_refine: raw.audioRefine }[key] || null;
         Object.assign(result[key], legacy || {}, raw[key] || {});
     }
     if (raw.liveTaePreview === false || raw.live_tae_preview === false) result.preview.enabled = false;
@@ -186,6 +249,22 @@ export function normalizePostprocessConfig(raw) {
     face.adaptive=face.adaptive!==false;
     face.identity_track=!!face.identity_track;
     face.feather_scales_with_crop=!!face.feather_scales_with_crop;
+    const audio=result.audio_refine;
+    audio.enabled=!!audio.enabled;
+    audio.per_segment=!!audio.per_segment;
+    audio.reverb_enabled=audio.reverb_enabled!==false;
+    // An empty room means "no opinion": the six explicit values below apply.
+    audio.room=ROOM_NAMES.includes(String(audio.room||"").trim().toLowerCase())?String(audio.room).trim().toLowerCase():"";
+    audio.reverberance=clampNum(audio.reverberance,40,0,100);
+    audio.hf_damping=clampNum(audio.hf_damping,55,0,100);
+    audio.room_scale=clampNum(audio.room_scale,45,0,100);
+    audio.stereo_depth=clampNum(audio.stereo_depth,70,0,100);
+    audio.pre_delay_ms=clampNum(audio.pre_delay_ms,12,0,500);
+    audio.wet_gain_db=clampNum(audio.wet_gain_db,-2,-10,10);
+    audio.normalize=!!audio.normalize;
+    audio.gain_db=clampNum(audio.gain_db,0,-20,20);
+    audio.use_limiter=audio.use_limiter!==false;
+    audio.sox_path=String(audio.sox_path||"").trim().slice(0,2048);
     result.preview.enabled = result.preview.enabled !== false;
     result.save.auto_save = !!result.save.auto_save;
     result.save.filename_prefix = String(result.save.filename_prefix || "video/MiniMaxH3_Director").trim().slice(0, 512) || "video/MiniMaxH3_Director";
@@ -193,7 +272,7 @@ export function normalizePostprocessConfig(raw) {
     result.save.codec = String(result.save.codec || "auto").trim().toLowerCase().slice(0, 64) || "auto";
     result.save.encoding = result.save.encoding === "re-encode" ? "re-encode" : "auto";
     result.save.crf = Math.max(0, Math.min(51, Math.round(Number(result.save.crf) || 23)));
-    result.version = 9;
+    result.version = 11;
     return result;
 }
 
@@ -279,6 +358,38 @@ export function faceRefineSummary(config, locale = "en") {
     return `${target} · ${canvas} · ${strength} · ${mask}`;
 }
 
+export function audioRefineVisibility(config) {
+    const audio = normalizePostprocessConfig(config).audio_refine;
+    return {
+        // A named room supplies all six values, so the manual fields are hidden
+        // exactly when a preset is selected.  Reverb off hides them too.
+        customRoom: audio.reverb_enabled && !audio.room,
+        limiter: Number(audio.gain_db) > 0,
+        perSegment: !!audio.per_segment,
+    };
+}
+
+export function audioRefineSummary(config, locale = "en") {
+    const audio = normalizePostprocessConfig(config).audio_refine;
+    const zh = locale === "zh";
+    if (!audio.enabled) return POST_TEXT[zh ? "zh" : "en"].disabled;
+    const parts = [];
+    if (audio.reverb_enabled) {
+        const short = ROOM_SHORT[audio.room];
+        parts.push(short ? short[zh ? 1 : 0] : zh ? "自定义空间" : "Custom room");
+        if (!audio.room) {
+            parts.push(`${zh ? "混响" : "Rev"} ${Math.round(audio.reverberance)}%`, `${zh ? "尺寸" : "Size"} ${Math.round(audio.room_scale)}%`);
+        }
+    } else {
+        parts.push(zh ? "无混响" : "No reverb");
+    }
+    if (audio.normalize) parts.push(zh ? "标准化" : "Normalize");
+    const gain = Number(audio.gain_db);
+    if (Math.abs(gain) >= 0.01) parts.push(`${gain >= 0 ? "+" : ""}${gain} dB`);
+    if (audio.per_segment) parts.push(zh ? "逐片段" : "Per-segment");
+    return parts.join(" · ");
+}
+
 export class PostprocessConfigStore {
     constructor(widget, { onChange } = {}) {
         this.widget = widget;
@@ -330,7 +441,7 @@ function ensureStyles() {
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-.mmx-postprocess{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;height:100%;min-height:0;box-sizing:border-box}
+.mmx-postprocess{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;height:100%;min-height:0;box-sizing:border-box}
 .mmx-post-column{min-width:0;overflow:auto;border:1px solid #343434;border-radius:8px;background:#181818;padding:10px;box-sizing:border-box}
 .mmx-post-head,.mmx-post-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.mmx-post-head{margin-bottom:8px}.mmx-post-head h3{margin:0;font-size:15px}
 .mmx-post-section-head h4{margin:0;font-size:12px;color:#ddd}.mmx-post-enable,.mmx-post-subenable{display:flex;align-items:center;gap:6px;color:#4fff8f;font-weight:650}
@@ -458,11 +569,44 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
             ${conditional("face_sam_advanced", field("SAM Temporal", "face_refine.sam_temporal_smooth", "number", 'min="1" max="51" step="2"'))}
           </div>
         </details>
+      </section>
+      <section class="mmx-post-column" data-section="audio_refine">
+        <div class="mmx-post-head"><h3 data-post-text="audio_title">Audio Room</h3><label class="mmx-post-enable"><input type="checkbox" data-path="audio_refine.enabled"> <span data-post-text="enabled">ON / OFF</span></label></div>
+        <p class="mmx-post-summary" data-summary="audio_refine"></p>
+        <p class="mmx-post-note" data-post-text="audio_note"></p>
+        <div class="mmx-post-section"><h4 data-post-text="audio_room">Room</h4><p class="mmx-post-note" data-post-text="audio_preset_note"></p><div class="mmx-post-grid">
+          ${field("Room", "audio_refine.room", "select", options([["","Custom (six values below)"],["dry","Dry / studio (no space)"],["bedroom","Bedroom (soft, damped)"],["bathroom","Bathroom (tiled, bright)"],["bar","Bar / tavern"],["office","Office / kitchen"],["car","Car interior"],["hall","Hall / warehouse"],["cathedral","Cathedral / church"],["outdoor","Outdoor / open air"]]))}
+          ${field("Reverb", "audio_refine.reverb_enabled", "checkbox")}
+          ${conditional("audio_custom", field("Reverberance %", "audio_refine.reverberance", "number", 'min="0" max="100" step="1"'))}
+          ${conditional("audio_custom", field("HF Damping %", "audio_refine.hf_damping", "number", 'min="0" max="100" step="1"'))}
+          ${conditional("audio_custom", field("Room Size %", "audio_refine.room_scale", "number", 'min="0" max="100" step="1"'))}
+          ${conditional("audio_custom", field("Stereo Depth %", "audio_refine.stereo_depth", "number", 'min="0" max="100" step="1"'))}
+          ${conditional("audio_custom", field("Pre-delay (ms)", "audio_refine.pre_delay_ms", "number", 'min="0" max="500" step="1"'))}
+          ${conditional("audio_custom", field("Wet Gain (dB)", "audio_refine.wet_gain_db", "number", 'min="-10" max="10" step="0.5"'))}
+          ${conditional("audio_custom", '<p class="mmx-post-note mmx-post-wide" data-post-text="audio_custom_note"></p>')}
+        </div></div>
+        <div class="mmx-post-section"><h4 data-post-text="audio_level">Level</h4><div class="mmx-post-grid">
+          ${field("Normalize", "audio_refine.normalize", "checkbox")}
+          ${field("Gain (dB)", "audio_refine.gain_db", "number", 'min="-20" max="20" step="0.5"')}
+        </div></div>
+        <details class="mmx-post-section mmx-post-advanced"><summary data-post-text="audio_advanced">Advanced</summary>
+          <p class="mmx-post-note" data-post-text="audio_sox_note"></p><div class="mmx-post-grid">
+            ${field("Limiter", "audio_refine.use_limiter", "checkbox")}
+            ${field("SoX Path", "audio_refine.sox_path", "text")}
+          </div>
+          <div class="mmx-post-divider-title">Per-segment</div><div class="mmx-post-grid">
+            ${field("Per-segment", "audio_refine.per_segment", "checkbox")}
+          </div>
+          ${conditional("audio_final", '<p class="mmx-post-note" data-post-text="audio_final_only"></p>')}
+          ${conditional("audio_perseg", '<p class="mmx-post-note" data-post-text="audio_per_segment_note"></p>')}
+        </details>
       </section>`;
     container.replaceChildren(root);
 
+    // An emptied number field must stay "" so normalize can apply that field's
+    // default.  Number("") is 0, which would silently clamp to the minimum.
     const readInput = (element) => element.type === "checkbox" ? element.checked
-        : element.type === "number" ? Number(element.value) : element.value;
+        : element.type === "number" ? (element.value === "" ? "" : Number(element.value)) : element.value;
     root.addEventListener("change", (event) => {
         const target = event.target;
         if (target?.matches?.("[data-upscale-enabled]")) {
@@ -501,9 +645,11 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
             const ready = !!capabilities.dependencies?.nvidia_rtx_vsr;
             vsr.textContent = `RTX VSR: ${POST_TEXT[lang][ready ? "runtime_detected" : "missing_no_downgrade"]}`;
         }
-        render(store.get());
+        // Pass the resolved language through: render() would otherwise consult
+        // locale() and re-render English summaries over translated labels.
+        render(store.get(), lang);
     };
-    const render = (config) => {
+    const render = (config, forcedLang = null) => {
         root.querySelectorAll("[data-path]").forEach((input) => {
             const [section, key] = input.dataset.path.split(".");
             const value = config[section]?.[key];
@@ -530,13 +676,20 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
         setConditional("face_sam_advanced",!fv.sam);
         setConditional("face_identity",!fv.identity);
         setConditional("face_fallback",!fv.fallback);
+        const av=audioRefineVisibility(config);
+        setConditional("audio_custom",!av.customRoom);
+        setConditional("audio_final",av.perSegment);
+        setConditional("audio_perseg",!av.perSegment);
         const [w, h] = directorSize();
-        root.querySelector('[data-summary="global_refine"]').textContent = globalRefineSummary(config, w, h, locale());
-        root.querySelector('[data-summary="face_refine"]').textContent = faceRefineSummary(config, locale());
+        const lang = forcedLang || locale();
+        root.querySelector('[data-summary="global_refine"]').textContent = globalRefineSummary(config, w, h, lang);
+        root.querySelector('[data-summary="face_refine"]').textContent = faceRefineSummary(config, lang);
+        root.querySelector('[data-summary="audio_refine"]').textContent = audioRefineSummary(config, lang);
         const [tw, th] = resolveGlobalTarget(config, w, h);
         root.querySelector("[data-resolved-target]").textContent = `${tw}×${th}`;
         root.querySelector('[data-section="global_refine"]').classList.toggle("mmx-post-disabled", !config.global_refine.enabled);
         root.querySelector('[data-section="face_refine"]').classList.toggle("mmx-post-disabled", !config.face_refine.enabled);
+        root.querySelector('[data-section="audio_refine"]').classList.toggle("mmx-post-disabled", !config.audio_refine.enabled);
     };
     const unsubscribe = store.subscribe(render);
     render(store.get());
@@ -576,4 +729,4 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
     return { root, render, updateLocale, destroy: unsubscribe };
 }
 
-export { DEFAULT_CONFIG };
+export { DEFAULT_CONFIG, ROOM_NAMES };

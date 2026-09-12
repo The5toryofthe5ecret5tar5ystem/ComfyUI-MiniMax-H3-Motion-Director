@@ -48,6 +48,7 @@ const ZH = {
     "modal.run.startOverTitle": "清除本节点的片段缓存与运行记录，然后从头开始",
     "postprocess.global": "全局精修",
     "postprocess.face": "人脸精修",
+    "postprocess.audio": "音频空间",
 
     "tooltip.addRefGroup": "添加一组参考素材（图片 / 音频 / 视频）",
     "tooltip.addShot": "添加一组首尾帧（首帧/尾帧均可选，支持只传尾帧）",
@@ -513,6 +514,7 @@ const EN = {
     "modal.run.startOverTitle": "Clear this node's segment caches and run history, then start fresh",
     "postprocess.global": "Global Refine",
     "postprocess.face": "Face Refine",
+    "postprocess.audio": "Audio Room",
 
     "tooltip.addRefGroup": "Add a reference group (images / audio / video)",
     "tooltip.addShot": "Add a first/last-frame shot (start and/or end; end-only OK)",
