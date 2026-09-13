@@ -230,6 +230,25 @@ def _fit_length(wave: np.ndarray, samples: int) -> np.ndarray:
     return np.concatenate([wave, pad], axis=0)
 
 
+def _soundfile():
+    """Import ``soundfile`` late, with an actionable error if it is absent.
+
+    ``soundfile`` is not a ComfyUI dependency, so a clean install may not have
+    it.  The import is deferred to first use so the pack still loads without it;
+    raising :class:`AudioEffectsError` here keeps a missing package in the same
+    failure channel as a missing SoX instead of surfacing a bare ImportError.
+    """
+    try:
+        import soundfile as sf
+    except ImportError as exc:
+        raise AudioEffectsError(
+            "soundfile is required for Director audio room simulation but is not "
+            "installed. Install it (python -m pip install soundfile) or disable the "
+            "room effect."
+        ) from exc
+    return sf
+
+
 def _run_sox(
     sox: str,
     wave: np.ndarray,
@@ -239,7 +258,7 @@ def _run_sox(
     tag: str,
 ) -> np.ndarray:
     """Round-trip one ``[frames, channels]`` block through SoX."""
-    import soundfile as sf
+    sf = _soundfile()
 
     in_path = f"{workdir}/{tag}_in.wav"
     out_path = f"{workdir}/{tag}_out.wav"

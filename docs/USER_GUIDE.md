@@ -504,7 +504,7 @@ Places the model's **generated** audio in an actual space instead of leaving it 
 
 **Ordering note.** Reverb runs before levelling, deliberately: normalising first would let the reverberant tail push the result into clipping, because the reverb adds energy on top of an already-peaked dry signal.
 
-**Requires SoX** on PATH (`sudo pacman -S sox` on Arch/CachyOS). It is auto-detected. If a track cannot be processed it is left dry and named in the report, rather than failing the render.
+**Requires SoX** on PATH (`sudo pacman -S sox` on Arch/CachyOS). It is auto-detected. If a track cannot be processed it is left dry and named in the report, rather than failing the render. The **`soundfile`** Python package is required as well and is declared in `requirements.txt`; it is not a ComfyUI dependency, so a bare ComfyUI install will not have it.
 
 ### Recommended production order
 

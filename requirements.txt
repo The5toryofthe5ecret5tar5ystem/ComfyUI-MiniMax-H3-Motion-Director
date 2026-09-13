@@ -6,3 +6,8 @@ imageio-ffmpeg>=0.4
 
 # Smart shot split (智能分割)
 scenedetect>=0.6.4,<0.8
+
+# Audio Room temp-file round trip. soundfile is deliberately listed: it is NOT a
+# ComfyUI dependency, so an environment without it would load this pack fine and
+# then fail at render time.
+soundfile>=0.12

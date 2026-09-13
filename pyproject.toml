@@ -9,6 +9,7 @@ dependencies = [
     "opencv-python-headless>=4.8",
     "imageio-ffmpeg>=0.4",
     "scenedetect>=0.6.4,<0.8",
+    "soundfile>=0.12",
 ]
 
 [project.urls]

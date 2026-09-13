@@ -58,7 +58,9 @@ A new post-processing stage, plus a Resume correctness pass.
   invalidates no segment, context cache or finished render; only the **Per-segment** opt-in
   changes cache identity.
 - Requires **SoX** on PATH (auto-detected; `sudo pacman -S sox` on Arch/CachyOS). A track
-  that cannot be processed is left dry and named in the report rather than failing the run.
+  that cannot be processed is left dry and named in the report rather than failing the run. SoX is not enough on its own: the `soundfile`
+  Python package performs the temp-file round trip and is **not** a ComfyUI
+dependency, so it is now declared in `requirements.txt`.
 
 ## v1.4.0 — 2026-09-10
 
