@@ -41,6 +41,183 @@ Also referenced by the model subgraph: the **audio VAE** (`vae/minimax_h3_audio_
 
 ---
 
+## `Minimax h3 Director - ref2va + RefMod example workflow 1x4s.json`
+
+The **quick RefMod test**: a single 4 s shot (107 frames), carried entirely by a RefMod —
+no headshot and no character sheet. One sprint beat through golden-hour forest, with the
+same node graph, model path and settings as the full examples. Short enough to iterate on
+identity in a couple of minutes instead of twenty.
+
+The extra group of three nodes below the canvas is:
+
+```
+CLIP Text Encode ────conditioning────┐
+                                     ├── Apply H3 RefMod ──conditioning──▶ Director.refmod_conditioning
+Load H3 RefMods ───────mods──────────┘
+```
+
+`Apply H3 RefMod` appends each RefMod's stored reference latent to the conditioning's
+`minimax_refs` — the same key the official H3 ReferenceToVideo node fills. The Director
+harvests that payload and appends it to every segment's conditioning, so the mod acts as
+the subject reference for the whole chain.
+
+The workflow also ships a **MarkdownNote that is the full usage guide** — identity,
+wardrobe, every setting and its reason, the failure modes, and a bisect order. This
+section is the summary. For a longer story on the same setup, apply the same prompt
+blocks to the other examples.
+
+### How the reference actually reaches the model
+
+Everything below follows from this.
+
+- `Apply H3 RefMod` runs **after** text encoding. It writes
+  `conditioning[i][1]["minimax_refs"]` and nothing else.
+- **The text encoder never sees the mod.** There is no `<Picture n>` tag for it, no name
+  and no label — `ref_block()` returns only `{kind, latent_h, latent_w, latent, latent_t,
+  ref_audio_t, audio_latent}`.
+- So the mod is an **unnamed latent blob in the DiT sequence**. It influences every frame
+  of the segment, and nothing binds it to `<Subject 1>` in your text.
+
+Two consequences: you cannot address a mod by number, and **any reference image will beat
+it in an argument** (see Wardrobe below).
+
+### Identity
+
+The prompt names the subject, describes what she *does*, and avoids what she *looks like* —
+with one deliberate exception, the identity anchor:
+
+```
+subject_definitions:
+<Subject 1> is the woman in the attached character reference - a swift, athletic forest runner.
+Her face, hair and build come from that reference and are not described here.
+Identity lock: her face, hair and build are locked to the attached character reference and stay
+identical in every frame and every shot - never a different woman.
+Reference rule: the attached character reference is a static identity reference only. It never
+shows her in motion, and its background, framing, panel layout and any standing pose must never
+appear in the video. Every shot uses the running, leaping or balancing action described for that
+shot, and all motion, camera moves and cuts are created fresh by each shot's description.
+```
+
+Why so little appearance: with no feature words anywhere in the text, the reference latent
+is the only identity signal, so writing her out would hand the *text* channel an opinion to
+argue with the reference about. RefMod's own guidance is to prompt subject and action rather
+than appearance, and it states outright that it has **no `<Name>` trigger parser** —
+`<Subject 1>` is a narrative handle for the action sentences, not a tag that resolves to
+your mod.
+
+**If the face still drifts, add 2-3 concrete words to the `Identity lock:` line** — hair
+colour, ear shape, build. Feature words are what actually fight the model's own default
+face; a pure "stay identical" instruction is much weaker.
+
+The knobs, in order of effect:
+
+| Knob | Where | Notes |
+|---|---|---|
+| `strength_1` | Load H3 RefMods | `1.0` = full reference (official behaviour). Lower values *blur* the reference toward a softened copy of itself and identity fades smoothly — a fade dial, not a free win. |
+| `copies_1` | Load H3 RefMods | `2-3` is the documented sweet spot. Each copy costs its full token count in every DiT block. |
+| `retention` | Apply H3 RefMod | Master multiplier over every `strength_N`. MiniMax levels: `1.0` fully preserved, `0.7` partial, `0.4` attribute transfer (style, not identity), `0.15` weak. |
+| `curve_direction` | RefMod Step Curve | Envelope over the **denoise steps**. `concept_at_end` holds the reference at full strength in the late steps, where facial detail is set. |
+| SLA `enabled` | H3SLA Attention | **Off** in this example. SLA drops ~90% of attention blocks after the first step, and a latent-only reference is the first thing to lose. |
+
+Do not confuse the two curves: `Apply H3 RefMod`'s `curve_direction` selects **which
+reference frames** dominate, while `MiniMaxH3RefModStepCurve`'s selects **which denoise
+steps** receive the reference. They are different axes.
+
+### Wardrobe: the mod carries face and body, not clothing
+
+An empty wardrobe is expected, not a failure. The saved latent is roughly a **96 x 54
+thumbnail per frame**. That is plenty to hold face structure (low frequency) and nothing
+like enough to hold a garment's cut, seams or trim. The mod gives you only what it has.
+
+**Text channel** — the `wardrobe:` section in each segment prompt:
+
+```
+wardrobe:
+Her outfit is set by this description and not by the character reference: a fitted dark-teal
+trail-running tank top, black compression shorts with a thin reflective stripe, and a worn
+olive utility belt.
+```
+
+The mod will not fight you over this, because it is not carrying clothing at all.
+
+**Image channel** — a clothing photograph, which arrives at full resolution through H3's
+native reference path. Tag numbering is 1-based and yours to count: the first reference
+image in a segment is `<Picture 1>`. **Your RefMod does not take a tag slot**, so a lone
+clothing picture is always `<Picture 1>`.
+
+```
+wardrobe:
+Her clothing comes from <Picture 1>. Reproduce the garment only - the same colour, fabric, cut
+and length. <Picture 1> must not supply a face, hair, body shape, skin tone, background or
+framing, and must not supply any other character visible in that image. The character reference
+supplies her face, hair and build and must not supply clothing.
+```
+
+**A character sheet is the worst possible input**, because a character sheet *is* an identity
+reference — and one with several characters on it is worse still. Expect the face, body and
+pose to be taken from it. Text cannot out-argue a full-resolution identity reference. Ranked
+fixes:
+
+1. **Crop the reference to the garment alone.** No face in the picture means no face to copy.
+   The only option that removes the failure instead of negotiating with it.
+2. **Deliver the outfit as a second RefMod** on loader slot 2 at `strength_2` around `0.4` —
+   MiniMax's documented *attribute transfer (keep style/attributes, not identity)* level —
+   with identity at `strength_1 = 1.0`. Both sources are then the same kind of signal and each
+   has its own weight. `MiniMaxH3RefModExtract` has a `mask` input, so the head can be masked
+   out during extraction rather than cropped by hand.
+3. `MiniMaxH3RefModStepCurve` at `concept_at_end` holds identity late. That tips the balance
+   toward the mod but does not stop the picture's face being copied.
+
+Refs are not bound to subjects, so an outfit mod bleeds into the face unless its `strength`
+is low.
+
+### Run it
+
+1. Install [ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod) and
+   restart ComfyUI.
+2. Pick your mod in **Load H3 RefMods → `mod_1`**. The workflow ships pointing at
+   `vanellope_example`, the sample mod bundled with the RefMod pack — swap it for your own.
+3. Rewrite `Scene:` / `Style:` / `Audio:` and the shot description for your own scene, and
+   keep the `subject_definitions:` block, `Identity lock:` included.
+4. **Generate** — one 4 s shot, no chaining, so a full identity check is quick.
+
+To compare against no-RefMod at all, bypass the `Apply H3 RefMod` node (`Ctrl+B`) or delete
+the whole group — the Director treats a disconnected `refmod_conditioning` as a no-op.
+
+### What to know before you judge the output
+
+- **The connected prompt is discarded.** The Director builds its own conditioning per
+  segment, so `CLIP Text Encode` exists only to satisfy `Apply H3 RefMod`'s required
+  `conditioning` input. Its text, and the frame size of the conditioning it produces, are
+  ignored. Put your scene prompt in the Director's segments.
+- **Watch the run report.** It prints `RefMod: N reference block(s) appended to every
+  segment.` If that line is missing, nothing was harvested and the output is not a RefMod
+  result.
+- **The bundled sample mod is a poor identity test.** `vanellope_example` is built in
+  RefMod's *pooled / compressed* mode at 16 x 16, and RefMod's own docs say that mode "may
+  retain colors and large structures while losing face detail, texture or useful motion." A
+  run with it proves the wiring end to end; it does not prove RefMod can carry a face. Build
+  your own mod in `encode` (**Full Reference**) mode for a real identity test.
+- **Fast motion is RefMod's hard case.** Its README notes that a rapid sequence "gets smeared
+  into something slower and softer" because the reference is only a handful of latent frames.
+  This example is a sprint, so expect the mod to have the least influence on the fastest beat.
+- **Single segment, so no cross-segment drift is possible here.** Once this shot holds
+  identity, move to the 3 x 7 s examples — where only the first `context_length` frames of a
+  segment are pinned to the previous segment's real output and the rest is free generation.
+  This example carries **44**, roughly double the default, specifically to hold identity
+  longer down a chain.
+
+### Not required
+
+`H3 RefMod Text Encode` is an alternative that outputs a plain `CONDITIONING` and reports
+`<Picture n> = <mod>` labels. It decodes every visual RefMod latent through the VAE to
+present it to the text encoder — work the Director then discards, since `harvest_refmod_refs()`
+keeps only `minimax_refs`. That labelling therefore cannot reach the Director. `Apply H3
+RefMod` does the same job here without the VAE decode; use *picture* references when you want
+tags.
+
+---
+
 ## `Minimax h3 Director - t2v example workflow 5x7s - elf vs giant orc.json`
 
 A ready-to-run **t2v (Text to Video)** example — pure prompt, no references — in

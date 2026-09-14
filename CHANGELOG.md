@@ -3,6 +3,68 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## v1.6.0 — 2026-09-13
+
+RefMod identity references, a Results player that streams instead of shipping base64, and
+Audio Refine made cache-free.
+
+### Added
+
+- **RefMod identity references.** A connected `Apply H3 RefMod` chain now reaches every
+  segment: the Director harvests its reference blocks and appends them to each segment's
+  own conditioning, so a character mod can carry identity across a whole chain with no
+  headshot and no character sheet. The mod is attached to the DiT only — it is never
+  presented to the text encoder, and no `<Picture n>` label is created for it.
+- **`Minimax h3 Director - ref2va + RefMod example workflow 1x4s.json`** — a single 4 s shot
+  for fast identity iteration, shipping an in-workflow usage guide covering identity,
+  wardrobe, the knobs and their reasons, the failure modes, and a bisect order.
+- **A wardrobe channel.** A RefMod latent is roughly a 96 x 54 thumbnail per frame, so it
+  carries face and body and physically cannot carry a garment's cut, seams or trim. Clothing
+  now comes from a `wardrobe:` prompt section, or from a full-resolution picture reference,
+  with the prompt assigning each source its job so the two do not fight.
+- **Streamed preview clips in Results.** Finished segments and final results are encoded to
+  a small all-intra H.264 clip in ComfyUI's temp directory and streamed over `/view`, instead
+  of pushing every frame as base64 JPEG through the websocket. One 243-frame segment measured
+  ~11.9 MB of base64 parsed synchronously on the browser main thread; the clip is ~2.5 MB and
+  streams with ordinary HTTP range requests, at zero websocket cost. All-intra is deliberate:
+  every frame is a keyframe, so a seek lands on the exact frame rather than the nearest
+  earlier one.
+
+### Fixed
+
+- **The RefMod wiring was in dead code.** Three classes share the name
+  `MiniMaxH3MotionDirector` and chain by inheritance, and `__init__.py` imports
+  `director_output` last, so the live `execute` is `director_inputs`'. The RefMod wiring had
+  been added to `director.py`, which never runs. The socket was declared, the wire connected
+  and `/history` showed it — but the live execute had no such parameter, so ComfyUI dropped
+  it into `**kwargs` and discarded it. Moved to the class that actually executes, and a test
+  now walks the MRO for the first `execute` that names its parameters and fails if any
+  declared input is unbound.
+- **`audio_refine_enabled` / `audio_refine_steps` / `audio_refine_denoise` were declared but
+  never bound**, so they were silently discarded exactly like the RefMod input. Found by the
+  same probe, now guarded by the same test.
+- **`None` in saved widget values broke prompt validation.** Re-saving a workflow in ComfyUI
+  wrote explicit `None` into the Director's audio-refine slots, the frontend restored them
+  into `widgets_values`, and `int(None)` failed with *"Failed to convert an input value to an
+  INT/FLOAT value"*. All mirrors of the affected example workflows are corrected.
+- **A misleading warning on RefMod-only segments.** The plan builder warned that an `r2v`
+  segment "has no reference media — will behave like t2v/t2i. Upload 图片/音频/视频 on this
+  material card", which is precisely what a RefMod run does not need. It now reports the
+  reference block count instead, and only warns when nothing was appended.
+- **Audio Refine no longer participates in the segment cache fingerprint.** The room and
+  level chain runs once at final output assembly, never per segment, so `per_segment` is gone
+  and tuning a room invalidates nothing — no segment, context or audio cache.
+- **Undeclared inputs are now reported.** The Director prints any input it received but did
+  not declare, instead of dropping it into `**kwargs` in silence. That probe is what surfaced
+  the two unbound parameter sets above.
+
+### Documentation
+
+- New RefMod usage guide shipping inside the example workflow, plus a rewritten
+  [`example_workflows/README.md`](example_workflows/README.md) section covering how the
+  reference actually reaches the model, the identity and wardrobe prompt patterns, and the
+  ranked fixes for when a clothing reference takes over the face.
+
 ## v1.5.0 — 2026-09-12
 
 A new post-processing stage, plus a Resume correctness pass.

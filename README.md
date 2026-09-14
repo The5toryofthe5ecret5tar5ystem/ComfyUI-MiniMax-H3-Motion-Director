@@ -26,6 +26,20 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
 
+### v1.6.0 — RefMod identity references, and a Results player that streams
+
+**A RefMod can now carry identity across a whole chain.** Connect `Apply H3 RefMod` and the Director harvests its reference blocks and appends them to every segment's conditioning — no headshot, no character sheet, just a saved `.safetensors` mod. The mod is attached to the DiT only: it is never presented to the text encoder, and no `<Picture n>` label is created for it, so the prompt names the *subject and action* and lets the reference own appearance.
+
+**Fixing it meant finding it.** The wiring had been added to `nodes/director.py`, which never runs. Three classes share the name `MiniMaxH3MotionDirector` and chain by inheritance, and `__init__.py` imports `director_output` last, so the live `execute` belongs to `director_inputs`. The socket was declared, the wire connected and `/history` showed the reference attached — but the live execute had no such parameter, so ComfyUI dropped it into `**kwargs`. The same probe found `audio_refine_enabled`, `audio_refine_steps` and `audio_refine_denoise` declared but never bound. A test now walks the MRO for the first `execute` that names its parameters and fails if any declared input is unbound, and the Director prints any input it receives but did not declare instead of discarding it in silence.
+
+**The mod carries face and body, not clothing.** Its latent is roughly a 96 x 54 thumbnail per frame — plenty for face structure, nothing like enough for a garment's cut and seams. That is a physical limit, not a bug, so clothing gets its own channel: a `wardrobe:` prompt section, or a full-resolution picture reference, with the prompt assigning each source its job. The example ships a usage guide covering all of it, including the ranked fixes for when a clothing reference starts handing you its model's face.
+
+**Results streams instead of shipping base64.** Finished segments and final results are encoded to a small all-intra H.264 clip in ComfyUI's temp directory and streamed over `/view`. One 243-frame segment measured ~11.9 MB of base64 JPEG parsed synchronously on the browser main thread; the clip is ~2.5 MB with zero websocket cost. All-intra is deliberate, so every frame is a keyframe and a seek lands on the exact frame.
+
+**Audio Refine tuning is free now.** The room and level chain runs once at final output assembly, never per segment, so `per_segment` is gone and changing a room invalidates no segment, context or audio cache.
+
+**New example:** [`Minimax h3 Director - ref2va + RefMod example workflow 1x4s.json`](example_workflows/) — one 4 s shot for fast identity iteration, with the usage guide shipping inside the workflow.
+
 ### v1.5.0 — Audio Room: a real space, chosen per scene
 
 **Generated audio no longer has to sound like a camera mic.** A new **Audio Room** column in the postprocess panel places the model's audio in an actual space. Pick a named room — `bedroom`, `bathroom`, `bar`, `office`, `car`, `hall`, `cathedral`, `outdoor` or `dry` — and all six reverberation parameters are set for you; choose **Custom** and dial them yourself: reverberance, HF damping, room size, stereo depth, pre-delay and wet gain. A separate **Level** section adds normalise and gain.
@@ -87,11 +101,15 @@ Global Refine is now skipped automatically (keeping the first-pass result) when 
 
 ### Tests + CI
 
-- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 326 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
+- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 464 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
 
-### Example workflow
+### Example workflows
 
-- [`example_workflows/`](example_workflows/) ships a ready-to-run **ref2va** sample (`Minimax h3 Director - ref2va example workflow 3x7s.json`) with bundled AI-generated placeholder headshot + character sheet — see [`example_workflows/README.md`](example_workflows/README.md).
+- [`example_workflows/`](example_workflows/) ships four ready-to-run samples, each documented in [`example_workflows/README.md`](example_workflows/README.md):
+  - **ref2va** (`Minimax h3 Director - ref2va example workflow 3x7s.json`) — 3 x 7 s, with a bundled AI-generated placeholder headshot + character sheet.
+  - **ref2va + RefMod** (`Minimax h3 Director - ref2va + RefMod example workflow 1x4s.json`) — a single 4 s shot with identity carried entirely by a RefMod, and the full usage guide in-workflow.
+  - **t2v** (`Minimax h3 Director - t2v example workflow 5x7s - elf vs giant orc.json`) — 5 x 7 s, prompt only, no references.
+  - **character replace** (`Minimax h3 Director - character replace example workflow 3x7s - elf vs giant orc.json`) — 3 x 7 s ref2va replacement.
 
 ---
 
@@ -467,7 +485,7 @@ See [`NOTICE`](NOTICE), [`LICENSE`](LICENSE), and [`LICENSES`](LICENSES) for the
 The test suites run without a live ComfyUI instance (CPU is enough for the Python tests):
 
 ```bash
-# Python unit + contract tests (94 tests) — any working directory, no ComfyUI needed
+# Python unit + contract tests (464 tests) — any working directory, no ComfyUI needed
 python -m pytest
 
 # Frontend unit tests (jsdom is a dev-only dependency)
