@@ -25,6 +25,7 @@ from ..lib.image_prep import (
 from ..lib.task_modes import SUPPORTED_TASK_KEYS
 from ..nodes.conditioning import (
     append_minimax_keyframe_anchors,
+    append_refmod_references,
     run_minimax_conditioning,
 )
 from ..patches import motion_context_patch_status
@@ -38,6 +39,7 @@ from .postprocess_config import normalize_postprocess_config, postprocess_cache_
 from .refine_sampling import apply_global_refine
 from .seam_report import build_seam_report_lines
 from .preview_manager import DirectorPreviewManager
+from .preview_clip import build_result_preview
 from .face_refine_pipeline import apply_face_refine
 from .frame_align import (
     H3_REFERENCE_VIDEO_PIPELINE,
@@ -447,6 +449,7 @@ def execute_director_plan_core(
     audio_refine_enabled: bool = False,
     audio_refine_steps: int = 6,
     audio_refine_denoise: float = 0.5,
+    refmod_refs: list | None = None,
     pin_renorm_enabled: bool = False,
     clear_vram_between_segments: bool = True,
     postprocess_config: str | dict[str, Any] = "",
@@ -1196,6 +1199,9 @@ def execute_director_plan_core(
             first_frame=first_frame, last_frame=last_frame, ref_images=ref_images,
             ref_videos=ref_videos, ref_video_audios=ref_video_audios, ref_audios=ref_audios,
         )
+        # RefMod references are appended after the native refs so the payload
+        # order matches what RefMod's step curve expects.
+        positive = append_refmod_references(positive, refmod_refs)
 
         if replace_active and replace_state is not None and not replace_render_anchor:
             if visible_clip_frames is None or int(visible_clip_frames.shape[0]) != int(num_frames):
@@ -1667,11 +1673,13 @@ def execute_director_plan_core(
             and decoded.shape[0] >= 1
         ):
             try:
-                frames_b64 = [tensor_frame_to_jpeg_b64(decoded[i]) for i in range(int(decoded.shape[0]))]
-                h, w = int(decoded.shape[1]), int(decoded.shape[2])
                 report_director_segment_preview(
-                    node_id, segment_index=ui_idx, image_b64=frames_b64[0], width=w, height=h,
-                    frames=frames_b64, fps=float(plan.frame_rate or 24),
+                    node_id, segment_index=ui_idx,
+                    fps=float(plan.frame_rate or 24),
+                    **build_result_preview(
+                        decoded, float(plan.frame_rate or 24), node_id=node_id,
+                        key=f"seg{int(ui_idx)}", frame_to_b64=tensor_frame_to_jpeg_b64,
+                    ),
                 )
             except Exception as exc:
                 log.debug("Segment video preview skipped: %s", exc)
@@ -2029,11 +2037,13 @@ def execute_director_plan_core(
         if int(frames.shape[0]) <= 0:
             return
         try:
-            frames_b64 = [tensor_frame_to_jpeg_b64(frames[i]) for i in range(int(frames.shape[0]))]
-            height, width = int(frames.shape[1]), int(frames.shape[2])
             report_director_segment_preview(
-                node_id, segment_index=int(seg.timeline_index), image_b64=frames_b64[0],
-                width=width, height=height, frames=frames_b64, fps=float(plan.frame_rate or 24),
+                node_id, segment_index=int(seg.timeline_index),
+                fps=float(plan.frame_rate or 24),
+                **build_result_preview(
+                    frames, float(plan.frame_rate or 24), node_id=node_id,
+                    key=f"bridge{int(seg.timeline_index)}", frame_to_b64=tensor_frame_to_jpeg_b64,
+                ),
             )
         except Exception as exc:
             log.debug("Resolved Source Bridge preview skipped: %s", exc)
@@ -2128,6 +2138,7 @@ def execute_director_plan_core(
             positive, vae=vae, first_frame=first_anchor, last_frame=last_anchor,
             frame_count=5, width=bridge_width, height=bridge_height,
         )
+        positive = append_refmod_references(positive, refmod_refs)
         if clear_vram_between_segments:
             cleanup_segment_vram(enabled=True, unload_models=True)
         try:
@@ -2583,13 +2594,14 @@ def execute_director_plan_core(
     report_director_report(node_id, rendered_report)
     if node_id:
         try:
-            final_frames_b64 = [tensor_frame_to_jpeg_b64(combined[index]) for index in range(int(combined.shape[0]))]
-            if final_frames_b64:
-                report_director_segment_preview(
-                    node_id, segment_index=max(0, len(export_chunks) - 1), image_b64=final_frames_b64[0],
-                    width=int(combined.shape[2]), height=int(combined.shape[1]), frames=final_frames_b64,
-                    fps=float(plan.frame_rate or 24), stage="Final", result_kind="final",
-                )
+            report_director_segment_preview(
+                node_id, segment_index=max(0, len(export_chunks) - 1),
+                fps=float(plan.frame_rate or 24), stage="Final", result_kind="final",
+                **build_result_preview(
+                    combined, float(plan.frame_rate or 24), node_id=node_id,
+                    key="final", frame_to_b64=tensor_frame_to_jpeg_b64,
+                ),
+            )
         except Exception as exc:
             log.debug("Final result preview skipped: %s", exc)
     preview_manager.close()

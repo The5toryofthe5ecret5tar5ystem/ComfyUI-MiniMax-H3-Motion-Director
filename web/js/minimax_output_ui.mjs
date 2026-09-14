@@ -1,4 +1,11 @@
 import { ResultPlaybackController } from "./minimax_output_player.mjs";
+import {
+    clipDescriptor,
+    clipPositionFor,
+    clipStartIndex,
+    totalClipFrames,
+} from "./minimax_output_clips.mjs";
+import { api } from "../../scripts/api.js";
 
 const STYLE_ID = "mmx-output-styles";
 
@@ -1112,6 +1119,16 @@ export function mountOutputUI(
         index: 0,
         playing: false,
 
+        // Preview clip playback. Results arrive as a /view URL to a small
+        // all-intra H.264 clip instead of a base64 JPEG per frame, so the
+        // browser streams them with HTTP range requests. Multi Segment is a
+        // playlist of one clip per segment, played back to back.
+        clipPlaylist: [],
+        clipFrames: 0,
+        clipActive: -1,
+        clipPendingSeek: null,
+        clipResume: false,
+
         saveStatus: {
             kind: "not_ready",
             value: "",
@@ -1153,6 +1170,15 @@ export function mountOutputUI(
 
     const seek =
         resultsRoot.querySelector("[data-result-seek]");
+
+    const timeLabel =
+        resultsRoot.querySelector("[data-result-time]");
+
+    const frameLabel =
+        resultsRoot.querySelector("[data-result-frame]");
+
+    const infoLabel =
+        resultsRoot.querySelector("[data-result-info]");
 
     const segmentSelect =
         resultsRoot.querySelector("[data-segment-select]");
@@ -1591,6 +1617,91 @@ export function mountOutputUI(
         rangeLabel.textContent = `S${state.multiStart + 1} → S${state.multiEnd + 1}`;
     };
 
+    /** Resolve a /view route through the ComfyUI base path (proxies, subpaths). */
+    const viewUrl = (route) =>
+        typeof api?.apiURL === "function"
+            ? api.apiURL(route)
+            : route;
+
+    /**
+     * Preview clip descriptor for a result, or null when the result still ships
+     * the legacy base64 frame array.
+     */
+    const clipOf = (item) =>
+        clipDescriptor(item, viewUrl);
+
+    /** Frame count driving the scrub slider, for either transport. */
+    const visibleFrameCount = () =>
+        state.isVideo
+            ? state.clipFrames
+            : state.frames.length;
+
+    /**
+     * Point the video element at the clip holding ``index`` and seek to the
+     * exact frame. The clips are all-intra, so currentTime = offset / fps lands
+     * on the intended frame rather than the nearest earlier keyframe.
+     */
+    const showClipFrame = (index) => {
+        if (!state.clipPlaylist.length) return;
+
+        const {
+            position,
+            offset,
+        } = clipPositionFor(
+            state.clipPlaylist,
+            index,
+        );
+
+        if (position < 0) return;
+
+        const clip =
+            state.clipPlaylist[position];
+
+        const seconds =
+            offset / Math.max(0.001, clip.fps);
+
+        if (
+            state.clipActive
+            === position
+            && video.getAttribute("src")
+                === clip.url
+        ) {
+            // Same clip: seek directly. Assigning identical src values would
+            // restart the decode from scratch.
+            if (
+                Math.abs(
+                    video.currentTime
+                    - seconds,
+                ) > 0.5 / Math.max(1, clip.fps)
+            ) {
+                state.clipPendingSeek =
+                    seconds;
+
+                try {
+                    video.currentTime =
+                        seconds;
+                } catch {
+                    // Element not seekable yet; loadedmetadata retries.
+                }
+            }
+
+            return;
+        }
+
+        state.clipActive =
+            position;
+
+        state.clipPendingSeek =
+            seconds;
+
+        video.setAttribute(
+            "src",
+            clip.url,
+        );
+
+        video.load();
+    };
+
     const activeResult = () => {
         if (state.tab === "final") {
             return state.final;
@@ -1617,6 +1728,40 @@ export function mountOutputUI(
                 ));
         const ordered = entries.map((entry) => entry[1]);
 
+        const clips =
+            ordered
+                .map(
+                    (item) =>
+                        clipOf(item),
+                )
+                .filter(Boolean);
+
+        const stage =
+            `Multi Segment S${(state.multiStart ?? entries[0]?.[0] ?? 0) + 1}-S${(state.multiEnd ?? entries.at(-1)?.[0] ?? 0) + 1}`;
+
+        // Prefer the clip transport when every segment in range has one. A
+        // partial set falls back to the legacy frame array so the two never mix
+        // on one timeline.
+        if (
+            clips.length
+            && clips.length
+                === ordered.length
+        ) {
+            return {
+                clipPlaylist:
+                    clips,
+                frames: [],
+                fps:
+                    ordered[0]?.fps
+                    || 24,
+                width:
+                    ordered[0]?.width,
+                height:
+                    ordered[0]?.height,
+                stage,
+            };
+        }
+
         const frames =
             ordered.flatMap(
                 (item) =>
@@ -1638,25 +1783,125 @@ export function mountOutputUI(
                     ordered[0]?.width,
                 height:
                     ordered[0]?.height,
-                stage:
-                    `Multi Segment S${(state.multiStart ?? entries[0]?.[0] ?? 0) + 1}-S${(state.multiEnd ?? entries.at(-1)?.[0] ?? 0) + 1}`,
+                stage,
             }
             : null;
     };
 
+    /**
+     * Index-only paint, called from the playback loop once per animation frame.
+     *
+     * It must stay cheap. In particular it must NOT call activeResult(): on the
+     * Multi Segment tab that rebuilds, sorts and flattens the whole segment list
+     * on every call, which used to happen on every frame of playback. It also
+     * must not re-derive the video src - a media payload can be several MB and
+     * the comparison alone is a full string scan.
+     *
+     * Everything it needs was cached by the last full renderFrame().
+     */
+    const paintFrameIndex = (force = false) => {
+        const frames =
+            state.frames;
+
+        const fps =
+            Number(state.fps || 24);
+
+        const count =
+            visibleFrameCount();
+
+        if (!state.isVideo && frames.length) {
+            // Repaint only when the frame actually changed. A data URL for a
+            // full-resolution frame is large enough that re-assigning it every
+            // animation frame costs a needless decode.
+            if (
+                force
+                || state.index
+                    !== state.paintedIndex
+            ) {
+                image.src =
+                    dataUrl(
+                        frames[state.index],
+                        frames[state.index]
+                            ?.startsWith?.("data:")
+                            ? ""
+                            : (
+                                state.frameMediaType
+                                || "image/jpeg"
+                            ),
+                    );
+
+                state.paintedIndex =
+                    state.index;
+            }
+        }
+
+        seek.value =
+            state.index;
+
+        timeLabel.textContent =
+            `${(state.index / fps).toFixed(2)}`
+            + " / "
+            + `${(
+                Math.max(
+                    0,
+                    count - 1,
+                )
+                / fps
+            ).toFixed(2)}`;
+
+        frameLabel.textContent =
+            `${tx("frame")} ${
+                count
+                    ? state.index + 1
+                    : 0
+            } / ${count}`;
+    };
+
+    /**
+     * Full render: re-reads the active result and repaints everything that
+     * depends on it. Call this on result / tab / range / segment changes only -
+     * never from the playback loop.
+     */
     const renderFrame = () => {
         const result =
             activeResult();
 
+        // A result carries either a preview clip (a /view URL streamed by the
+        // browser) or the legacy base64 frame array. Multi Segment supplies a
+        // playlist of one clip per segment.
+        const playlist =
+            Array.isArray(result?.clipPlaylist)
+            && result.clipPlaylist.length
+                ? result.clipPlaylist
+                : (clipOf(result)
+                    ? [clipOf(result)]
+                    : []);
+
+        const clipTotal =
+            totalClipFrames(playlist);
+
         const frames =
-            result?.frames?.length
-                ? result.frames
-                : result?.image_b64
-                    ? [result.image_b64]
-                    : [];
+            playlist.length
+                ? []
+                : result?.frames?.length
+                    ? result.frames
+                    : result?.image_b64
+                        ? [result.image_b64]
+                        : [];
 
         state.frames =
             frames;
+
+        state.clipPlaylist =
+            playlist;
+
+        state.clipFrames =
+            clipTotal;
+
+        const total =
+            playlist.length
+                ? clipTotal
+                : frames.length;
 
         state.index =
             Math.max(
@@ -1665,18 +1910,45 @@ export function mountOutputUI(
                     state.index,
                     Math.max(
                         0,
-                        frames.length - 1,
+                        total - 1,
                     ),
                 ),
             );
+
+        // Force the next index paint to rewrite the image even when the index
+        // itself did not move (the frames behind it may have changed).
+        state.paintedIndex =
+            -1;
 
         const mediaType =
             result?.media_type
             || "image/jpeg";
 
-        const isVideo =
-            mediaType.startsWith("video/")
+        // An inline video is the legacy single-blob transport; a playlist is a
+        // preview clip streamed from /view.
+        const inlineVideo =
+            !playlist.length
+            && mediaType.startsWith("video/")
             && result?.image_b64;
+
+        const isVideo =
+            playlist.length > 0
+            || !!inlineVideo;
+
+        state.isVideo =
+            isVideo;
+
+        state.fps =
+            Number(
+                result?.fps
+                || playlist[0]?.fps
+                || 24,
+            );
+
+        state.frameMediaType =
+            result?.frames?.length
+                ? "image/jpeg"
+                : mediaType;
 
         video.hidden =
             !isVideo;
@@ -1689,93 +1961,56 @@ export function mountOutputUI(
             isVideo
             || !!frames.length;
 
-        if (isVideo) {
+        if (playlist.length) {
+            state.clipResume =
+                false;
+
+            showClipFrame(
+                state.index,
+            );
+        } else if (inlineVideo) {
             const src =
                 dataUrl(
                     result.image_b64,
                     mediaType,
                 );
 
-            if (video.src !== src) {
+            // Compare the attribute we set, not the .src property: the
+            // property re-serialises the whole data URL on every read.
+            if (
+                video.getAttribute("src")
+                !== src
+            ) {
                 video.pause();
-                video.src = src;
+                video.setAttribute(
+                    "src",
+                    src,
+                );
                 video.load();
             }
-        } else if (frames.length) {
+        } else {
             video.pause();
-
-            image.src =
-                dataUrl(
-                    frames[state.index],
-                    frames[state.index]
-                        ?.startsWith?.("data:")
-                        ? ""
-                        : (
-                            result?.frames?.length
-                                ? "image/jpeg"
-                                : mediaType
-                        ),
-                );
         }
 
         seek.max =
             Math.max(
                 0,
-                frames.length - 1,
+                total - 1,
             );
 
-        seek.value =
-            state.index;
-
-        const fps =
-            Number(
-                result?.fps
-                || 24,
-            );
-
-        resultsRoot
-            .querySelector(
-                "[data-result-time]",
-            )
-            .textContent =
-                `${(state.index / fps).toFixed(2)}`
-                + " / "
-                + `${(
-                    Math.max(
-                        0,
-                        frames.length - 1,
-                    )
-                    / fps
-                ).toFixed(2)}`;
-
-        resultsRoot
-            .querySelector(
-                "[data-result-frame]",
-            )
-            .textContent =
-                `${tx("frame")} ${
-                    frames.length
-                        ? state.index + 1
-                        : 0
-                } / ${frames.length}`;
-
-        resultsRoot
-            .querySelector(
-                "[data-result-info]",
-            )
-            .textContent =
-                result
-                    ? `${result.width || "—"}×${result.height || "—"}`
-                        + ` · ${fps} fps`
-                        + ` · ${
-                            frames.length
-                            || (
-                                isVideo
-                                    ? "video"
-                                    : 0
-                            )
-                        } ${tx("frames")}`
-                    : "—";
+        infoLabel.textContent =
+            result
+                ? `${result.width || "—"}×${result.height || "—"}`
+                    + ` · ${state.fps} fps`
+                    + ` · ${
+                        total
+                        || (
+                            isVideo
+                                ? "video"
+                                : 0
+                        )
+                    } ${tx("frames")}`
+                : "—";
 
         badge.textContent =
             result
@@ -1785,26 +2020,39 @@ export function mountOutputUI(
                         : ""
                 }`
                 : tx("idle");
+
+        paintFrameIndex(true);
     };
 
     const playback =
         new ResultPlaybackController({
             audio,
 
+            // Read the fps cached by the last full render, not activeResult():
+            // the controller consults this several times per animation frame.
             getFps: () =>
                 Number(
-                    activeResult()?.fps
+                    state.fps
                     || 24,
                 ),
 
+            // Must report the transport actually in use. On the preview-clip
+            // path state.frames is empty *by design* and the timeline length
+            // lives in state.clipFrames, so returning state.frames.length gave
+            // the transport a zero-frame timeline and a play button that did
+            // nothing. visibleFrameCount() already draws that distinction.
             getFrameCount: () =>
-                state.frames.length,
+                visibleFrameCount(),
 
             onFrame(index) {
                 state.index =
                     index;
 
-                renderFrame();
+                // Index-only repaint. Calling renderFrame() here re-derived the
+                // whole result - on the Multi Segment tab that meant sorting and
+                // flattening every segment on each animation frame, which is
+                // what made playback stall.
+                paintFrameIndex();
             },
 
             onPlaying(playing) {
@@ -1986,10 +2234,32 @@ export function mountOutputUI(
 
     seek.addEventListener(
         "input",
-        () =>
+        () => {
+            const value =
+                Number(seek.value);
+
+            // Clips are all-intra, so seeking to offset / fps lands on the
+            // intended frame instead of the nearest earlier keyframe.
+            if (state.clipPlaylist.length) {
+                state.index =
+                    value;
+
+                // Scrubbing cancels a queued playlist advance.
+                state.clipResume =
+                    false;
+
+                showClipFrame(
+                    value,
+                );
+
+                paintFrameIndex(true);
+                return;
+            }
+
             playback.seek(
-                Number(seek.value),
-            ),
+                value,
+            );
+        },
     );
 
     volume.addEventListener(
@@ -2002,9 +2272,264 @@ export function mountOutputUI(
         },
     );
 
+    // A video result has no native controls, so the Play button has to drive the
+    // element itself. Keep the button label in step with the element's own state
+    // (which also changes on ended / external pause).
+    const syncVideoPlayState = () => {
+        if (!state.isVideo) return;
+
+        state.playing =
+            !video.paused
+            && !video.ended;
+
+        playButton.textContent =
+            tx(
+                state.playing
+                    ? "pause"
+                    : "play",
+            );
+
+        // A preview clip carries picture only - the Director delivers audio on a
+        // separate element. The frame-array player used to start that audio, so
+        // clip playback has to do it here or the result would play silent.
+        if (!state.clipPlaylist.length) return;
+
+        if (
+            !String(
+                audio.currentSrc
+                || audio.src
+                || "",
+            ).trim()
+        ) {
+            return;
+        }
+
+        if (state.playing) {
+            syncAudioToVideo();
+            audio.play?.().catch?.(
+                () => {},
+            );
+            return;
+        }
+
+        audio.pause();
+    };
+
+    /**
+     * Keep the separate audio element aligned with the video.
+     *
+     * The time base is the *global* frame time, not video.currentTime. On the
+     * Segment tab the audio track belongs to that segment, so the two agree; on
+     * Multi/Final the audio is the combined track spanning every segment, where
+     * a clip-local clock would restart the audio at each segment boundary.
+     */
+    const syncAudioToVideo = () => {
+        if (
+            !state.clipPlaylist.length
+            || video.paused
+        ) {
+            return;
+        }
+
+        if (
+            audio.paused
+            || !Number.isFinite(
+                audio.duration,
+            )
+        ) {
+            return;
+        }
+
+        const seconds =
+            state.index
+            / Math.max(
+                0.001,
+                Number(state.fps || 24),
+            );
+
+        // Only correct real drift; nudging every tick would stutter the audio.
+        if (
+            Math.abs(
+                Number(audio.currentTime || 0)
+                - seconds,
+            ) > 0.12
+        ) {
+            try {
+                audio.currentTime =
+                    seconds;
+            } catch {
+                // Audio not seekable yet; the next tick retries.
+            }
+        }
+    };
+
+    const reportVideoProgress = () => {
+        if (!state.isVideo) return;
+
+        // Clip playback reports time through paintFrameIndex() using the global
+        // frame index, because one clip's duration is not the timeline length.
+        if (state.clipPlaylist.length) return;
+
+        const duration =
+            Number(video.duration);
+
+        if (
+            !Number.isFinite(duration)
+            || duration <= 0
+        ) {
+            return;
+        }
+
+        timeLabel.textContent =
+            `${video.currentTime.toFixed(2)}`
+            + " / "
+            + `${duration.toFixed(2)}`;
+    };
+
+    video.addEventListener(
+        "play",
+        syncVideoPlayState,
+    );
+
+    video.addEventListener(
+        "pause",
+        syncVideoPlayState,
+    );
+
+    video.addEventListener(
+        "ended",
+        syncVideoPlayState,
+    );
+
+    video.addEventListener(
+        "timeupdate",
+        reportVideoProgress,
+    );
+
+    video.addEventListener(
+        "timeupdate",
+        syncAudioToVideo,
+    );
+
+    /**
+     * Follow the element's own clock. When a clip is playing the browser is
+     * authoritative for which frame is on screen, so the slider and counters
+     * are derived from currentTime rather than driving it.
+     */
+    const syncIndexFromVideo = () => {
+        if (!state.clipPlaylist.length) return;
+
+        const position =
+            state.clipActive;
+
+        const clip =
+            state.clipPlaylist[position];
+
+        if (!clip) return;
+
+        const local =
+            Math.round(
+                Number(video.currentTime || 0)
+                * Math.max(0.001, clip.fps),
+            );
+
+        state.index =
+            clipStartIndex(
+                state.clipPlaylist,
+                position,
+            )
+            + Math.max(
+                0,
+                Math.min(
+                    Math.max(0, clip.frames - 1),
+                    local,
+                ),
+            );
+
+        paintFrameIndex();
+    };
+
+    video.addEventListener(
+        "seeked",
+        syncIndexFromVideo,
+    );
+
+    // A seek requested before the element has metadata has to wait: assigning
+    // currentTime on a not-yet-loaded media element is silently ignored.
+    video.addEventListener(
+        "loadedmetadata",
+        () => {
+            if (state.clipPendingSeek != null) {
+                const seconds =
+                    state.clipPendingSeek;
+
+                state.clipPendingSeek =
+                    null;
+
+                try {
+                    video.currentTime =
+                        seconds;
+                } catch {
+                    // Element rejected the seek (detached); the next render retries.
+                }
+            }
+
+            // Playlist advance: start the next clip only once it is positioned,
+            // otherwise it would briefly play from frame 0 before the seek lands.
+            if (state.clipResume) {
+                state.clipResume =
+                    false;
+
+                video.play?.().catch?.(
+                    () => {},
+                );
+            }
+        },
+    );
+
+    // Multi Segment: continue into the next clip when one finishes.
+    video.addEventListener(
+        "ended",
+        () => {
+            if (!state.clipPlaylist.length) return;
+
+            const next =
+                state.clipActive + 1;
+
+            if (next >= state.clipPlaylist.length) return;
+
+            state.index =
+                clipStartIndex(
+                    state.clipPlaylist,
+                    next,
+                );
+
+            state.clipResume =
+                true;
+
+            showClipFrame(
+                state.index,
+            );
+        },
+    );
+
     playButton.addEventListener(
         "click",
         () => {
+            // Video results play through the element; frame sequences play
+            // through the frame-by-frame controller.
+            if (state.isVideo) {
+                if (video.paused) {
+                    video.play?.().catch?.(
+                        () => {},
+                    );
+                } else {
+                    video.pause();
+                }
+
+                return;
+            }
+
             if (state.playing) {
                 playback.pause();
             } else {
@@ -2200,9 +2725,19 @@ export function mountOutputUI(
                     "[data-final-info]",
                 );
 
+            // The clip transport ships no frame array, so take the count from
+            // the clip itself when one is present; otherwise it would read
+            // "0 frames" next to a clip that plays perfectly well.
+            const finalClip =
+                clipOf(item);
+
             finalInfo.textContent =
                 `${item.width || "—"}×${item.height || "—"}`
-                + ` · ${item.frames.length} ${tx("frames")}`
+                + ` · ${
+                    finalClip
+                        ? finalClip.frames
+                        : item.frames.length
+                } ${tx("frames")}`
                 + ` · ${item.fps || 24} fps`;
 
             finalInfo.dataset.hasResult =

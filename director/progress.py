@@ -206,6 +206,7 @@ def report_director_segment_preview(
     width: int = 0,
     height: int = 0,
     frames: list[str] | None = None,
+    preview: dict | None = None,
     fps: float = 24.0,
     live: bool = False,
     step: int | None = None,
@@ -238,6 +239,12 @@ def report_director_segment_preview(
         payload["pass_count"] = int(pass_count)
     if frames:
         payload["frames"] = frames
+        payload["fps"] = fps
+    if preview:
+        # Clip metadata (preview_url and friends) from director/preview_clip.py.
+        # When present the UI streams the clip over HTTP instead of decoding
+        # every frame locally; `frames` is then absent by design.
+        payload.update(preview)
         payload["fps"] = fps
     if step is not None:
         payload["step"] = int(step)
