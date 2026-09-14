@@ -216,6 +216,7 @@ def prepare_director_plan(
     motion_context_enabled: bool = True,
     i2v_groups=None,
     r2v_groups=None,
+    refmod_block_count: int = 0,
 ):
     from ..director.external_groups import (
         build_plan_from_external_groups,
@@ -336,6 +337,7 @@ def prepare_director_plan(
         height=height,
         ref_max_size=ref_max_size,
         motion_context_enabled=motion_context_enabled,
+        refmod_block_count=refmod_block_count,
     )
     log.info(plan_summary(plan, include_prompts=False).replace("\n", " | "))
     log.debug(plan_summary(plan).replace("\n", " | "))

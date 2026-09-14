@@ -93,6 +93,133 @@ def append_minimax_keyframe_anchors(
     return merged
 
 
+def harvest_refmod_refs(conditioning) -> list:
+    """Collect RefMod reference blocks from a connected CONDITIONING.
+
+    ``Apply H3 RefMod`` (ComfyUI-MiniMaxH3Mod) appends its reference latents to
+    ``minimax_refs`` - the same key the official ReferenceToVideo node fills - so
+    a connected conditioning can contribute references here.
+
+    Only that reference payload is kept. The prompt and the target latent in the
+    connected conditioning were built for a different prompt and a different
+    frame size than this node's per-segment conditioning, so they are discarded:
+    appending the refs to each segment's own conditioning is what makes them
+    take effect. Returns ``[]`` when nothing usable is connected.
+
+    Blocks are returned as shallow copies because the same list is handed to
+    every segment. They are read-only downstream (RefMod's step curve rebuilds
+    rather than mutates), but copying stops a future in-place edit from leaking
+    across segments.
+    """
+    if not conditioning:
+        return []
+    if not isinstance(conditioning, (list, tuple)):
+        raise ValueError(
+            "refmod_conditioning must be a native ComfyUI CONDITIONING. Wire it "
+            "through Apply H3 RefMod (conditioning in, conditioning out); the "
+            "ComfyUI-MiniMaxH3 pack conditioning object is not supported."
+        )
+
+    blocks: list = []
+    for entry in conditioning:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+        metadata = entry[1]
+        if not isinstance(metadata, dict):
+            continue
+        for item in metadata.get("minimax_refs") or []:
+            if isinstance(item, dict):
+                blocks.append(dict(item))
+    return blocks
+
+
+def _refmod_metadata_keys(conditioning) -> list:
+    """The metadata keys actually present on a connected conditioning."""
+    seen: set = set()
+    try:
+        for entry in conditioning:
+            if (isinstance(entry, (list, tuple)) and len(entry) >= 2
+                    and isinstance(entry[1], dict)):
+                seen.update(entry[1].keys())
+    except TypeError:
+        pass
+    return sorted(seen)
+
+
+def harvest_and_report_refmods(conditioning) -> list:
+    """Harvest RefMod blocks and say which of the three wiring states we are in.
+
+    Shared by every Director entry point. There is more than one: the registered
+    node's ``execute`` lives in ``nodes/director_inputs.py`` and overrides the one
+    in ``nodes/director.py``, so the wiring has to be applied through a common
+    helper rather than repeated per class - repeating it is exactly how the two
+    silently diverged before.
+
+    All three states are printed rather than logged, because they must survive
+    whatever log level ComfyUI is configured with, and two of them used to print
+    nothing at all: a RefMod that was never wired and a RefMod that was wired but
+    carried nothing looked identical from the console, and both looked like "the
+    mod had no effect". The empty case dumps the metadata keys it saw so a wrong
+    key name is visible instead of silent.
+
+    Returns ``[]`` when nothing usable is connected.
+    """
+    if conditioning is None:
+        print(
+            "[RefMod] refmod_conditioning is NOT connected - no RefMod references "
+            "are used by any segment."
+        )
+        return []
+
+    blocks = harvest_refmod_refs(conditioning)
+    if blocks:
+        print(
+            f"[RefMod] {len(blocks)} reference block(s) harvested from "
+            f"refmod_conditioning and appended to every segment."
+        )
+        return blocks
+
+    print(
+        "[RefMod] refmod_conditioning IS connected but carried no reference blocks, "
+        "so nothing was appended. Check that Apply H3 RefMod receives a mod and that "
+        "its retention is above 0."
+    )
+    print(
+        "[RefMod]   conditioning metadata keys seen: "
+        f"{_refmod_metadata_keys(conditioning)}"
+    )
+    return blocks
+
+
+def append_refmod_references(conditioning, blocks):
+    """Append RefMod reference blocks to already-built segment conditioning.
+
+    Mirrors :func:`append_minimax_keyframe_anchors`: the official reference node
+    has already produced ``minimax_refs`` and the target latent, and these blocks
+    are concatenated onto that list. RefMod marks every block with
+    ``refmod=True`` so its step-curve wrapper only re-mixes what it injected and
+    leaves this node's own references untouched.
+
+    RefMod blocks go after the native refs, which is the order the step curve's
+    positional latent lookup expects.
+    """
+    if not blocks:
+        return conditioning
+    if not isinstance(conditioning, (list, tuple)) or not conditioning:
+        raise ValueError("RefMod references require non-empty positive conditioning.")
+
+    merged = []
+    for entry in conditioning:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            raise ValueError("RefMod conditioning entry has an invalid shape.")
+        metadata = dict(entry[1] or {})
+        metadata["minimax_refs"] = list(metadata.get("minimax_refs") or []) + [
+            dict(block) for block in blocks
+        ]
+        merged.append([entry[0], metadata, *entry[2:]])
+    return merged
+
+
 def _shared_optional_inputs() -> dict:
     return {
         "first_frame": (

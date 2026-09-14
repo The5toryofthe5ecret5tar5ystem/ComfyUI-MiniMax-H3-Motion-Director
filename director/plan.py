@@ -627,6 +627,7 @@ def build_director_plan(
     height: int,
     ref_max_size: int,
     motion_context_enabled: bool = True,
+    refmod_block_count: int = 0,
 ) -> DirectorPlan:
     timeline: dict = {}
     if timeline_data and timeline_data.strip():
@@ -673,6 +674,7 @@ def build_director_plan(
             height=height,
             ref_max_size=ref_max_size,
             motion_context_enabled=motion_context_enabled,
+            refmod_block_count=refmod_block_count,
         )
 
     frame_map = logical_frame_map(timeline)

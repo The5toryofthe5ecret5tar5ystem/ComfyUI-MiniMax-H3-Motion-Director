@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 import comfy.samplers
@@ -17,6 +18,7 @@ from ..director.executor_core import execute_director_plan_core
 from ..director.execution_report import append_report_section_lines, fmt_seconds
 from ..director.mixed_runtime import bind_mixed_runtime_node
 from ..director.postprocess_config import normalize_postprocess_config
+from ..director.preview_clip import cleanup_previews, prune_previews
 from ..director.progress import (
     report_director_audio_preview,
     report_director_complete,
@@ -32,8 +34,11 @@ from .director_common import (
     timeline_required_inputs,
     director_perf_inputs,
 )
+from .conditioning import harvest_and_report_refmods
 
 _CATEGORY = "MiniMaxH3"
+
+log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.nodes.director")
 
 _DEFAULT_GLOBAL_PROMPT = "A cinematic scene with natural motion and synchronized ambience"
 
@@ -126,8 +131,7 @@ class MiniMaxH3MotionDirector:
                         ),
                     },
                 ),
-                "bd_grp_motion": ("BDGROUP", {"default": "Motion Context"}),
-                "motion_context_enabled": (
+                "bd_grp_motion": ("BDGROUP", {"default": "Motion Context"}),                "motion_context_enabled": (
                     "BOOLEAN",
                     {
                         "default": True,
@@ -303,6 +307,24 @@ class MiniMaxH3MotionDirector:
                         ),
                     },
                 ),
+                # Declared LAST on purpose. The custom frontend reads its own state
+                # positionally (widgets_values[N]), so a mid-block insert would make
+                # saved workflows rehydrate the wrong values - see
+                # tests/test_director_input_order.py, which freezes this order.
+                "refmod_conditioning": (
+                    "CONDITIONING",
+                    {
+                        "tooltip": (
+                            "Optional RefMod references (ComfyUI-MiniMaxH3Mod). "
+                            "Wire CLIP Text Encode to Apply H3 RefMod and connect "
+                            "its conditioning here. This node builds its own "
+                            "per-segment conditioning, so only the RefMod "
+                            "reference payload is used: the prompt and frame size "
+                            "of the conditioning you connect are ignored. Applied "
+                            "to every segment."
+                        ),
+                    },
+                ),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -383,13 +405,42 @@ class MiniMaxH3MotionDirector:
         postprocess_config="",
         prompt=None,
         extra_pnginfo=None,
+        refmod_conditioning=None,
         **kwargs,
     ):
+        # ComfyUI binds inputs to parameters by name, so anything still in kwargs
+        # arrived under a name this signature does not declare and is silently
+        # unusable. Surface it: a one-word mismatch otherwise looks exactly like
+        # "the user never connected anything".
+        # `bd_grp_*` are frontend section-header widgets - they carry no value the
+        # node consumes, so they belong here and are not worth reporting.
+        unexpected = sorted(k for k in kwargs if not k.startswith("bd_grp_"))
+        if unexpected:
+            print(
+                "[MiniMax H3 Motion Director] ignoring undeclared input(s): "
+                + ", ".join(unexpected)
+            )
         del kwargs
         run_started = time.perf_counter()
         auto_save_seconds = None
 
         final_run_id = FINAL_VIDEO_REGISTRY.begin_run(unique_id) if unique_id is not None else None
+
+        # Preview clips from the previous run for this node are stale the moment a
+        # new run starts: the UI would otherwise be able to fetch them by URL.
+        # prune_previews() sweeps clips left behind by nodes that no longer run.
+        # Both helpers absorb their own errors - cleanup must never fail a run.
+        if unique_id is not None:
+            cleanup_previews(unique_id)
+        prune_previews()
+
+        # A connected CONDITIONING contributes only its RefMod reference payload.
+        # This node builds its own conditioning per segment, so the prompt and
+        # target latent that came in with it are discarded - see
+        # harvest_refmod_refs for why. Harvested BEFORE the plan is built so the
+        # plan builder knows these segments are reference-conditioned even though
+        # they carry no built-in reference media of their own.
+        refmod_refs = harvest_and_report_refmods(refmod_conditioning)
 
         plan = prepare_director_plan(
             timeline_data=timeline_data,
@@ -404,6 +455,7 @@ class MiniMaxH3MotionDirector:
             motion_context_enabled=motion_context_enabled,
             i2v_groups=i2v_groups,
             r2v_groups=r2v_groups,
+            refmod_block_count=len(refmod_refs),
         )
 
         if bool(getattr(plan, "mixed_mode", False)):
@@ -415,8 +467,7 @@ class MiniMaxH3MotionDirector:
 
         combined, segment_outputs, segment_audios, report = execute_director_plan_core(
             plan,
-            node_id=unique_id,
-            model=model,
+            node_id=unique_id,            model=model,
             vae=video_vae,
             audio_vae=audio_vae,
             clip=clip,
@@ -437,6 +488,7 @@ class MiniMaxH3MotionDirector:
             audio_refine_enabled=audio_refine_enabled,
             audio_refine_steps=audio_refine_steps,
             audio_refine_denoise=audio_refine_denoise,
+            refmod_refs=refmod_refs,
             pin_renorm_enabled=pin_renorm_enabled,
             clear_vram_between_segments=clear_vram_between_segments,
             postprocess_config=postprocess_config,
@@ -444,6 +496,19 @@ class MiniMaxH3MotionDirector:
 
         if bool(getattr(plan, "mixed_mode", False)):
             report = _append_mixed_dependency_report(plan, report)
+
+        if refmod_refs:
+            report = report + (
+                f"\n\nRefMod: {len(refmod_refs)} reference block(s) appended to every "
+                "segment. Only the RefMod payload was used - the prompt and frame "
+                "size of the connected conditioning are ignored."
+            )
+        elif refmod_conditioning is not None:
+            report = report + (
+                "\n\nRefMod: refmod_conditioning is connected but supplied no "
+                "reference blocks - nothing was appended. Check that Apply H3 RefMod "
+                "receives a mod and that its retention is above 0."
+            )
 
         postprocess = normalize_postprocess_config(postprocess_config)
         deblur_config = postprocess["global_refine"]

@@ -1,0 +1,2579 @@
+{
+  "id": "tkl1j7zz8tinelny4iltivo93f",
+  "revision": 0,
+  "last_node_id": 16,
+  "last_link_id": 78,
+  "nodes": [
+    {
+      "id": "cff",
+      "type": "MiniMaxChunkFeedForward",
+      "pos": [
+        0,
+        670
+      ],
+      "size": [
+        316.38046875,
+        82
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 47
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            19
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-kjnodes",
+        "ver": "1.5.0",
+        "Node name for S&R": "MiniMaxChunkFeedForward",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        2,
+        4096
+      ],
+      "widgets_values_named": {
+        "chunks": 2,
+        "seq_threshold": 4096
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": "sla",
+      "type": "H3SLAAttention",
+      "pos": [
+        0,
+        800
+      ],
+      "size": [
+        319.04530730967303,
+        370
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 19
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            70
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "plaguekind-nodes",
+        "ver": "1.4.2",
+        "Node name for S&R": "H3SLAAttention",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        0.9,
+        "64",
+        8192,
+        1,
+        true,
+        false,
+        "1",
+        "comfy_kitchen",
+        true,
+        false,
+        "Light",
+        false,
+        true,
+        "comfy_kitchen"
+      ],
+      "widgets_values_named": {
+        "sparsity_ratio": 0.9,
+        "block_size": "64",
+        "min_seq_len": 8192,
+        "dense_last_steps": 1,
+        "protect_audio": true,
+        "enabled": false,
+        "dense_steps": "1",
+        "dense_backend": "comfy_kitchen",
+        "disable_fp16_accum": true,
+        "stabilize_motion": false,
+        "reference_protection": "Light",
+        "tail_correction": false,
+        "use_int8_qk": true,
+        "engine": "comfy_kitchen"
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 13,
+      "type": "SpectrumApplyMiniMaxH3",
+      "pos": [
+        350,
+        670
+      ],
+      "size": [
+        330.6499938964844,
+        658
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 71
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            67,
+            69
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-spectrum-minimax-h3",
+        "ver": "beb32dd210ef9e95520453107f158241d4f2ecf3",
+        "Node name for S&R": "SpectrumApplyMiniMaxH3",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        true,
+        0.5,
+        1,
+        0.1,
+        2,
+        0.75,
+        1,
+        1,
+        8,
+        false,
+        "system_ram",
+        true,
+        false,
+        false,
+        true,
+        0,
+        "system_ram",
+        "off",
+        0.65,
+        false,
+        false,
+        "coordinate_rls",
+        "hard_clip",
+        0.4,
+        "no_attenuation",
+        "balanced"
+      ],
+      "widgets_values_named": {
+        "enabled": true,
+        "blend_weight": 0.5,
+        "degree": 1,
+        "ridge_lambda": 0.1,
+        "window_size": 2,
+        "flex_window": 0.75,
+        "warmup_steps": 1,
+        "tail_actual_steps": 1,
+        "max_history": 8,
+        "debug": false,
+        "history_storage": "system_ram",
+        "bootstrap_first_forecast": true,
+        "anchor_residual_feedback": false,
+        "selective_rollback_correction": false,
+        "offline_smoothing_replay": true,
+        "audio_blend_weight": 0,
+        "offline_archive_storage": "system_ram",
+        "model_aware_mode": "off",
+        "model_aware_risk_threshold": 0.65,
+        "model_aware_trust_shrinkage": false,
+        "model_aware_replay_generic_correction": false,
+        "generic_correction_mode": "coordinate_rls",
+        "generic_correction_limiter": "hard_clip",
+        "generic_correction_limit": 0.4,
+        "generic_correction_attenuation": "no_attenuation",
+        "sa_pece_forecast_policy": "balanced"
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 11,
+      "type": "Power Lora Loader (rgthree)",
+      "pos": [
+        -530,
+        670
+      ],
+      "size": [
+        490,
+        490
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "dir": 3,
+          "name": "model",
+          "type": "MODEL",
+          "link": 70
+        },
+        {
+          "dir": 3,
+          "name": "clip",
+          "type": "CLIP",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "dir": 4,
+          "name": "MODEL",
+          "shape": 3,
+          "type": "MODEL",
+          "links": [
+            71
+          ]
+        },
+        {
+          "dir": 4,
+          "name": "CLIP",
+          "shape": 3,
+          "type": "CLIP",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "rgthree-comfy",
+        "ver": "1.0.2608210019",
+        "Show Strengths": "Single Strength",
+        "Match": "",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        {},
+        {
+          "type": "PowerLoraLoaderHeaderWidget"
+        },
+        {},
+        ""
+      ],
+      "widgets_values_named": {
+        "divider": {},
+        "PowerLoraLoaderHeaderWidget": {
+          "type": "PowerLoraLoaderHeaderWidget"
+        },
+        "➕ Add Lora": ""
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": "clean",
+      "type": "easy cleanGpuUsed",
+      "pos": [
+        1650,
+        710
+      ],
+      "size": [
+        161.3499969482422,
+        26
+      ],
+      "flags": {
+        "collapsed": true,
+        "pinned": true
+      },
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "anything",
+          "type": "*",
+          "link": 29
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "*",
+          "links": [
+            30
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-easy-use",
+        "ver": "1.3.6",
+        "Node name for S&R": "easy cleanGpuUsed",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "color": "#372363FF",
+      "bgcolor": "#482E82FF"
+    },
+    {
+      "id": "ssel",
+      "type": "KSamplerSelect",
+      "pos": [
+        740,
+        340
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "SAMPLER",
+          "type": "SAMPLER",
+          "links": [
+            25
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "KSamplerSelect",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "euler"
+      ],
+      "widgets_values_named": {
+        "sampler_name": "euler"
+      },
+      "color": "#632323FF",
+      "bgcolor": "#822E2EFF"
+    },
+    {
+      "id": "dir",
+      "type": "MiniMaxH3MotionDirector",
+      "pos": [
+        720,
+        620
+      ],
+      "size": [
+        623.5162204999688,
+        717
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 67
+        },
+        {
+          "name": "video_vae",
+          "type": "VAE",
+          "link": 57
+        },
+        {
+          "name": "audio_vae",
+          "type": "VAE",
+          "link": 56
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 55
+        },
+        {
+          "name": "sampler",
+          "shape": 7,
+          "type": "SAMPLER",
+          "link": 25
+        },
+        {
+          "name": "sigmas",
+          "shape": 7,
+          "type": "SIGMAS",
+          "link": 26
+        },
+        {
+          "name": "refmod_conditioning",
+          "shape": 7,
+          "type": "CONDITIONING",
+          "link": 77
+        },
+        {
+          "name": "director_inputs",
+          "shape": 7,
+          "type": "MMX_MOTION_DIR_INPUTS",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "shape": 6,
+          "type": "IMAGE",
+          "links": [
+            27
+          ]
+        },
+        {
+          "name": "audio",
+          "shape": 6,
+          "type": "AUDIO",
+          "links": [
+            28
+          ]
+        },
+        {
+          "name": "fps",
+          "type": "FLOAT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "minimax-h3-motion-director",
+        "ver": "f99390645533c0993a8914f2585d7199ebc3e8e2",
+        "Node name for S&R": "MiniMaxH3MotionDirector",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        },
+        "mmx_director_widget_state": {
+          "task_type": "r2v — 参考主体生视频(Reference images to video)",
+          "global_prompt": "Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.",
+          "bd_grp_sample": "Sampling Settings  [External]",
+          "cfg": 1,
+          "seed": 557837627721219,
+          "control_after_generate": "fixed",
+          "frame_rate": 24,
+          "width": 1152,
+          "height": 640,
+          "ref_max_size": 1152,
+          "total_frames": 107,
+          "timeline_data": "{\"version\":5,\"editMode\":\"segment\",\"totalFrames\":107,\"frameRate\":24,\"width\":1152,\"height\":640,\"refMaxSize\":1152,\"output\":{\"mode\":\"fixed\",\"aspectRatio\":\"16:9 (宽屏)\",\"megapixels\":0.7,\"multiple\":32,\"longEdge\":1152,\"width\":1152,\"height\":640,\"maxExportFrames\":0,\"exportMode\":\"all\",\"audioMode\":\"generate\",\"continuityEnabled\":false,\"continuityOverlapFrames\":9},\"videoClips\":[],\"video\":{\"fileName\":\"\",\"videoFile\":\"\",\"subfolder\":\"\",\"type\":\"input\",\"frames\":[],\"frameMap\":[],\"sourceFrameCount\":2192,\"deletedSourceRanges\":[]},\"global\":{\"taskType\":\"r2v — 参考主体生视频(Reference images to video)\",\"prompt\":\"Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.\",\"refs\":[],\"referenceVideo\":{\"videoFile\":\"\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"},\"continuousReference\":false,\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\"}},\"segments\":[{\"id\":\"29a6fab84cac4\",\"start\":0,\"length\":107,\"frameCount\":107,\"durationSec\":4,\"prompt\":\"subject_definitions:\\n<Subject 1> is the woman in the attached character reference - a swift, athletic forest runner. Her face, hair and build come from that reference and are not described here.\\nIdentity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman.\\nReference rule: the attached character reference is a static identity reference only. It never shows her in motion, and its background, framing, panel layout and any standing pose must never appear in the video. Every shot uses the running, leaping or balancing action described for that shot, and all motion, camera moves and cuts are created fresh by each shot's description.\\nwardrobe:\\nHer clothing comes from {{mmx-ref:picture:f-679ad2b20f8ae020}}. Reproduce the garment only - the same colour, fabric, cut and length. {{mmx-ref:picture:f-679ad2b20f8ae020}} must not supply a face, hair, body shape, skin tone, background or framing, and must not supply any other character visible in that image. The character reference supplies her face, hair and build and must not supply clothing.\\nStyle: cinematic, photoreal, warm golden sunlight raking through the trees, rim light, volumetric god rays, long warm shadows, drifting leaves.\\nAudio: only her quiet exertion breaths, soft grunts on jumps and landings, clothes rustling, running footfalls, and forest ambience (wind in the canopy, distant birds, a far creek). No dialogue and no music at any point.\\nsummary:\\nGolden-hour opening - <Subject 1> sprints through dense old-growth forest. The camera opens on her face in a medium shot, then widens to track her full-body run through the trees.\\n\\ndetailed_description:\\n[Shot 1] The shot opens on a medium three-quarter shot of <Subject 1> running toward camera between sunlit trunks, her face clearly lit by warm golden light, hair and light clothing moving with her stride. She passes beside the lens and the camera cuts to a wide tracking shot of her full body sprinting between the trees at a fast, fluid pace. A low side-tracking shot runs alongside her, then a brief front-facing shot shows her leaping a mossy fallen log mid-stride and keeping going. She moves in a dynamic forward-leaning stride - arms and legs pumping, torso angled into the motion - never a static standing pose and never anything resembling a reference sheet or grid. Camera motion is fast but smooth, matching her speed; pans and angle changes are quick and dynamic. Sunlight flares between the trees, long warm shadows, drifting leaves. She breathes steadily, focused, expression determined. Audio: rhythmic breaths and light exertion, a soft grunt on the log leap, footfalls on leaf litter, clothes rustling, forest ambience - wind through high branches, distant birdsong. No dialogue, no music.Scene: a vast primeval forest in warm golden-hour light.\",\"negativePrompt\":\"\",\"taskType\":\"\",\"refs\":[],\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\",\"fileName\":\"\"},\"contextLink\":{\"schema\":\"previous_context_link_v1\",\"enabled\":false,\"visual\":false,\"audio\":false}}],\"gen\":{\"defaultFrameCount\":124},\"runSelectEnabled\":false,\"runSelection\":[],\"liveTaePreview\":true,\"timelineMode\":\"prompt_batch\",\"seedMode\":\"fixed\",\"r2vCommon\":{\"refs\":[{\"index\":0,\"assetId\":\"f-679ad2b20f8ae020\",\"imageFile\":\"s-l1200.jpg\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"}],\"refAudios\":[],\"refVideos\":[]},\"audioRoles\":{\"version\":2,\"global\":{},\"segments\":{\"kpitn0lc1y24\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd6xc017sfx\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"6nh65qltw80c\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"5tj4pbjue0b5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd742qtt1j5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd75khcyo5j\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ppwhynvmh6dl\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ktu1hxyhbgkt\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"3vfh02dd3jcm\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"g3enuyym0eig\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"efi4gybtvbck\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"4jojwloea5jf\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"zsaamjk7yav6\":{},\"29a6fab84cac4\":{},\"de5e0c94506f4\":{},\"3fd81b443c664\":{}}},\"resumeRun\":{\"enabled\":false,\"from\":null}}",
+          "bd_grp_motion": "Cross-Segment Continuity",
+          "motion_context_enabled": true,
+          "context_length": 44,
+          "source_overlap_frames": 5,
+          "audio_context_enabled": true,
+          "color_reanchor_enabled": true,
+          "bd_grp_advanced": "Advanced sampling · Sampling: external",
+          "steps": 25,
+          "sampler_name": "res_multistep",
+          "scheduler": "simple",
+          "shift_video": 6,
+          "shift_audio": 3,
+          "bd_grp_perf": "Performance",
+          "clear_vram_between_segments": false,
+          "export_source_images": false,
+          "bd_grp_experimental": "Experimental",
+          "pin_renorm_enabled": true,
+          "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":true,\"mode\":\"upscale\",\"second_sampling_enabled\":true,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":true,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":true,\"room\":\"outdoor\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":true,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+          "bd_grp_audio_refine": "Audio Refine",
+          "audio_refine_enabled": false,
+          "audio_refine_steps": 6,
+          "audio_refine_denoise": 0.5,
+          "minimax_motion_director_ui": ""
+        }
+      },
+      "widgets_values": [
+        "r2v — 参考主体生视频(Reference images to video)",
+        "Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.",
+        "Sampling Settings  [External]",
+        1,
+        557837627721219,
+        "fixed",
+        24,
+        1152,
+        640,
+        1152,
+        107,
+        "{\"version\":5,\"editMode\":\"segment\",\"totalFrames\":107,\"frameRate\":24,\"width\":1152,\"height\":640,\"refMaxSize\":1152,\"output\":{\"mode\":\"fixed\",\"aspectRatio\":\"16:9 (宽屏)\",\"megapixels\":0.7,\"multiple\":32,\"longEdge\":1152,\"width\":1152,\"height\":640,\"maxExportFrames\":0,\"exportMode\":\"all\",\"audioMode\":\"generate\",\"continuityEnabled\":false,\"continuityOverlapFrames\":9},\"videoClips\":[],\"video\":{\"fileName\":\"\",\"videoFile\":\"\",\"subfolder\":\"\",\"type\":\"input\",\"frames\":[],\"frameMap\":[],\"sourceFrameCount\":2192,\"deletedSourceRanges\":[]},\"global\":{\"taskType\":\"r2v — 参考主体生视频(Reference images to video)\",\"prompt\":\"Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.\",\"refs\":[],\"referenceVideo\":{\"videoFile\":\"\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"},\"continuousReference\":false,\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\"}},\"segments\":[{\"id\":\"29a6fab84cac4\",\"start\":0,\"length\":107,\"frameCount\":107,\"durationSec\":4,\"prompt\":\"subject_definitions:\\n<Subject 1> is the woman in the attached character reference - a swift, athletic forest runner. Her face, hair and build come from that reference and are not described here.\\nIdentity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman.\\nReference rule: the attached character reference is a static identity reference only. It never shows her in motion, and its background, framing, panel layout and any standing pose must never appear in the video. Every shot uses the running, leaping or balancing action described for that shot, and all motion, camera moves and cuts are created fresh by each shot's description.\\nwardrobe:\\nHer clothing comes from {{mmx-ref:picture:f-679ad2b20f8ae020}}. Reproduce the garment only - the same colour, fabric, cut and length. {{mmx-ref:picture:f-679ad2b20f8ae020}} must not supply a face, hair, body shape, skin tone, background or framing, and must not supply any other character visible in that image. The character reference supplies her face, hair and build and must not supply clothing.\\nStyle: cinematic, photoreal, warm golden sunlight raking through the trees, rim light, volumetric god rays, long warm shadows, drifting leaves.\\nAudio: only her quiet exertion breaths, soft grunts on jumps and landings, clothes rustling, running footfalls, and forest ambience (wind in the canopy, distant birds, a far creek). No dialogue and no music at any point.\\nsummary:\\nGolden-hour opening - <Subject 1> sprints through dense old-growth forest. The camera opens on her face in a medium shot, then widens to track her full-body run through the trees.\\n\\ndetailed_description:\\n[Shot 1] The shot opens on a medium three-quarter shot of <Subject 1> running toward camera between sunlit trunks, her face clearly lit by warm golden light, hair and light clothing moving with her stride. She passes beside the lens and the camera cuts to a wide tracking shot of her full body sprinting between the trees at a fast, fluid pace. A low side-tracking shot runs alongside her, then a brief front-facing shot shows her leaping a mossy fallen log mid-stride and keeping going. She moves in a dynamic forward-leaning stride - arms and legs pumping, torso angled into the motion - never a static standing pose and never anything resembling a reference sheet or grid. Camera motion is fast but smooth, matching her speed; pans and angle changes are quick and dynamic. Sunlight flares between the trees, long warm shadows, drifting leaves. She breathes steadily, focused, expression determined. Audio: rhythmic breaths and light exertion, a soft grunt on the log leap, footfalls on leaf litter, clothes rustling, forest ambience - wind through high branches, distant birdsong. No dialogue, no music.Scene: a vast primeval forest in warm golden-hour light.\",\"negativePrompt\":\"\",\"taskType\":\"\",\"refs\":[],\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\",\"fileName\":\"\"},\"contextLink\":{\"schema\":\"previous_context_link_v1\",\"enabled\":false,\"visual\":false,\"audio\":false}}],\"gen\":{\"defaultFrameCount\":124},\"runSelectEnabled\":false,\"runSelection\":[],\"liveTaePreview\":true,\"timelineMode\":\"prompt_batch\",\"seedMode\":\"fixed\",\"r2vCommon\":{\"refs\":[{\"index\":0,\"assetId\":\"f-679ad2b20f8ae020\",\"imageFile\":\"s-l1200.jpg\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"}],\"refAudios\":[],\"refVideos\":[]},\"audioRoles\":{\"version\":2,\"global\":{},\"segments\":{\"kpitn0lc1y24\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd6xc017sfx\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"6nh65qltw80c\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"5tj4pbjue0b5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd742qtt1j5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd75khcyo5j\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ppwhynvmh6dl\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ktu1hxyhbgkt\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"3vfh02dd3jcm\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"g3enuyym0eig\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"efi4gybtvbck\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"4jojwloea5jf\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"zsaamjk7yav6\":{},\"29a6fab84cac4\":{},\"de5e0c94506f4\":{},\"3fd81b443c664\":{}}},\"resumeRun\":{\"enabled\":false,\"from\":null}}",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Cross-Segment Continuity",
+        true,
+        44,
+        null,
+        5,
+        true,
+        true,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        "Advanced sampling · Sampling: external",
+        25,
+        "res_multistep",
+        "simple",
+        6,
+        3,
+        null,
+        "Performance",
+        false,
+        false,
+        "Experimental",
+        true,
+        "{\"version\":11,\"global_refine\":{\"enabled\":true,\"mode\":\"upscale\",\"second_sampling_enabled\":true,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":true,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":true,\"room\":\"outdoor\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":true,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+        "Audio Refine",
+        false,
+        6,
+        0.5,
+        ""
+      ],
+      "widgets_values_named": {
+        "task_type": "r2v — 参考主体生视频(Reference images to video)",
+        "global_prompt": "Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.",
+        "bd_grp_sample": "Sampling Settings  [External]",
+        "cfg": 1,
+        "seed": 557837627721219,
+        "control_after_generate": "fixed",
+        "frame_rate": 24,
+        "width": 1152,
+        "height": 640,
+        "ref_max_size": 1152,
+        "total_frames": 107,
+        "timeline_data": "{\"version\":5,\"editMode\":\"segment\",\"totalFrames\":107,\"frameRate\":24,\"width\":1152,\"height\":640,\"refMaxSize\":1152,\"output\":{\"mode\":\"fixed\",\"aspectRatio\":\"16:9 (宽屏)\",\"megapixels\":0.7,\"multiple\":32,\"longEdge\":1152,\"width\":1152,\"height\":640,\"maxExportFrames\":0,\"exportMode\":\"all\",\"audioMode\":\"generate\",\"continuityEnabled\":false,\"continuityOverlapFrames\":9},\"videoClips\":[],\"video\":{\"fileName\":\"\",\"videoFile\":\"\",\"subfolder\":\"\",\"type\":\"input\",\"frames\":[],\"frameMap\":[],\"sourceFrameCount\":2192,\"deletedSourceRanges\":[]},\"global\":{\"taskType\":\"r2v — 参考主体生视频(Reference images to video)\",\"prompt\":\"Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.\",\"refs\":[],\"referenceVideo\":{\"videoFile\":\"\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"},\"continuousReference\":false,\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\"}},\"segments\":[{\"id\":\"29a6fab84cac4\",\"start\":0,\"length\":107,\"frameCount\":107,\"durationSec\":4,\"prompt\":\"subject_definitions:\\n<Subject 1> is the woman in the attached character reference - a swift, athletic forest runner. Her face, hair and build come from that reference and are not described here.\\nIdentity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman.\\nReference rule: the attached character reference is a static identity reference only. It never shows her in motion, and its background, framing, panel layout and any standing pose must never appear in the video. Every shot uses the running, leaping or balancing action described for that shot, and all motion, camera moves and cuts are created fresh by each shot's description.\\nwardrobe:\\nHer clothing comes from {{mmx-ref:picture:f-679ad2b20f8ae020}}. Reproduce the garment only - the same colour, fabric, cut and length. {{mmx-ref:picture:f-679ad2b20f8ae020}} must not supply a face, hair, body shape, skin tone, background or framing, and must not supply any other character visible in that image. The character reference supplies her face, hair and build and must not supply clothing.\\nStyle: cinematic, photoreal, warm golden sunlight raking through the trees, rim light, volumetric god rays, long warm shadows, drifting leaves.\\nAudio: only her quiet exertion breaths, soft grunts on jumps and landings, clothes rustling, running footfalls, and forest ambience (wind in the canopy, distant birds, a far creek). No dialogue and no music at any point.\\nsummary:\\nGolden-hour opening - <Subject 1> sprints through dense old-growth forest. The camera opens on her face in a medium shot, then widens to track her full-body run through the trees.\\n\\ndetailed_description:\\n[Shot 1] The shot opens on a medium three-quarter shot of <Subject 1> running toward camera between sunlit trunks, her face clearly lit by warm golden light, hair and light clothing moving with her stride. She passes beside the lens and the camera cuts to a wide tracking shot of her full body sprinting between the trees at a fast, fluid pace. A low side-tracking shot runs alongside her, then a brief front-facing shot shows her leaping a mossy fallen log mid-stride and keeping going. She moves in a dynamic forward-leaning stride - arms and legs pumping, torso angled into the motion - never a static standing pose and never anything resembling a reference sheet or grid. Camera motion is fast but smooth, matching her speed; pans and angle changes are quick and dynamic. Sunlight flares between the trees, long warm shadows, drifting leaves. She breathes steadily, focused, expression determined. Audio: rhythmic breaths and light exertion, a soft grunt on the log leap, footfalls on leaf litter, clothes rustling, forest ambience - wind through high branches, distant birdsong. No dialogue, no music.Scene: a vast primeval forest in warm golden-hour light.\",\"negativePrompt\":\"\",\"taskType\":\"\",\"refs\":[],\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\",\"fileName\":\"\"},\"contextLink\":{\"schema\":\"previous_context_link_v1\",\"enabled\":false,\"visual\":false,\"audio\":false}}],\"gen\":{\"defaultFrameCount\":124},\"runSelectEnabled\":false,\"runSelection\":[],\"liveTaePreview\":true,\"timelineMode\":\"prompt_batch\",\"seedMode\":\"fixed\",\"r2vCommon\":{\"refs\":[{\"index\":0,\"assetId\":\"f-679ad2b20f8ae020\",\"imageFile\":\"s-l1200.jpg\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"}],\"refAudios\":[],\"refVideos\":[]},\"audioRoles\":{\"version\":2,\"global\":{},\"segments\":{\"kpitn0lc1y24\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd6xc017sfx\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"6nh65qltw80c\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"5tj4pbjue0b5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd742qtt1j5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd75khcyo5j\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ppwhynvmh6dl\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ktu1hxyhbgkt\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"3vfh02dd3jcm\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"g3enuyym0eig\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"efi4gybtvbck\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"4jojwloea5jf\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"zsaamjk7yav6\":{},\"29a6fab84cac4\":{},\"de5e0c94506f4\":{},\"3fd81b443c664\":{}}},\"resumeRun\":{\"enabled\":false,\"from\":null}}",
+        "bd_grp_motion": "Cross-Segment Continuity",
+        "motion_context_enabled": true,
+        "context_length": 44,
+        "source_overlap_frames": 5,
+        "audio_context_enabled": true,
+        "color_reanchor_enabled": true,
+        "bd_grp_advanced": "Advanced sampling · Sampling: external",
+        "steps": 25,
+        "sampler_name": "res_multistep",
+        "scheduler": "simple",
+        "shift_video": 6,
+        "shift_audio": 3,
+        "bd_grp_perf": "Performance",
+        "clear_vram_between_segments": false,
+        "export_source_images": false,
+        "bd_grp_experimental": "Experimental",
+        "pin_renorm_enabled": true,
+        "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":true,\"mode\":\"upscale\",\"second_sampling_enabled\":true,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":true,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":true,\"room\":\"outdoor\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":true,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+        "bd_grp_audio_refine": "Audio Refine",
+        "audio_refine_enabled": false,
+        "audio_refine_steps": 6,
+        "audio_refine_denoise": 0.5,
+        "minimax_motion_director_ui": ""
+      },
+      "color": "#235263FF",
+      "bgcolor": "#2E6B82FF"
+    },
+    {
+      "id": 3,
+      "type": "ImpactSwitch",
+      "pos": [
+        420,
+        350
+      ],
+      "size": [
+        290,
+        210
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "input1",
+          "shape": 7,
+          "type": "*",
+          "link": 58
+        },
+        {
+          "name": "input2",
+          "type": "MODEL",
+          "link": 72
+        },
+        {
+          "name": "input3",
+          "type": "MODEL",
+          "link": 73
+        },
+        {
+          "name": "input4",
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "name": "input5",
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "name": "input6",
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "name": "input7",
+          "type": "MODEL",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "label": "MODEL",
+          "name": "selected_value",
+          "type": "*",
+          "links": [
+            47
+          ]
+        },
+        {
+          "name": "selected_label",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "selected_index",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "title": "MODEL SWITCH",
+      "properties": {
+        "cnr_id": "comfyui-impact-pack",
+        "ver": "429d0159ad429e64d2b3916e6e7be9c22d025c3c",
+        "Node name for S&R": "ImpactSwitch",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        2,
+        false
+      ],
+      "widgets_values_named": {
+        "select": 2,
+        "sel_mode": false
+      },
+      "color": "#4906CEFF",
+      "bgcolor": "#5407EDFF"
+    },
+    {
+      "id": "cv",
+      "type": "CreateVideo",
+      "pos": [
+        1360,
+        690
+      ],
+      "size": [
+        270,
+        126
+      ],
+      "flags": {
+        "collapsed": true,
+        "pinned": true
+      },
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 27
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 28
+        }
+      ],
+      "outputs": [
+        {
+          "name": "VIDEO",
+          "type": "VIDEO",
+          "links": [
+            29
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "CreateVideo",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        24,
+        8,
+        "sRGB"
+      ],
+      "widgets_values_named": {
+        "fps": 24,
+        "bit_depth": 8,
+        "color_space": "sRGB"
+      },
+      "color": "#372363FF",
+      "bgcolor": "#482E82FF"
+    },
+    {
+      "id": "sv",
+      "type": "SaveVideo",
+      "pos": [
+        1360,
+        660
+      ],
+      "size": [
+        430,
+        336.8888888888889
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "link": 30
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "SaveVideo",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "mm-director/%date:yyyy-MM-dd%/%date:hhmmss%",
+        "auto",
+        "auto",
+        "auto"
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "mm-director/%date:yyyy-MM-dd%/%date:hhmmss%",
+        "format": "auto",
+        "format.codec": "auto",
+        "codec": "auto"
+      },
+      "color": "#372363FF",
+      "bgcolor": "#482E82FF"
+    },
+    {
+      "id": "sched",
+      "type": "BasicScheduler",
+      "pos": [
+        740,
+        440
+      ],
+      "size": [
+        270,
+        106
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 69
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SIGMAS",
+          "type": "SIGMAS",
+          "links": [
+            26
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "BasicScheduler",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "beta",
+        8,
+        1
+      ],
+      "widgets_values_named": {
+        "scheduler": "beta",
+        "steps": 8,
+        "denoise": 1
+      },
+      "color": "#632323FF",
+      "bgcolor": "#822E2EFF"
+    },
+    {
+      "id": 10,
+      "type": "6fa07e59-e98a-44fc-83b5-423fc38d0bae",
+      "pos": [
+        -250,
+        310
+      ],
+      "size": [
+        618.7000024461679,
+        233.6439754372392
+      ],
+      "flags": {
+        "collapsed": false,
+        "pinned": true
+      },
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "text encoder",
+          "name": "clip_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "clip_name"
+          },
+          "link": null
+        },
+        {
+          "label": "ref2va model",
+          "name": "unet_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "unet_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": []
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            55,
+            74
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            56
+          ]
+        },
+        {
+          "name": "VAE_1",
+          "type": "VAE",
+          "links": [
+            57
+          ]
+        },
+        {
+          "label": "fl2va model",
+          "name": "MODEL_1",
+          "type": "MODEL",
+          "links": [
+            58
+          ]
+        },
+        {
+          "label": "ref2va model",
+          "name": "MODEL_2",
+          "type": "MODEL",
+          "links": [
+            72
+          ]
+        },
+        {
+          "name": "MODEL_3",
+          "type": "MODEL",
+          "links": [
+            61,
+            73
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        },
+        "previewExposures": []
+      },
+      "widgets_values": [
+        "qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors",
+        "Minimax/10Eros_Max_h3_TURBO-hybrid_beta4_int8_convrot.safetensors",
+        "Minimax/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+      ],
+      "widgets_values_named": {
+        "clip_name": "qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors",
+        "unet_name": "Minimax/10Eros_Max_h3_TURBO-hybrid_beta4_int8_convrot.safetensors",
+        "unet_name_1": "Minimax/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": "rmclip",
+      "type": "CLIPTextEncode",
+      "pos": [
+        -20,
+        1450
+      ],
+      "size": [
+        270,
+        100
+      ],
+      "flags": {
+        "collapsed": true,
+        "pinned": true
+      },
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 74
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            75
+          ]
+        }
+      ],
+      "title": "RefMod carrier (text ignored)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "CLIPTextEncode",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        ""
+      ],
+      "widgets_values_named": {
+        "text": ""
+      }
+    },
+    {
+      "id": "rmload",
+      "type": "MiniMaxH3RefModsLoader",
+      "pos": [
+        -20,
+        1490
+      ],
+      "size": [
+        340,
+        342
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mods",
+          "type": "H3_REF_MODS",
+          "links": [
+            76
+          ]
+        },
+        {
+          "name": "prompt_hint",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-MiniMaxH3Mod",
+        "ver": "cd27d1109a0da5f0a162ab59d53c6507251d4c34",
+        "Node name for S&R": "MiniMaxH3RefModsLoader",
+        "refmod_visible_slots": [
+          1
+        ],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        true,
+        "people/elf_girl",
+        1,
+        2,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        0,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "widgets_values_named": {
+        "show_info": true,
+        "mod_1": "people/elf_girl",
+        "strength_1": 1,
+        "copies_1": 2,
+        "mod_2": "(none)",
+        "strength_2": 1,
+        "copies_2": 1,
+        "mod_3": "(none)",
+        "strength_3": 1,
+        "copies_3": 1,
+        "mod_4": "(none)",
+        "strength_4": 1,
+        "copies_4": 1,
+        "mod_5": "(none)",
+        "strength_5": 1,
+        "copies_5": 1,
+        "mod_6": "(none)",
+        "strength_6": 1,
+        "copies_6": 1,
+        "mod_7": "(none)",
+        "strength_7": 1,
+        "copies_7": 1,
+        "mod_8": "(none)",
+        "strength_8": 1,
+        "copies_8": 1,
+        "max_total_tokens": 0,
+        "components_1": "All",
+        "visual_strength_1": 1,
+        "audio_strength_1": 1,
+        "components_2": "All",
+        "visual_strength_2": 1,
+        "audio_strength_2": 1,
+        "components_3": "All",
+        "visual_strength_3": 1,
+        "audio_strength_3": 1,
+        "components_4": "All",
+        "visual_strength_4": 1,
+        "audio_strength_4": 1,
+        "components_5": "All",
+        "visual_strength_5": 1,
+        "audio_strength_5": 1,
+        "components_6": "All",
+        "visual_strength_6": 1,
+        "audio_strength_6": 1,
+        "components_7": "All",
+        "visual_strength_7": 1,
+        "audio_strength_7": 1,
+        "components_8": "All",
+        "visual_strength_8": 1,
+        "audio_strength_8": 1,
+        "Refresh RefMods": null,
+        "RefMod library": null,
+        "Remove RefMod 1": null,
+        "Remove RefMod 2": null,
+        "Remove RefMod 3": null,
+        "Remove RefMod 4": null,
+        "Remove RefMod 5": null,
+        "Remove RefMod 6": null,
+        "Remove RefMod 7": null,
+        "Remove RefMod 8": null,
+        "+ Add RefMod": null
+      },
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": "rmapply",
+      "type": "MiniMaxH3RefModApply",
+      "pos": [
+        340,
+        1490
+      ],
+      "size": [
+        340,
+        342
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "conditioning",
+          "type": "MINIMAX_H3_COND,CONDITIONING",
+          "link": 75
+        },
+        {
+          "name": "mods",
+          "type": "H3_REF_MODS",
+          "link": 76
+        }
+      ],
+      "outputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "links": [
+            77
+          ]
+        },
+        {
+          "name": "curve graph",
+          "type": "IMAGE",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-MiniMaxH3Mod",
+        "ver": "cd27d1109a0da5f0a162ab59d53c6507251d4c34",
+        "Node name for S&R": "MiniMaxH3RefModApply",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        false,
+        1,
+        "constant",
+        40000,
+        "fixed",
+        "linear",
+        1,
+        "(none)",
+        "shuffle",
+        1,
+        0,
+        ""
+      ],
+      "widgets_values_named": {
+        "override": false,
+        "retention": 1,
+        "curve_direction": "constant",
+        "scramble_seed": 40000,
+        "fixed": "fixed",
+        "curve_shape": "linear",
+        "curve_value": 1,
+        "graph_preset": "(none)",
+        "scramble_mode": "shuffle",
+        "scramble_keep": 1,
+        "max_total_tokens": 0,
+        "save_preset_as": ""
+      },
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 16,
+      "type": "MarkdownNote",
+      "pos": [
+        -960,
+        1400
+      ],
+      "size": [
+        890,
+        590
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "RefMod identity preset",
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "# RefMod identity + wardrobe - how to use this workflow\n\n## Quick start\n\n1. `Load H3 RefMods` slot 1 = your character mod. `strength_1` 1.0, `copies_1` 2.\n2. Write the outfit in the `wardrobe:` section of every segment prompt, or supply a\n   clothing picture and tag it (see Clothing below).\n3. Run ONE segment first. Judge the face and the outfit before committing to all three.\n\n## Which source owns which attribute\n\n| Source | Supplies | Never supplies |\n| --- | --- | --- |\n| H3 RefMod (`elf_girl`) | face, hair, build | clothing |\n| `wardrobe:` text | the outfit | identity |\n| a `<Picture n>` picture | whatever it shows - strongly | nothing. It is not selective. |\n\nH3 does not bind a reference to a subject. Every reference influences the whole frame,\nso each source needs its job stated in the prompt. That statement is what stops an\noutfit photo from handing you its model's face.\n\n## Identity\n\nThe mod carries identity well and clothing not at all. That split is physical, not a\nbug: the saved latent is roughly a 96x54 thumbnail per frame. 96x54 holds face\nstructure (low frequency). It cannot hold a garment's cut, seams or trim.\n\nWhat to write - one line in `subject_definitions`, in every segment:\n\n    Identity lock: her face, hair and build are locked to the attached character\n    reference and stay identical in every frame and every shot - never a different\n    woman.\n\nIf the face still drifts, add 2-3 CONCRETE words to that line - hair colour, ear shape,\nbuild. Feature words are what actually fight the model's own default face; a pure\n\"stay identical\" instruction is much weaker.\n\nKnobs that matter, in order of effect:\n\n| Knob | Where | Notes |\n| --- | --- | --- |\n| `strength_1` | Load H3 RefMods | 1.0 = full reference (official behaviour). Below 1.0 the reference is blurred toward a softened copy of itself and identity fades smoothly - a fade dial, not a free win. |\n| `copies_1` | Load H3 RefMods | 2-3 is the sweet spot. Each copy costs its full token count in every DiT block. |\n| `retention` | Apply H3 RefMod | Master multiplier on top of every `strength_N`. MiniMax levels: 1.0 fully preserved, 0.7 partial, 0.4 attribute transfer (style, not identity), 0.15 weak. |\n| `curve_direction` | RefMod Step Curve | Envelope over the DENOISE steps. `concept_at_end` holds the reference at full strength in the late steps, where facial detail is refined. Targeted fix for late drift. |\n\nDo not confuse the two curves. `Apply H3 RefMod`'s `curve_direction` chooses WHICH\nREFERENCE FRAMES dominate. `MiniMaxH3RefModStepCurve`'s chooses WHICH DENOISE STEPS get\nthe reference.\n\n## Clothing\n\n### Text channel - works today, no wiring\n\nDescribe the outfit in the `wardrobe:` section of each segment prompt:\n\n    wardrobe:\n    Her outfit is set by this description and not by the character reference: a fitted\n    dark-teal trail-running tank top, black compression shorts with a thin reflective\n    stripe, and a worn olive utility belt.\n\nThe mod will not fight you over this, because it is not carrying clothing.\n\n### Image channel - stronger, but it is not selective\n\nA picture reference is full resolution through H3's native reference path, which is\nbuilt to copy the subject out of an image. Excellent for a garment, dangerous for\neverything else.\n\nTag numbering is 1-based (`<Picture index + 1>`). Count the reference images in that\nsegment. Your RefMod does NOT take a tag slot - RefMod blocks are unnamed latents - so a\nlone clothing picture is always `<Picture 1>`.\n\nUse it, and name the boundary:\n\n    wardrobe:\n    Her clothing comes from <Picture 1>. Reproduce the garment only - the same colour,\n    fabric, cut and length. <Picture 1> must not supply a face, hair, body shape, skin\n    tone, background or framing, and must not supply any other character visible in that\n    image. The character reference supplies her face, hair and build and must not supply\n    clothing.\n\nWhat actually happens in practice: a character sheet is the worst possible input, because\na character sheet IS an identity reference - and one with several characters on it is\nworse still. Expect the face, body and pose to be taken from it. Text cannot out-argue a\nfull-resolution identity reference.\n\nRanked fixes:\n\n1. Crop the reference to the garment alone. No face in the picture means no face to copy.\n   The only option that removes the failure instead of negotiating with it.\n2. Deliver the outfit as a second RefMod on loader slot 2 at `strength_2` around 0.4 -\n   MiniMax's documented \"attribute transfer (keep style/attributes, not identity)\" level -\n   with identity at `strength_1` 1.0. Both sources are then the same kind of signal and\n   each has its own weight. `MiniMaxH3RefModExtract` has a `mask` input, so the head can\n   be masked out during extraction instead of cropped by hand.\n3. `MiniMaxH3RefModStepCurve` at `concept_at_end` holds identity late. This tips the\n   balance toward the mod but does not stop the picture's face being copied.\n\nDo not expect a second RefMod to split attributes by itself. Refs are not bound to\nsubjects, so an outfit mod bleeds into the face unless its `strength` is low.\n\n## Settings this workflow ships with\n\n| Setting | Value | Why |\n| --- | --- | --- |\n| `copies_1` | 2 | doubles the reference's attention mass |\n| `strength_1` | 1.0 | full reference, official behaviour |\n| `retention` | 1.0 | no master attenuation |\n| SLA `enabled` | false | SLA drops ~90% of attention blocks after step 1 - the largest fidelity loss in the stack, and a latent-only reference suffers first |\n| SLA `reference_protection` | Light | pre-set for if you switch SLA back on |\n| `context_length` | 44 | only the first N frames of a segment are pinned to the previous segment's real output; the rest is free generation |\n| `wardrobe:` section | all 3 segments | the clothing channel |\n\n`reference_protection = Light` is APPROXIMATED on the `comfy_kitchen` engine (a\nquery-averaged global ranking). `engine = triton` gives the exact per-query-block version.\n\n## If something is wrong\n\n**Face drifts to a generic woman.** Add concrete identity words to the `Identity lock:`\nline first. Then check `copies_1` is 2 and `strength_1` is 1.0. Then add\n`MiniMaxH3RefModStepCurve` with `concept_at_end`.\n\n**Clothing is ignored.** Check the tag number matches the picture's position. Then crop\nthe reference to the garment. Then try the RefMod route at `strength_2` 0.4.\n\n**Clothing image takes over the face.** Expected with a face-bearing reference. Crop it,\nor move to the RefMod route.\n\n**Whole render is mush.** Drop `copies_1` back to 1, or re-enable SLA as a sanity check.\n`strength` below 1.0 blurs the reference rather than reducing it.\n\n## Bisect - one lever at a time, same seed\n\n1. `copies_1` back to 1\n2. SLA `enabled` back to true\n3. `context_length` back to 22\n4. delete the `Identity lock:` line\n\nWhichever one brings the problem back is the cause.\n\n## Notes\n\n- `MiniMaxH3RefModTextEncode` is the labelled route (`<Picture 1> = elf_girl`), but the\n  Director keeps only the raw reference blocks from a connected conditioning and discards\n  the rest, so that labelling cannot reach it. Use picture refs when you want tags.\n- The Director has no `reference_image_N` inputs. `MiniMaxH3MotionDirectorConditioning`\n  does, one per picture, mapping `reference_image_{i}` to `<Picture {i+1}>`.\n- Python changes need a ComfyUI restart. JS changes only need a hard refresh.\n\n## For reference: the official HearmemanAI RefMod example\n\nSimpler than this workflow in every way: ONE 5-second shot (124 frames), no chaining, no\nattention sparsity, and the clean `minimax_h3_ref2va_pruned_int8_convrot` at `simple` /\n20 steps. It runs `retention 0.85` x `strength 0.9` = 0.765 - WEAKER than this workflow -\nso \"the reference is too weak\" is not the first thing to suspect. Its prompt gives the\nsubject a short label and an outfit (\"realistic person, natural human appearance, casual\nstylish outfit\"), and it keeps a disabled character-LoRA slot wired in as a companion to\nthe mod."
+      ],
+      "widgets_values_named": {
+        "text": "# RefMod identity + wardrobe - how to use this workflow\n\n## Quick start\n\n1. `Load H3 RefMods` slot 1 = your character mod. `strength_1` 1.0, `copies_1` 2.\n2. Write the outfit in the `wardrobe:` section of every segment prompt, or supply a\n   clothing picture and tag it (see Clothing below).\n3. Run ONE segment first. Judge the face and the outfit before committing to all three.\n\n## Which source owns which attribute\n\n| Source | Supplies | Never supplies |\n| --- | --- | --- |\n| H3 RefMod (`elf_girl`) | face, hair, build | clothing |\n| `wardrobe:` text | the outfit | identity |\n| a `<Picture n>` picture | whatever it shows - strongly | nothing. It is not selective. |\n\nH3 does not bind a reference to a subject. Every reference influences the whole frame,\nso each source needs its job stated in the prompt. That statement is what stops an\noutfit photo from handing you its model's face.\n\n## Identity\n\nThe mod carries identity well and clothing not at all. That split is physical, not a\nbug: the saved latent is roughly a 96x54 thumbnail per frame. 96x54 holds face\nstructure (low frequency). It cannot hold a garment's cut, seams or trim.\n\nWhat to write - one line in `subject_definitions`, in every segment:\n\n    Identity lock: her face, hair and build are locked to the attached character\n    reference and stay identical in every frame and every shot - never a different\n    woman.\n\nIf the face still drifts, add 2-3 CONCRETE words to that line - hair colour, ear shape,\nbuild. Feature words are what actually fight the model's own default face; a pure\n\"stay identical\" instruction is much weaker.\n\nKnobs that matter, in order of effect:\n\n| Knob | Where | Notes |\n| --- | --- | --- |\n| `strength_1` | Load H3 RefMods | 1.0 = full reference (official behaviour). Below 1.0 the reference is blurred toward a softened copy of itself and identity fades smoothly - a fade dial, not a free win. |\n| `copies_1` | Load H3 RefMods | 2-3 is the sweet spot. Each copy costs its full token count in every DiT block. |\n| `retention` | Apply H3 RefMod | Master multiplier on top of every `strength_N`. MiniMax levels: 1.0 fully preserved, 0.7 partial, 0.4 attribute transfer (style, not identity), 0.15 weak. |\n| `curve_direction` | RefMod Step Curve | Envelope over the DENOISE steps. `concept_at_end` holds the reference at full strength in the late steps, where facial detail is refined. Targeted fix for late drift. |\n\nDo not confuse the two curves. `Apply H3 RefMod`'s `curve_direction` chooses WHICH\nREFERENCE FRAMES dominate. `MiniMaxH3RefModStepCurve`'s chooses WHICH DENOISE STEPS get\nthe reference.\n\n## Clothing\n\n### Text channel - works today, no wiring\n\nDescribe the outfit in the `wardrobe:` section of each segment prompt:\n\n    wardrobe:\n    Her outfit is set by this description and not by the character reference: a fitted\n    dark-teal trail-running tank top, black compression shorts with a thin reflective\n    stripe, and a worn olive utility belt.\n\nThe mod will not fight you over this, because it is not carrying clothing.\n\n### Image channel - stronger, but it is not selective\n\nA picture reference is full resolution through H3's native reference path, which is\nbuilt to copy the subject out of an image. Excellent for a garment, dangerous for\neverything else.\n\nTag numbering is 1-based (`<Picture index + 1>`). Count the reference images in that\nsegment. Your RefMod does NOT take a tag slot - RefMod blocks are unnamed latents - so a\nlone clothing picture is always `<Picture 1>`.\n\nUse it, and name the boundary:\n\n    wardrobe:\n    Her clothing comes from <Picture 1>. Reproduce the garment only - the same colour,\n    fabric, cut and length. <Picture 1> must not supply a face, hair, body shape, skin\n    tone, background or framing, and must not supply any other character visible in that\n    image. The character reference supplies her face, hair and build and must not supply\n    clothing.\n\nWhat actually happens in practice: a character sheet is the worst possible input, because\na character sheet IS an identity reference - and one with several characters on it is\nworse still. Expect the face, body and pose to be taken from it. Text cannot out-argue a\nfull-resolution identity reference.\n\nRanked fixes:\n\n1. Crop the reference to the garment alone. No face in the picture means no face to copy.\n   The only option that removes the failure instead of negotiating with it.\n2. Deliver the outfit as a second RefMod on loader slot 2 at `strength_2` around 0.4 -\n   MiniMax's documented \"attribute transfer (keep style/attributes, not identity)\" level -\n   with identity at `strength_1` 1.0. Both sources are then the same kind of signal and\n   each has its own weight. `MiniMaxH3RefModExtract` has a `mask` input, so the head can\n   be masked out during extraction instead of cropped by hand.\n3. `MiniMaxH3RefModStepCurve` at `concept_at_end` holds identity late. This tips the\n   balance toward the mod but does not stop the picture's face being copied.\n\nDo not expect a second RefMod to split attributes by itself. Refs are not bound to\nsubjects, so an outfit mod bleeds into the face unless its `strength` is low.\n\n## Settings this workflow ships with\n\n| Setting | Value | Why |\n| --- | --- | --- |\n| `copies_1` | 2 | doubles the reference's attention mass |\n| `strength_1` | 1.0 | full reference, official behaviour |\n| `retention` | 1.0 | no master attenuation |\n| SLA `enabled` | false | SLA drops ~90% of attention blocks after step 1 - the largest fidelity loss in the stack, and a latent-only reference suffers first |\n| SLA `reference_protection` | Light | pre-set for if you switch SLA back on |\n| `context_length` | 44 | only the first N frames of a segment are pinned to the previous segment's real output; the rest is free generation |\n| `wardrobe:` section | all 3 segments | the clothing channel |\n\n`reference_protection = Light` is APPROXIMATED on the `comfy_kitchen` engine (a\nquery-averaged global ranking). `engine = triton` gives the exact per-query-block version.\n\n## If something is wrong\n\n**Face drifts to a generic woman.** Add concrete identity words to the `Identity lock:`\nline first. Then check `copies_1` is 2 and `strength_1` is 1.0. Then add\n`MiniMaxH3RefModStepCurve` with `concept_at_end`.\n\n**Clothing is ignored.** Check the tag number matches the picture's position. Then crop\nthe reference to the garment. Then try the RefMod route at `strength_2` 0.4.\n\n**Clothing image takes over the face.** Expected with a face-bearing reference. Crop it,\nor move to the RefMod route.\n\n**Whole render is mush.** Drop `copies_1` back to 1, or re-enable SLA as a sanity check.\n`strength` below 1.0 blurs the reference rather than reducing it.\n\n## Bisect - one lever at a time, same seed\n\n1. `copies_1` back to 1\n2. SLA `enabled` back to true\n3. `context_length` back to 22\n4. delete the `Identity lock:` line\n\nWhichever one brings the problem back is the cause.\n\n## Notes\n\n- `MiniMaxH3RefModTextEncode` is the labelled route (`<Picture 1> = elf_girl`), but the\n  Director keeps only the raw reference blocks from a connected conditioning and discards\n  the rest, so that labelling cannot reach it. Use picture refs when you want tags.\n- The Director has no `reference_image_N` inputs. `MiniMaxH3MotionDirectorConditioning`\n  does, one per picture, mapping `reference_image_{i}` to `<Picture {i+1}>`.\n- Python changes need a ComfyUI restart. JS changes only need a hard refresh.\n\n## For reference: the official HearmemanAI RefMod example\n\nSimpler than this workflow in every way: ONE 5-second shot (124 frames), no chaining, no\nattention sparsity, and the clean `minimax_h3_ref2va_pruned_int8_convrot` at `simple` /\n20 steps. It runs `retention 0.85` x `strength 0.9` = 0.765 - WEAKER than this workflow -\nso \"the reference is too weak\" is not the first thing to suspect. Its prompt gives the\nsubject a short label and an outfit (\"realistic person, natural human appearance, casual\nstylish outfit\"), and it keeps a disabled character-LoRA slot wired in as a companion to\nthe mod."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    }
+  ],
+  "links": [
+    [
+      19,
+      "cff",
+      0,
+      "sla",
+      0,
+      "MODEL"
+    ],
+    [
+      25,
+      "ssel",
+      0,
+      "dir",
+      4,
+      "SAMPLER"
+    ],
+    [
+      26,
+      "sched",
+      0,
+      "dir",
+      5,
+      "SIGMAS"
+    ],
+    [
+      27,
+      "dir",
+      0,
+      "cv",
+      0,
+      "IMAGE"
+    ],
+    [
+      28,
+      "dir",
+      1,
+      "cv",
+      1,
+      "AUDIO"
+    ],
+    [
+      29,
+      "cv",
+      0,
+      "clean",
+      0,
+      "VIDEO"
+    ],
+    [
+      30,
+      "clean",
+      0,
+      "sv",
+      0,
+      "VIDEO"
+    ],
+    [
+      47,
+      3,
+      0,
+      "cff",
+      0,
+      "MODEL"
+    ],
+    [
+      55,
+      10,
+      1,
+      "dir",
+      3,
+      "CLIP"
+    ],
+    [
+      56,
+      10,
+      2,
+      "dir",
+      2,
+      "VAE"
+    ],
+    [
+      57,
+      10,
+      3,
+      "dir",
+      1,
+      "VAE"
+    ],
+    [
+      58,
+      10,
+      4,
+      3,
+      0,
+      "MODEL"
+    ],
+    [
+      61,
+      10,
+      6,
+      3,
+      3,
+      "MODEL"
+    ],
+    [
+      67,
+      13,
+      0,
+      "dir",
+      0,
+      "MODEL"
+    ],
+    [
+      69,
+      13,
+      0,
+      "sched",
+      0,
+      "MODEL"
+    ],
+    [
+      70,
+      "sla",
+      0,
+      11,
+      0,
+      "MODEL"
+    ],
+    [
+      71,
+      11,
+      0,
+      13,
+      0,
+      "MODEL"
+    ],
+    [
+      72,
+      10,
+      5,
+      3,
+      1,
+      "MODEL"
+    ],
+    [
+      73,
+      10,
+      6,
+      3,
+      2,
+      "MODEL"
+    ],
+    [
+      74,
+      10,
+      1,
+      "rmclip",
+      0,
+      "CLIP"
+    ],
+    [
+      75,
+      "rmclip",
+      0,
+      "rmapply",
+      0,
+      "CONDITIONING"
+    ],
+    [
+      76,
+      "rmload",
+      0,
+      "rmapply",
+      1,
+      "H3_REF_MODS"
+    ],
+    [
+      77,
+      "rmapply",
+      0,
+      "dir",
+      6,
+      "CONDITIONING"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Sampler/Scheduler/Steps",
+      "bounding": [
+        730,
+        280,
+        292.444798371754,
+        287.16998931574386
+      ],
+      "color": "#932A31FF",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Group",
+      "bounding": [
+        -550,
+        590,
+        1250,
+        760
+      ],
+      "color": "#04F210FF",
+      "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "Video processing + VRAM cleansing",
+      "bounding": [
+        1350,
+        590,
+        470,
+        430
+      ],
+      "color": "#6843BFFF",
+      "flags": {}
+    },
+    {
+      "id": 7,
+      "title": "DIFFUSION MODEL PIPELINE/LORA",
+      "bounding": [
+        -260,
+        250,
+        650,
+        320
+      ],
+      "color": "#6843BFFF",
+      "flags": {}
+    },
+    {
+      "id": 900,
+      "title": "RefMod (optional - delete to disable)",
+      "bounding": [
+        -40,
+        1370,
+        740,
+        470
+      ],
+      "color": "#8AA",
+      "flags": {}
+    }
+  ],
+  "definitions": {
+    "subgraphs": [
+      {
+        "id": "6fa07e59-e98a-44fc-83b5-423fc38d0bae",
+        "version": 1,
+        "state": {
+          "lastGroupId": 900,
+          "lastNodeId": 16,
+          "lastLinkId": 78,
+          "lastRerouteId": 0
+        },
+        "revision": 0,
+        "config": {},
+        "name": "Models",
+        "inputNode": {
+          "id": -10,
+          "bounding": [
+            -349.479724644185,
+            562.2014145277893,
+            128,
+            108
+          ]
+        },
+        "outputNode": {
+          "id": -20,
+          "bounding": [
+            1087.39739211136,
+            492.2014145277893,
+            128,
+            188
+          ]
+        },
+        "inputs": [
+          {
+            "id": "4a70c3c8-09d8-4220-bdc7-39c931428db7",
+            "name": "clip_name",
+            "type": "COMBO",
+            "linkIds": [
+              62
+            ],
+            "label": "text encoder",
+            "pos": [
+              -245.479724644185,
+              586.2014145277893
+            ]
+          },
+          {
+            "id": "3d64300a-cc01-44fb-b061-ce6f7a2a698d",
+            "name": "unet_name",
+            "type": "COMBO",
+            "linkIds": [
+              63
+            ],
+            "label": "ref2va model",
+            "pos": [
+              -245.479724644185,
+              606.2014145277893
+            ]
+          },
+          {
+            "id": "d04e14ad-c5ad-4a43-b45e-979b02b30a41",
+            "name": "unet_name_1",
+            "type": "COMBO",
+            "linkIds": [
+              78
+            ],
+            "pos": [
+              -245.479724644185,
+              626.2014145277893
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "id": "5c551cb4-5b94-43a4-ba1f-fbed3ae22a1f",
+            "name": "MODEL",
+            "type": "MODEL",
+            "linkIds": [
+              51
+            ],
+            "localized_name": "MODEL",
+            "pos": [
+              1111.39739211136,
+              516.2014145277893
+            ]
+          },
+          {
+            "id": "73c02e5b-3786-46c5-bf59-27e1c38d9d31",
+            "name": "CLIP",
+            "type": "CLIP",
+            "linkIds": [
+              24
+            ],
+            "localized_name": "CLIP",
+            "pos": [
+              1111.39739211136,
+              536.2014145277893
+            ]
+          },
+          {
+            "id": "5fcc96ba-fa29-46fd-ad2c-26b61d4bad87",
+            "name": "VAE",
+            "type": "VAE",
+            "linkIds": [
+              23
+            ],
+            "localized_name": "VAE",
+            "pos": [
+              1111.39739211136,
+              556.2014145277893
+            ]
+          },
+          {
+            "id": "c8f16fca-11de-4260-be92-ba3f0b2c0617",
+            "name": "VAE_1",
+            "type": "VAE",
+            "linkIds": [
+              22
+            ],
+            "localized_name": "VAE_1",
+            "pos": [
+              1111.39739211136,
+              576.2014145277893
+            ]
+          },
+          {
+            "id": "71c783fb-926d-46a0-81ae-1467105effb3",
+            "name": "MODEL_1",
+            "type": "MODEL",
+            "linkIds": [
+              48
+            ],
+            "localized_name": "MODEL_1",
+            "label": "fl2va model",
+            "pos": [
+              1111.39739211136,
+              596.2014145277893
+            ]
+          },
+          {
+            "id": "81e9066e-5d7c-4fac-81a2-186e7fb28549",
+            "name": "MODEL_2",
+            "type": "MODEL",
+            "linkIds": [
+              52
+            ],
+            "localized_name": "MODEL_2",
+            "label": "ref2va model",
+            "pos": [
+              1111.39739211136,
+              616.2014145277893
+            ]
+          },
+          {
+            "id": "a1f13eda-8acb-41fc-99a8-12d770425ab9",
+            "name": "MODEL_3",
+            "type": "MODEL",
+            "linkIds": [
+              46,
+              46
+            ],
+            "localized_name": "MODEL_3",
+            "pos": [
+              1111.39739211136,
+              636.2014145277893
+            ]
+          }
+        ],
+        "widgets": [],
+        "nodes": [
+          {
+            "id": 9,
+            "type": "MarkdownNote",
+            "pos": [
+              -161.47972464418504,
+              95.23136452080121
+            ],
+            "size": [
+              230.31451900463048,
+              219.85726807136712
+            ],
+            "flags": {},
+            "order": 0,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [],
+            "properties": {
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              "**4 STEP FL2VA TURBO LORA**\n\n- **Video Shift** - __6.00__\n- **Audio Shift** - __3.00__\n\n**8 STEP FL2VA TURBO LORA**\n\n- **Video Shift** - __12.00__\n- **Audio Shift** - __3.00__\n\n**NO FL2VA TURBO LORA**\n\n- **Video Shift** - __12.00__\n- **Audio Shift** - __3.00__"
+            ],
+            "widgets_values_named": {
+              "text": "**4 STEP FL2VA TURBO LORA**\n\n- **Video Shift** - __6.00__\n- **Audio Shift** - __3.00__\n\n**8 STEP FL2VA TURBO LORA**\n\n- **Video Shift** - __12.00__\n- **Audio Shift** - __3.00__\n\n**NO FL2VA TURBO LORA**\n\n- **Video Shift** - __12.00__\n- **Audio Shift** - __3.00__"
+            },
+            "color": "#000000FF",
+            "bgcolor": "#151515FF"
+          },
+          {
+            "id": 1,
+            "type": "UNETLoader",
+            "pos": [
+              94.9982626105649,
+              259.38860473271706
+            ],
+            "size": [
+              270,
+              82
+            ],
+            "flags": {},
+            "order": 6,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "unet_name",
+                "name": "unet_name",
+                "type": "COMBO",
+                "widget": {
+                  "name": "unet_name"
+                },
+                "link": 63
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  37
+                ]
+              }
+            ],
+            "title": "MODEL #2 - REF2VA",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "UNETLoader",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              "Minimax/10Eros_Max_h3_TURBO-hybrid_beta4_int8_convrot.safetensors",
+              "default"
+            ],
+            "widgets_values_named": {
+              "unet_name": "Minimax/10Eros_Max_h3_TURBO-hybrid_beta4_int8_convrot.safetensors",
+              "weight_dtype": "default"
+            },
+            "color": "#4806CEFF",
+            "bgcolor": "#5307EDFF"
+          },
+          {
+            "id": 2,
+            "type": "UNETLoader",
+            "pos": [
+              94.9982626105649,
+              388.38860473271706
+            ],
+            "size": [
+              270,
+              82
+            ],
+            "flags": {},
+            "order": 1,
+            "mode": 4,
+            "inputs": [],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  50,
+                  51
+                ]
+              }
+            ],
+            "title": "MODEL #3 - H3 FAST VIDEO",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "UNETLoader",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              "minimax_h3_fastvideo_vsa_datafree_1300step_4step_int8_convrot.safetensors",
+              "default"
+            ],
+            "widgets_values_named": {
+              "unet_name": "minimax_h3_fastvideo_vsa_datafree_1300step_4step_int8_convrot.safetensors",
+              "weight_dtype": "default"
+            },
+            "color": "#4806CEFF",
+            "bgcolor": "#5307EDFF"
+          },
+          {
+            "id": "clip",
+            "type": "CLIPLoader",
+            "pos": [
+              96.41193139448181,
+              558.6526654208358
+            ],
+            "size": [
+              270,
+              106
+            ],
+            "flags": {},
+            "order": 9,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "clip_name",
+                "name": "clip_name",
+                "type": "COMBO",
+                "widget": {
+                  "name": "clip_name"
+                },
+                "link": 62
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "CLIP",
+                "name": "CLIP",
+                "type": "CLIP",
+                "links": [
+                  24
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "CLIPLoader",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              "qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors",
+              "minimax",
+              "default"
+            ],
+            "widgets_values_named": {
+              "clip_name": "qwen3vl_32b_heretic_minimax_h3_nvfp4.safetensors",
+              "type": "minimax",
+              "device": "default"
+            },
+            "color": "#CEC008FF",
+            "bgcolor": "#EDDC09FF"
+          },
+          {
+            "id": "avae",
+            "type": "VAELoader",
+            "pos": [
+              96.41193139448181,
+              816.6526654208383
+            ],
+            "size": [
+              270,
+              58
+            ],
+            "flags": {},
+            "order": 2,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [
+              {
+                "localized_name": "VAE",
+                "name": "VAE",
+                "type": "VAE",
+                "links": [
+                  23
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "VAELoader",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              "minimax_h3_audio_vae_fp32.safetensors"
+            ],
+            "widgets_values_named": {
+              "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+            },
+            "color": "#E06161FF",
+            "bgcolor": "#FF6E6EFF"
+          },
+          {
+            "id": 4,
+            "type": "MarkdownNote",
+            "pos": [
+              385.4523757425336,
+              524.1429948694746
+            ],
+            "size": [
+              627.1809532901716,
+              583.0284696653029
+            ],
+            "flags": {},
+            "order": 3,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [],
+            "properties": {
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              "# Diffusion Model Pipeline / LoRA Switch Config\n\nThis workflow routes between three model paths (FL2VA T2V/I2V, REF2VA, and H3 Fast Video), each with its own LoRA and sampling settings, feeding into a single **Model Switch** node for selection at runtime.\n\n## Model #1 - FL2VA (T2V/I2V)\n\n- **Base model**: `minimax_h3_fl2va_pruned_int8...`\n- **LoRA**: `minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf...` (strength: 1.00)\n- **Sampling shift**: Video 6.00 / Audio 3.00\n\n## Model #2 - REF2VA\n\n- **Base model**: `minimax_h3_ref2va_pruned_int...`\n- **LoRA**: `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.sa...` (strength: 1.00)\n- **Sampling shift**: Video 12.00 / Audio 3.00\n\n## Model #3 - H3 Fast Video\n\n- **Base model**: `minimax_h3_fastvideo_vsa_dat...`\n- **LoRA**: bypassed by default (this model is already a speed-optimized diffusion model, so no turbo LoRA is needed)\n- **Optional**: users can un-bypass the LoRA node to stack the FL2VA turbo LoRA on top of the fast video model. This may speed things up further but will likely introduce quality deficits.\n- **Sampling shift**: Video 12.00 / Audio 3.00\n\n## Model Switch\n\n- **Node**: Impact-Pack Model Switch\n- **Inputs**: up to 5 model inputs (input1–input5), only inputs 1–3 populated here\n- **select**: 1 (currently routing Model #1)\n- **sel_mode**: `select_on_execution`\n\n## Notes\n\n- Each path uses `ModelSamplingMiniMax` to set video/audio shift values before hitting the switch.\n- Feeds into KSamplerSelect (sampler: `er_sde`) and BasicScheduler (scheduler: `simple`) downstream.\n- ## IMPORTANT: IF you are switching between models using the switch node, make sure you change the MODEL TYPE in the DIRECTOR node configuration."
+            ],
+            "widgets_values_named": {
+              "text": "# Diffusion Model Pipeline / LoRA Switch Config\n\nThis workflow routes between three model paths (FL2VA T2V/I2V, REF2VA, and H3 Fast Video), each with its own LoRA and sampling settings, feeding into a single **Model Switch** node for selection at runtime.\n\n## Model #1 - FL2VA (T2V/I2V)\n\n- **Base model**: `minimax_h3_fl2va_pruned_int8...`\n- **LoRA**: `minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf...` (strength: 1.00)\n- **Sampling shift**: Video 6.00 / Audio 3.00\n\n## Model #2 - REF2VA\n\n- **Base model**: `minimax_h3_ref2va_pruned_int...`\n- **LoRA**: `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.sa...` (strength: 1.00)\n- **Sampling shift**: Video 12.00 / Audio 3.00\n\n## Model #3 - H3 Fast Video\n\n- **Base model**: `minimax_h3_fastvideo_vsa_dat...`\n- **LoRA**: bypassed by default (this model is already a speed-optimized diffusion model, so no turbo LoRA is needed)\n- **Optional**: users can un-bypass the LoRA node to stack the FL2VA turbo LoRA on top of the fast video model. This may speed things up further but will likely introduce quality deficits.\n- **Sampling shift**: Video 12.00 / Audio 3.00\n\n## Model Switch\n\n- **Node**: Impact-Pack Model Switch\n- **Inputs**: up to 5 model inputs (input1–input5), only inputs 1–3 populated here\n- **select**: 1 (currently routing Model #1)\n- **sel_mode**: `select_on_execution`\n\n## Notes\n\n- Each path uses `ModelSamplingMiniMax` to set video/audio shift values before hitting the switch.\n- Feeds into KSamplerSelect (sampler: `er_sde`) and BasicScheduler (scheduler: `simple`) downstream.\n- ## IMPORTANT: IF you are switching between models using the switch node, make sure you change the MODEL TYPE in the DIRECTOR node configuration."
+            },
+            "color": "#000000FF",
+            "bgcolor": "#151515FF"
+          },
+          {
+            "id": "lora1",
+            "type": "LoraLoaderModelOnly",
+            "pos": [
+              381.9982626105649,
+              130.88567831262012
+            ],
+            "size": [
+              393.2341926824216,
+              82
+            ],
+            "flags": {},
+            "order": 10,
+            "mode": 4,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 35
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  42
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "LoraLoaderModelOnly",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+              1
+            ],
+            "widgets_values_named": {
+              "lora_name": "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+              "strength_model": 1
+            },
+            "color": "#4806CEFF",
+            "bgcolor": "#5307EDFF"
+          },
+          {
+            "id": 5,
+            "type": "LoraLoaderModelOnly",
+            "pos": [
+              381.9982626105649,
+              259.88567831262014
+            ],
+            "size": [
+              393.23419268242156,
+              82
+            ],
+            "flags": {},
+            "order": 7,
+            "mode": 4,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 37
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  43
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "LoraLoaderModelOnly",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+              1
+            ],
+            "widgets_values_named": {
+              "lora_name": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+              "strength_model": 1
+            },
+            "color": "#4806CEFF",
+            "bgcolor": "#5307EDFF"
+          },
+          {
+            "id": "vvae",
+            "type": "VAELoader",
+            "pos": [
+              96.41193139448181,
+              711.6526654208375
+            ],
+            "size": [
+              270,
+              58
+            ],
+            "flags": {},
+            "order": 4,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [
+              {
+                "localized_name": "VAE",
+                "name": "VAE",
+                "type": "VAE",
+                "links": [
+                  22
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "VAELoader",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              "minimax_h3_video_vae_int8_convrot.safetensors"
+            ],
+            "widgets_values_named": {
+              "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+            },
+            "color": "#E06161FF",
+            "bgcolor": "#FF6E6EFF"
+          },
+          {
+            "id": 7,
+            "type": "MiniMaxH3SigmaShift",
+            "pos": [
+              792.2324552929865,
+              259.88567831262014
+            ],
+            "size": [
+              235.16493681837335,
+              82
+            ],
+            "flags": {},
+            "order": 8,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 43
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  52
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "MiniMaxH3SigmaShift",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              12,
+              3
+            ],
+            "widgets_values_named": {
+              "shift_video": 12,
+              "shift_audio": 3
+            },
+            "color": "#4806CEFF",
+            "bgcolor": "#5307EDFF"
+          },
+          {
+            "id": 8,
+            "type": "MiniMaxH3SigmaShift",
+            "pos": [
+              792.2324552929866,
+              385.0178357626544
+            ],
+            "size": [
+              235.16493681837335,
+              82
+            ],
+            "flags": {},
+            "order": 5,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 50
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  46
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "MiniMaxH3SigmaShift",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              12,
+              3
+            ],
+            "widgets_values_named": {
+              "shift_video": 12,
+              "shift_audio": 3
+            },
+            "color": "#4806CEFF",
+            "bgcolor": "#5307EDFF"
+          },
+          {
+            "id": "um",
+            "type": "UNETLoader",
+            "pos": [
+              94.9982626105649,
+              130.38860473271703
+            ],
+            "size": [
+              270,
+              82
+            ],
+            "flags": {},
+            "order": 11,
+            "mode": 4,
+            "inputs": [
+              {
+                "localized_name": "unet_name",
+                "name": "unet_name",
+                "type": "COMBO",
+                "widget": {
+                  "name": "unet_name"
+                },
+                "link": 78
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  35
+                ]
+              }
+            ],
+            "title": "MODEL #1 - FL2VA (T2V/I2V)",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "UNETLoader",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              "Minimax/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+              "default"
+            ],
+            "widgets_values_named": {
+              "unet_name": "Minimax/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+              "weight_dtype": "default"
+            },
+            "color": "#4806CEFF",
+            "bgcolor": "#5307EDFF"
+          },
+          {
+            "id": "shift",
+            "type": "MiniMaxH3SigmaShift",
+            "pos": [
+              788.3646127430208,
+              127.01783576265443
+            ],
+            "size": [
+              235.16493681837335,
+              82
+            ],
+            "flags": {},
+            "order": 12,
+            "mode": 4,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 42
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  48
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "MiniMaxH3SigmaShift",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              6,
+              3
+            ],
+            "widgets_values_named": {
+              "shift_video": 6,
+              "shift_audio": 3
+            },
+            "color": "#4806CEFF",
+            "bgcolor": "#5307EDFF"
+          }
+        ],
+        "groups": [
+          {
+            "id": 8,
+            "title": "Group",
+            "bounding": [
+              86.41193139448181,
+              488.6526654208358,
+              290,
+              396.0000000000025
+            ],
+            "color": "#CEC108FF",
+            "flags": {}
+          }
+        ],
+        "links": [
+          {
+            "id": 35,
+            "origin_id": "um",
+            "origin_slot": 0,
+            "target_id": "lora1",
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 37,
+            "origin_id": 1,
+            "origin_slot": 0,
+            "target_id": 5,
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 42,
+            "origin_id": "lora1",
+            "origin_slot": 0,
+            "target_id": "shift",
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 43,
+            "origin_id": 5,
+            "origin_slot": 0,
+            "target_id": 7,
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 50,
+            "origin_id": 2,
+            "origin_slot": 0,
+            "target_id": 8,
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 51,
+            "origin_id": 2,
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 24,
+            "origin_id": "clip",
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 1,
+            "type": "CLIP"
+          },
+          {
+            "id": 23,
+            "origin_id": "avae",
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 2,
+            "type": "VAE"
+          },
+          {
+            "id": 22,
+            "origin_id": "vvae",
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 3,
+            "type": "VAE"
+          },
+          {
+            "id": 48,
+            "origin_id": "shift",
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 4,
+            "type": "MODEL"
+          },
+          {
+            "id": 52,
+            "origin_id": 7,
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 5,
+            "type": "MODEL"
+          },
+          {
+            "id": 46,
+            "origin_id": 8,
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 6,
+            "type": "MODEL"
+          },
+          {
+            "id": 62,
+            "origin_id": -10,
+            "origin_slot": 0,
+            "target_id": "clip",
+            "target_slot": 0,
+            "type": "COMBO"
+          },
+          {
+            "id": 63,
+            "origin_id": -10,
+            "origin_slot": 1,
+            "target_id": 1,
+            "target_slot": 0,
+            "type": "COMBO"
+          },
+          {
+            "id": 78,
+            "origin_id": -10,
+            "origin_slot": 2,
+            "target_id": "um",
+            "target_slot": 0,
+            "type": "COMBO"
+          }
+        ],
+        "extra": {
+          "pixaromaGroups": [],
+          "ue_links": [],
+          "links_added_by_ue": []
+        }
+      }
+    ]
+  },
+  "config": {},
+  "extra": {
+    "ue_links": [],
+    "links_added_by_ue": [],
+    "ds": {
+      "scale": 0.8531888145315719,
+      "offset": [
+        829.4865060481278,
+        -636.328865967036
+      ]
+    },
+    "frontendVersion": "1.51.10",
+    "VHS_latentpreview": true,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true,
+    "ref2va": true,
+    "description": "SFW ref2va (Reference to Video) example: one continuous golden-hour forest run, 3 segments x 7s (21s total @24fps). Subject 1 is an athletic elf woman sprinting through dense forest, clearing a creek and a log, vaulting onto a high branch, then stopping at a cliff edge to view the vast forest. Dynamic cinematic camera (orbit / tracking / low-angle pan). No dialogue, no music - only exertion breaths, movement grunts, clothes rustle, footfalls, forest ambience. To use: upload a headshot as Picture 1 and a full-body character sheet as Picture 2 in the Director's common references, then generate (Export all). Requires the H3 REF2VA model selected on the ImpactSwitch (select 2 = MODEL_2 / ref2va path)."
+  },
+  "version": 0.4,
+  "seed_widgets": {
+    "dir": 4
+  }
+}

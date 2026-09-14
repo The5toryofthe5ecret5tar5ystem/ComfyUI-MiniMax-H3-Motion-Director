@@ -376,6 +376,7 @@ def build_gen_director_plan(
     height: int,
     ref_max_size: int,
     motion_context_enabled: bool = True,
+    refmod_block_count: int = 0,
 ):
     """Build DirectorPlan for generation timeline modes (lazy import avoids cycles)."""
     from .plan import (
@@ -618,12 +619,26 @@ def build_gen_director_plan(
         )
 
         if seg_task_key in ("r2v", "r2i") and not has_r2v_material:
-            log.warning(
-                "gen segment #%d task=%s has no reference media — will behave like "
-                "t2v/t2i. Upload 图片/音频/视频 on this material card.",
-                idx + 1,
-                seg_task_key,
-            )
+            if refmod_block_count:
+                # RefMod reference latents are appended to this segment's
+                # conditioning by the executor, so the segment is genuinely
+                # reference-conditioned even though it has no built-in media of
+                # its own. Saying "will behave like t2v/t2i" here was wrong and
+                # sent people hunting for a wiring fault that was not there.
+                log.info(
+                    "gen segment #%d task=%s has no built-in reference media, but "
+                    "%d RefMod reference block(s) are appended to every segment.",
+                    idx + 1,
+                    seg_task_key,
+                    refmod_block_count,
+                )
+            else:
+                log.warning(
+                    "gen segment #%d task=%s has no reference media — will behave like "
+                    "t2v/t2i. Upload 图片/音频/视频 on this material card.",
+                    idx + 1,
+                    seg_task_key,
+                )
         source_item = source_clips[idx] if idx < len(source_clips) else None
         seg_source = source_item.clone() if source_item is not None else None
 

@@ -73,6 +73,10 @@ EXPECTED_INPUT_ORDER: list[tuple[str, str]] = [
     ("optional", "audio_refine_enabled"),
     ("optional", "audio_refine_steps"),
     ("optional", "audio_refine_denoise"),
+    # RefMod references. Declared last in INPUT_TYPES() on purpose: a mid-block
+    # insert shifts every later widgets_values position, so saved workflows
+    # silently rehydrate the wrong values.
+    ("optional", "refmod_conditioning"),
 ]
 
 # Section headers the frontend actively collapses (minimax_director_sections_core.mjs).

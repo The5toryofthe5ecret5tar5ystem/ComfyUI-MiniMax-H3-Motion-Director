@@ -25,6 +25,7 @@ from ..director.progress import (
 from ..director.rtx_deblur import apply_rtx_deblur
 from ..director.video_export import FINAL_VIDEO_REGISTRY
 from .director import MiniMaxH3MotionDirector as _BaseDirector
+from .conditioning import harvest_and_report_refmods
 from .director_common import (
     default_timeline_json,
     finalize_director_outputs,
@@ -139,6 +140,9 @@ class MiniMaxH3MotionDirector(_BaseDirector):
         source_overlap_frames=5,
         audio_context_enabled=True,
         color_reanchor_enabled=False,
+        audio_refine_enabled=False,
+        audio_refine_steps=6,
+        audio_refine_denoise=0.5,
         steps=25,
         sampler_name="res_multistep",
         scheduler="simple",
@@ -153,10 +157,23 @@ class MiniMaxH3MotionDirector(_BaseDirector):
         pin_renorm_enabled=False,
         postprocess_config="",
         director_inputs=None,
+        refmod_conditioning=None,
         prompt=None,
         extra_pnginfo=None,
         **kwargs,
     ):
+        # ComfyUI binds inputs to parameters by name, so anything still in kwargs
+        # arrived under a name this signature does not declare and is silently
+        # unusable. Surface it: a one-word mismatch otherwise looks exactly like
+        # "the user never connected anything".
+        # `bd_grp_*` are frontend section-header widgets - they carry no value the
+        # node consumes, so they belong here and are not worth reporting.
+        unexpected = sorted(k for k in kwargs if not k.startswith("bd_grp_"))
+        if unexpected:
+            print(
+                "[MiniMax H3 Motion Director] ignoring undeclared input(s): "
+                + ", ".join(unexpected)
+            )
         del kwargs
 
         final_run_id = (
@@ -184,6 +201,14 @@ class MiniMaxH3MotionDirector(_BaseDirector):
             motion_context_enabled=motion_context_enabled,
         )
 
+        # A connected CONDITIONING contributes only its RefMod reference payload.
+        # This node builds its own conditioning per segment, so the prompt and
+        # target latent that came in with it are discarded - see
+        # harvest_refmod_refs for why. Harvested BEFORE the plan is built so the
+        # plan builder knows these segments are reference-conditioned even though
+        # they carry no built-in reference media of their own.
+        refmod_refs = harvest_and_report_refmods(refmod_conditioning)
+
         plan = prepare_director_plan(
             timeline_data=effective_timeline_data,
             task_type=task_type,
@@ -197,6 +222,7 @@ class MiniMaxH3MotionDirector(_BaseDirector):
             motion_context_enabled=motion_context_enabled,
             i2v_groups=None,
             r2v_groups=None,
+            refmod_block_count=len(refmod_refs),
         )
         apply_director_inputs_to_plan(plan, normalized_inputs)
 
@@ -221,10 +247,27 @@ class MiniMaxH3MotionDirector(_BaseDirector):
             source_overlap_frames=source_overlap_frames,
             audio_context_enabled=audio_context_enabled,
             color_reanchor_enabled=color_reanchor_enabled,
+            audio_refine_enabled=audio_refine_enabled,
+            audio_refine_steps=audio_refine_steps,
+            audio_refine_denoise=audio_refine_denoise,
             pin_renorm_enabled=pin_renorm_enabled,
             clear_vram_between_segments=clear_vram_between_segments,
+            refmod_refs=refmod_refs,
             postprocess_config=postprocess_config,
         )
+
+        if refmod_refs:
+            report = report + (
+                f"\n\nRefMod: {len(refmod_refs)} reference block(s) appended to every "
+                "segment. Only the RefMod payload was used - the prompt and frame "
+                "size of the connected conditioning are ignored."
+            )
+        elif refmod_conditioning is not None:
+            report = report + (
+                "\n\nRefMod: refmod_conditioning is connected but supplied no "
+                "reference blocks - nothing was appended. Check that Apply H3 RefMod "
+                "receives a mod and that its retention is above 0."
+            )
 
         postprocess = normalize_postprocess_config(postprocess_config)
         deblur_config = postprocess["global_refine"]
