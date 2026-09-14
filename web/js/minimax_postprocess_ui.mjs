@@ -33,7 +33,7 @@ const DEFAULT_CONFIG = Object.freeze({
         sam_model: "", sam_threshold: 0.93, sam_dilation: 0, sam_temporal_smooth: 5,
     },
     audio_refine: {
-        version: 1, enabled: false, per_segment: false, room: "", reverb_enabled: true,
+        version: 1, enabled: false, room: "", reverb_enabled: true,
         reverberance: 40, hf_damping: 55, room_scale: 45, stereo_depth: 70,
         pre_delay_ms: 12, wet_gain_db: -2, normalize: false, gain_db: 0,
         use_limiter: true, sox_path: "",
@@ -75,7 +75,6 @@ const POST_TEXT = {
         audio_custom_note: "Reverb runs before level, so the tail cannot push the result into clipping.",
         audio_sox_note: "Requires SoX on PATH. Leave the path empty to auto-detect.",
         audio_final_only: "Applied once to the finished track. Segment caches stay valid.",
-        audio_per_segment_note: "Also applied per segment, so previews carry the room - but this invalidates segment caches.",
     },
     zh: {
         global_title: "全局精修", face_title: "人脸精修", sampling: "二次采样",
@@ -96,7 +95,6 @@ const POST_TEXT = {
         audio_custom_note: "混响在电平之前处理，避免尾音把结果推到削波。",
         audio_sox_note: "需要 PATH 中存在 SoX。路径留空表示自动检测。",
         audio_final_only: "仅在成品音轨上处理一次，不会使片段缓存失效。",
-        audio_per_segment_note: "同时对每个片段处理，预览会带空间感，但会使片段缓存失效。",
     },
 };
 
@@ -148,7 +146,6 @@ const POST_LABELS = {
     "audio_refine.normalize": ["Normalize", "标准化"],
     "audio_refine.gain_db": ["Gain (dB)", "增益（dB）"],
     "audio_refine.use_limiter": ["Limiter", "限幅器"],
-    "audio_refine.per_segment": ["Per-segment", "逐片段"],
     "audio_refine.sox_path": ["SoX Path", "SoX 路径"],
 };
 
@@ -251,7 +248,6 @@ export function normalizePostprocessConfig(raw) {
     face.feather_scales_with_crop=!!face.feather_scales_with_crop;
     const audio=result.audio_refine;
     audio.enabled=!!audio.enabled;
-    audio.per_segment=!!audio.per_segment;
     audio.reverb_enabled=audio.reverb_enabled!==false;
     // An empty room means "no opinion": the six explicit values below apply.
     audio.room=ROOM_NAMES.includes(String(audio.room||"").trim().toLowerCase())?String(audio.room).trim().toLowerCase():"";
@@ -365,7 +361,6 @@ export function audioRefineVisibility(config) {
         // exactly when a preset is selected.  Reverb off hides them too.
         customRoom: audio.reverb_enabled && !audio.room,
         limiter: Number(audio.gain_db) > 0,
-        perSegment: !!audio.per_segment,
     };
 }
 
@@ -386,7 +381,6 @@ export function audioRefineSummary(config, locale = "en") {
     if (audio.normalize) parts.push(zh ? "标准化" : "Normalize");
     const gain = Number(audio.gain_db);
     if (Math.abs(gain) >= 0.01) parts.push(`${gain >= 0 ? "+" : ""}${gain} dB`);
-    if (audio.per_segment) parts.push(zh ? "逐片段" : "Per-segment");
     return parts.join(" · ");
 }
 
@@ -594,11 +588,7 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
             ${field("Limiter", "audio_refine.use_limiter", "checkbox")}
             ${field("SoX Path", "audio_refine.sox_path", "text")}
           </div>
-          <div class="mmx-post-divider-title">Per-segment</div><div class="mmx-post-grid">
-            ${field("Per-segment", "audio_refine.per_segment", "checkbox")}
-          </div>
-          ${conditional("audio_final", '<p class="mmx-post-note" data-post-text="audio_final_only"></p>')}
-          ${conditional("audio_perseg", '<p class="mmx-post-note" data-post-text="audio_per_segment_note"></p>')}
+          <p class="mmx-post-note" data-post-text="audio_final_only"></p>
         </details>
       </section>`;
     container.replaceChildren(root);
@@ -678,8 +668,6 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
         setConditional("face_fallback",!fv.fallback);
         const av=audioRefineVisibility(config);
         setConditional("audio_custom",!av.customRoom);
-        setConditional("audio_final",av.perSegment);
-        setConditional("audio_perseg",!av.perSegment);
         const [w, h] = directorSize();
         const lang = forcedLang || locale();
         root.querySelector('[data-summary="global_refine"]').textContent = globalRefineSummary(config, w, h, lang);

@@ -41,7 +41,7 @@ assert.equal(migrated.face_refine.base_denoise,0.45); assert.equal(migrated.face
 // ---- Audio Room -------------------------------------------------------------
 assert.match(uiSource,/data-section="audio_refine"/,"the panel must render an Audio Room column");
 assert.match(uiSource,/field\("Room",\s*"audio_refine\.room"/,"the room preset selector must exist");
-assert.match(uiSource,/audio_refine\.per_segment/,"the per-segment opt-in must exist");
+assert.doesNotMatch(uiSource,/audio_refine\.per_segment/,"the per-segment opt-in must be gone: the room is assembly-only");
 
 const audio=normalizePostprocessConfig({audio_refine:{enabled:true,room:"Bathroom",reverberance:500,hf_damping:-80,gain_db:999,pre_delay_ms:-5}});
 assert.equal(audio.audio_refine.enabled,true);
@@ -58,17 +58,19 @@ assert.equal(normalizePostprocessConfig({audio_refine:{enabled:true,reverberance
 assert.equal(normalizePostprocessConfig({audio_refine:{enabled:true,gain_db:null}}).audio_refine.gain_db,0);
 
 // A named room supplies all six values, so the manual fields hide.
-assert.deepEqual(audioRefineVisibility(audio),{customRoom:false,limiter:true,perSegment:false});
+assert.deepEqual(audioRefineVisibility(audio),{customRoom:false,limiter:true});
 assert.equal(audioRefineVisibility(normalizePostprocessConfig({audio_refine:{enabled:true,room:""}})).customRoom,true);
 assert.equal(audioRefineVisibility(normalizePostprocessConfig({audio_refine:{enabled:true,room:"",reverb_enabled:false}})).customRoom,false);
-assert.equal(audioRefineVisibility(normalizePostprocessConfig({audio_refine:{enabled:true,room:"hall",per_segment:true}})).perSegment,true);
+// A saved config that still carries the removed per-segment flag must behave
+// exactly like one that does not.
+assert.equal(audioRefineVisibility(normalizePostprocessConfig({audio_refine:{enabled:true,room:"hall",per_segment:true}})).customRoom,false);
 assert.equal(audioRefineVisibility(normalizePostprocessConfig({audio_refine:{enabled:true,room:"",gain_db:-4}})).limiter,false);
 
 assert.match(audioRefineSummary(audio,"en"),/Bathroom/);
 assert.match(audioRefineSummary(audio,"zh"),/浴室/);
 assert.match(audioRefineSummary(normalizePostprocessConfig({}),"en"),/Disabled/);
 assert.match(audioRefineSummary(normalizePostprocessConfig({audio_refine:{enabled:true,room:"",reverberance:33,room_scale:44}}),"en"),/Rev 33% · Size 44%/);
-assert.match(audioRefineSummary(normalizePostprocessConfig({audio_refine:{enabled:true,room:"bar",per_segment:true}}),"en"),/Per-segment/);
+assert.doesNotMatch(audioRefineSummary(normalizePostprocessConfig({audio_refine:{enabled:true,room:"bar",per_segment:true}}),"en"),/Per-segment/,"a legacy per_segment field must not reach the summary");
 
 // Parity with the Python side: these two lists are hand-maintained in two
 // languages and the summary/dropdown silently break when they drift.

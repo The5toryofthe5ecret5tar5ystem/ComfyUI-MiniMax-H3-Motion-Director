@@ -5,70 +5,11 @@
   "last_link_id": 73,
   "nodes": [
     {
-      "id": "cv",
-      "type": "CreateVideo",
-      "pos": [
-        1380,
-        90
-      ],
-      "size": [
-        270,
-        126
-      ],
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 27
-        },
-        {
-          "name": "audio",
-          "shape": 7,
-          "type": "AUDIO",
-          "link": 28
-        }
-      ],
-      "outputs": [
-        {
-          "name": "VIDEO",
-          "type": "VIDEO",
-          "links": [
-            29
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.34.0",
-        "Node name for S&R": "CreateVideo",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.8"
-        }
-      },
-      "widgets_values": [
-        24,
-        8,
-        "sRGB"
-      ],
-      "widgets_values_named": {
-        "fps": 24,
-        "bit_depth": 8,
-        "color_space": "sRGB"
-      },
-      "color": "#372363FF",
-      "bgcolor": "#482E82FF"
-    },
-    {
       "id": "cff",
       "type": "MiniMaxChunkFeedForward",
       "pos": [
-        650,
-        660
+        6.648855855705883,
+        666.4464042499426
       ],
       "size": [
         316.38046875,
@@ -118,8 +59,8 @@
       "id": "sla",
       "type": "H3SLAAttention",
       "pos": [
-        650,
-        790
+        6.648855855705883,
+        796.4464042499426
       ],
       "size": [
         319.04530730967303,
@@ -193,8 +134,8 @@
       "id": 13,
       "type": "SpectrumApplyMiniMaxH3",
       "pos": [
-        1000,
-        660
+        356.64885585570573,
+        666.4464042499426
       ],
       "size": [
         330.6499938964844,
@@ -293,8 +234,8 @@
       "id": 11,
       "type": "Power Lora Loader (rgthree)",
       "pos": [
-        120,
-        660
+        -523.3511441442944,
+        666.4464042499426
       ],
       "size": [
         490,
@@ -474,158 +415,11 @@
       "bgcolor": "#653"
     },
     {
-      "id": 3,
-      "type": "ImpactSwitch",
-      "pos": [
-        420,
-        60
-      ],
-      "size": [
-        290,
-        210
-      ],
-      "flags": {},
-      "order": 2,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "input1",
-          "shape": 7,
-          "type": "*",
-          "link": 58
-        },
-        {
-          "name": "input2",
-          "type": "MODEL",
-          "link": 72
-        },
-        {
-          "name": "input3",
-          "type": "MODEL",
-          "link": 73
-        },
-        {
-          "name": "input4",
-          "type": "MODEL",
-          "link": null
-        },
-        {
-          "name": "input5",
-          "type": "MODEL",
-          "link": null
-        },
-        {
-          "name": "input6",
-          "type": "MODEL",
-          "link": null
-        },
-        {
-          "name": "input7",
-          "type": "MODEL",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "MODEL",
-          "name": "selected_value",
-          "type": "*",
-          "links": [
-            47
-          ]
-        },
-        {
-          "name": "selected_label",
-          "type": "STRING",
-          "links": null
-        },
-        {
-          "name": "selected_index",
-          "type": "INT",
-          "links": null
-        }
-      ],
-      "title": "MODEL SWITCH",
-      "properties": {
-        "cnr_id": "comfyui-impact-pack",
-        "ver": "429d0159ad429e64d2b3916e6e7be9c22d025c3c",
-        "Node name for S&R": "ImpactSwitch",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.8"
-        }
-      },
-      "widgets_values": [
-        2,
-        false
-      ],
-      "widgets_values_named": {
-        "select": 2,
-        "sel_mode": false
-      },
-      "color": "#4906CEFF",
-      "bgcolor": "#5407EDFF"
-    },
-    {
-      "id": "sv",
-      "type": "SaveVideo",
-      "pos": [
-        1390,
-        270
-      ],
-      "size": [
-        430,
-        106
-      ],
-      "flags": {},
-      "order": 11,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "video",
-          "type": "VIDEO",
-          "link": 30
-        }
-      ],
-      "outputs": [
-        {
-          "name": "video",
-          "type": "VIDEO",
-          "links": null
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.34.0",
-        "Node name for S&R": "SaveVideo",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.8"
-        }
-      },
-      "widgets_values": [
-        "mm-director/%date:yyyy-MM-dd%/%date:hhmmss%",
-        "auto",
-        "auto",
-        "auto"
-      ],
-      "widgets_values_named": {
-        "filename_prefix": "mm-director/%date:yyyy-MM-dd%/%date:hhmmss%",
-        "format": "auto",
-        "format.codec": "auto",
-        "codec": "auto"
-      },
-      "color": "#372363FF",
-      "bgcolor": "#482E82FF"
-    },
-    {
       "id": "clean",
       "type": "easy cleanGpuUsed",
       "pos": [
-        1670,
-        110
+        1650,
+        710
       ],
       "size": [
         161.3499969482422,
@@ -666,15 +460,111 @@
       "bgcolor": "#482E82FF"
     },
     {
+      "id": "ssel",
+      "type": "KSamplerSelect",
+      "pos": [
+        740,
+        340
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "SAMPLER",
+          "type": "SAMPLER",
+          "links": [
+            25
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "KSamplerSelect",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "euler"
+      ],
+      "widgets_values_named": {
+        "sampler_name": "euler"
+      },
+      "color": "#632323FF",
+      "bgcolor": "#822E2EFF"
+    },
+    {
+      "id": "sched",
+      "type": "BasicScheduler",
+      "pos": [
+        740,
+        440
+      ],
+      "size": [
+        270,
+        106
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 69
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SIGMAS",
+          "type": "SIGMAS",
+          "links": [
+            26
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "BasicScheduler",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "beta",
+        16,
+        1
+      ],
+      "widgets_values_named": {
+        "scheduler": "beta",
+        "steps": 16,
+        "denoise": 1
+      },
+      "color": "#632323FF",
+      "bgcolor": "#822E2EFF"
+    },
+    {
       "id": "dir",
       "type": "MiniMaxH3MotionDirector",
       "pos": [
-        730,
-        -90
+        720,
+        620
       ],
       "size": [
         623.5162204999688,
-        647
+        799
       ],
       "flags": {},
       "order": 8,
@@ -781,7 +671,11 @@
           "export_source_images": false,
           "bd_grp_experimental": "Experimental",
           "pin_renorm_enabled": true,
-          "postprocess_config": "{\"version\":9,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+          "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+          "bd_grp_audio_refine": "Audio Refine",
+          "audio_refine_enabled": false,
+          "audio_refine_steps": 6,
+          "audio_refine_denoise": 0.5,
           "minimax_motion_director_ui": ""
         }
       },
@@ -817,6 +711,8 @@
         null,
         null,
         null,
+        null,
+        null,
         "Advanced sampling · Sampling: external",
         25,
         "res_multistep",
@@ -829,7 +725,11 @@
         false,
         "Experimental",
         true,
-        "{\"version\":9,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+        "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+        "Audio Refine",
+        false,
+        6,
+        0.5,
         ""
       ],
       "widgets_values_named": {
@@ -862,89 +762,93 @@
         "export_source_images": false,
         "bd_grp_experimental": "Experimental",
         "pin_renorm_enabled": true,
-        "postprocess_config": "{\"version\":9,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+        "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+        "bd_grp_audio_refine": "Audio Refine",
+        "audio_refine_enabled": false,
+        "audio_refine_steps": 6,
+        "audio_refine_denoise": 0.5,
         "minimax_motion_director_ui": ""
       },
       "color": "#235263FF",
       "bgcolor": "#2E6B82FF"
     },
     {
-      "id": "ssel",
-      "type": "KSamplerSelect",
+      "id": 3,
+      "type": "ImpactSwitch",
       "pos": [
-        430,
-        340
+        420,
+        350
       ],
       "size": [
-        270,
-        58
+        290,
+        210
       ],
       "flags": {},
-      "order": 1,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "SAMPLER",
-          "type": "SAMPLER",
-          "links": [
-            25
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.34.0",
-        "Node name for S&R": "KSamplerSelect",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.8"
-        }
-      },
-      "widgets_values": [
-        "euler"
-      ],
-      "widgets_values_named": {
-        "sampler_name": "euler"
-      },
-      "color": "#632323FF",
-      "bgcolor": "#822E2EFF"
-    },
-    {
-      "id": "sched",
-      "type": "BasicScheduler",
-      "pos": [
-        430,
-        440
-      ],
-      "size": [
-        270,
-        106
-      ],
-      "flags": {},
-      "order": 7,
+      "order": 2,
       "mode": 0,
       "inputs": [
         {
-          "name": "model",
+          "name": "input1",
+          "shape": 7,
+          "type": "*",
+          "link": 58
+        },
+        {
+          "name": "input2",
           "type": "MODEL",
-          "link": 69
+          "link": 72
+        },
+        {
+          "name": "input3",
+          "type": "MODEL",
+          "link": 73
+        },
+        {
+          "name": "input4",
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "name": "input5",
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "name": "input6",
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "name": "input7",
+          "type": "MODEL",
+          "link": null
         }
       ],
       "outputs": [
         {
-          "name": "SIGMAS",
-          "type": "SIGMAS",
+          "label": "MODEL",
+          "name": "selected_value",
+          "type": "*",
           "links": [
-            26
+            47
           ]
+        },
+        {
+          "name": "selected_label",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "selected_index",
+          "type": "INT",
+          "links": null
         }
       ],
+      "title": "MODEL SWITCH",
       "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.34.0",
-        "Node name for S&R": "BasicScheduler",
+        "cnr_id": "comfyui-impact-pack",
+        "ver": "429d0159ad429e64d2b3916e6e7be9c22d025c3c",
+        "Node name for S&R": "ImpactSwitch",
         "ue_properties": {
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {},
@@ -952,17 +856,129 @@
         }
       },
       "widgets_values": [
-        "beta",
-        16,
-        1
+        2,
+        false
       ],
       "widgets_values_named": {
-        "scheduler": "beta",
-        "steps": 16,
-        "denoise": 1
+        "select": 2,
+        "sel_mode": false
       },
-      "color": "#632323FF",
-      "bgcolor": "#822E2EFF"
+      "color": "#4906CEFF",
+      "bgcolor": "#5407EDFF"
+    },
+    {
+      "id": "cv",
+      "type": "CreateVideo",
+      "pos": [
+        1360,
+        690
+      ],
+      "size": [
+        270,
+        126
+      ],
+      "flags": {
+        "collapsed": true
+      },
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 27
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 28
+        }
+      ],
+      "outputs": [
+        {
+          "name": "VIDEO",
+          "type": "VIDEO",
+          "links": [
+            29
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "CreateVideo",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        24,
+        8,
+        "sRGB"
+      ],
+      "widgets_values_named": {
+        "fps": 24,
+        "bit_depth": 8,
+        "color_space": "sRGB"
+      },
+      "color": "#372363FF",
+      "bgcolor": "#482E82FF"
+    },
+    {
+      "id": "sv",
+      "type": "SaveVideo",
+      "pos": [
+        1360,
+        660
+      ],
+      "size": [
+        430,
+        106
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "link": 30
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.34.0",
+        "Node name for S&R": "SaveVideo",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        }
+      },
+      "widgets_values": [
+        "mm-director/%date:yyyy-MM-dd%/%date:hhmmss%",
+        "auto",
+        "auto",
+        "auto"
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "mm-director/%date:yyyy-MM-dd%/%date:hhmmss%",
+        "format": "auto",
+        "format.codec": "auto",
+        "codec": "auto"
+      },
+      "color": "#372363FF",
+      "bgcolor": "#482E82FF"
     }
   ],
   "links": [
@@ -1124,7 +1140,7 @@
       "id": 1,
       "title": "Sampler/Scheduler/Steps",
       "bounding": [
-        420,
+        730,
         280,
         292.444798371754,
         287.16998931574386
@@ -1136,8 +1152,8 @@
       "id": 3,
       "title": "Group",
       "bounding": [
-        100,
-        580,
+        -543.3511441442944,
+        586.4464042499426,
         1250,
         760
       ],
@@ -1148,10 +1164,10 @@
       "id": 5,
       "title": "Video processing + VRAM cleansing",
       "bounding": [
-        1370,
-        -10,
-        468.34042968749986,
-        886.9161965917473
+        1350,
+        590,
+        470,
+        430
       ],
       "color": "#6843BFFF",
       "flags": {}
@@ -2094,13 +2110,13 @@
     "ue_links": [],
     "links_added_by_ue": [],
     "ds": {
-      "scale": 0.9385076959847279,
+      "scale": 0.7756261950287007,
       "offset": [
-        340.2026627558374,
-        173.987344800324
+        364.91210317834555,
+        -100.33113026542483
       ]
     },
-    "frontendVersion": "1.51.9",
+    "frontendVersion": "1.51.10",
     "VHS_latentpreview": true,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,
@@ -2108,5 +2124,8 @@
     "ref2va": true,
     "description": "SFW ref2va (Reference to Video) example: one continuous golden-hour forest run, 3 segments x 7s (21s total @24fps). Subject 1 is an athletic elf woman sprinting through dense forest, clearing a creek and a log, vaulting onto a high branch, then stopping at a cliff edge to view the vast forest. Dynamic cinematic camera (orbit / tracking / low-angle pan). No dialogue, no music - only exertion breaths, movement grunts, clothes rustle, footfalls, forest ambience. To use: upload a headshot as Picture 1 and a full-body character sheet as Picture 2 in the Director's common references, then generate (Export all). Requires the H3 REF2VA model selected on the ImpactSwitch (select 2 = MODEL_2 / ref2va path)."
   },
-  "version": 0.4
+  "version": 0.4,
+  "seed_widgets": {
+    "dir": 4
+  }
 }

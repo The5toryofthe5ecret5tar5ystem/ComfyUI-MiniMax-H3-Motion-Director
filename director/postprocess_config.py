@@ -5,10 +5,9 @@ This facade keeps its public API stable while making Face Refine part of the
 final segment/cache identity, and adding the ``audio_refine`` room/level
 section.
 
-``audio_refine`` only joins the segment cache fingerprint when ``per_segment``
-is on.  In the default final-assembly-only mode it produces no per-segment
-artefact, so turning room simulation on must NOT invalidate existing segment or
-context caches.
+``audio_refine`` never joins the segment cache fingerprint.  Room simulation is
+applied once at final output assembly, so it produces no per-segment artefact
+and turning it on must NOT invalidate existing segment or context caches.
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from typing import Any
 from . import postprocess_config_legacy as _legacy
 from .audio_refine_config import (
     DEFAULT_AUDIO_REFINE,
-    audio_refine_fingerprint,
     normalize_audio_refine,
 )
 from .postprocess_config_legacy import *  # noqa: F401,F403
@@ -71,9 +69,9 @@ def postprocess_cache_fingerprint(config: dict[str, Any]) -> dict[str, Any]:
     Context chains, so its settings must invalidate stale segment/context
     caches. Result previews remain UI-only and are deliberately excluded.
 
-    Audio room simulation is included only when ``audio_refine.per_segment`` is
-    enabled; the default final-assembly pass changes no per-segment artefact and
-    therefore must not invalidate anything.
+    Audio room simulation is deliberately excluded.  It is applied at final
+    output assembly, after every segment cache has been written, so no room
+    setting can change a per-segment artefact.
     """
     normalized = normalize_postprocess_config(config)
     global_refine = dict(normalized["global_refine"])
@@ -82,7 +80,7 @@ def postprocess_cache_fingerprint(config: dict[str, Any]) -> dict[str, Any]:
     return {
         "global_refine": global_refine if global_refine["enabled"] else False,
         "face_refine": face_refine if face_refine["enabled"] else False,
-        "audio_refine": audio_refine_fingerprint(normalized["audio_refine"]),
+        "audio_refine": False,
     }
 
 

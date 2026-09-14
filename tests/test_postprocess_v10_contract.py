@@ -30,10 +30,9 @@ def test_postprocess_config_version_migrates_legacy_values():
     assert normalized["global_refine"]["result_previews_enabled"] is True
 
 
-def test_audio_refine_section_defaults_to_off_and_final_only():
+def test_audio_refine_section_defaults_to_off():
     audio = normalize_postprocess_config({"version": 9})["audio_refine"]
     assert audio["enabled"] is False
-    assert audio["per_segment"] is False
     assert audio["sox_path"] == ""
 
 
@@ -48,13 +47,19 @@ def test_final_assembly_audio_does_not_change_cache_identity():
     assert postprocess_cache_fingerprint(base) == postprocess_cache_fingerprint(with_room)
 
 
-def test_per_segment_audio_joins_cache_identity():
+def test_a_legacy_per_segment_flag_cannot_change_cache_identity():
+    """The room owns no per-segment artefact, so nothing about it may invalidate.
+
+    ``per_segment`` used to put the room into the fingerprint while never
+    affecting a single segment.  Configs saved back then still carry the flag,
+    so it must stay inert rather than quietly re-enabling cache invalidation.
+    """
     base = {"version": 11, "audio_refine": {"enabled": True, "room": "bathroom"}}
-    per_segment = {
+    legacy = {
         **base,
         "audio_refine": {"enabled": True, "room": "bathroom", "per_segment": True},
     }
-    assert postprocess_cache_fingerprint(base) != postprocess_cache_fingerprint(per_segment)
+    assert postprocess_cache_fingerprint(base) == postprocess_cache_fingerprint(legacy)
 
 
 def test_face_refine_changes_cache_identity_but_result_preview_does_not():

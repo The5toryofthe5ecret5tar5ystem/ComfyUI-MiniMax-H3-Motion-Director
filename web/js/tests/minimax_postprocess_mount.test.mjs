@@ -103,22 +103,18 @@ function mount(config = {}) {
 }
 
 // --------------------------------------------------------------------------
-// Per-segment flips which explanatory note is shown.
+// The room runs once at final assembly, so its note is unconditional and the
+// per-segment opt-in must not exist at all.
 // --------------------------------------------------------------------------
 {
-    const { host, store } = mount({ audio_refine: { enabled: true, room: "hall" } });
-    const noteFor = (name) => host.querySelector(`[data-conditional="${name}"]`);
-    assert.equal(noteFor("audio_final").hidden, false, "final-only note shows by default");
-    assert.equal(noteFor("audio_perseg").hidden, true);
+    const { host } = mount({ audio_refine: { enabled: true, room: "hall" } });
+    assert.equal(host.querySelector('[data-path="audio_refine.per_segment"]'), null, "the per-segment toggle must be gone");
+    assert.equal(host.querySelector('[data-conditional="audio_perseg"]'), null, "the per-segment note must be gone");
 
-    const toggle = host.querySelector('[data-path="audio_refine.per_segment"]');
-    toggle.checked = true;
-    change(toggle);
-
-    assert.equal(store.get().audio_refine.per_segment, true);
-    assert.equal(noteFor("audio_final").hidden, true);
-    assert.equal(noteFor("audio_perseg").hidden, false);
-    assert.match(host.querySelector('[data-summary="audio_refine"]').textContent, /Per-segment/);
+    const note = host.querySelector('[data-post-text="audio_final_only"]');
+    assert.ok(note, "the final-assembly note must still render");
+    assert.equal(note.hidden, false, "the final-assembly note is now unconditional");
+    assert.doesNotMatch(host.querySelector('[data-summary="audio_refine"]').textContent, /Per-segment/);
 }
 
 // --------------------------------------------------------------------------

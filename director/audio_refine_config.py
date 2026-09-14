@@ -3,16 +3,14 @@
 Stored as the ``audio_refine`` section of the append-only ``postprocess_config``
 STRING widget, alongside ``global_refine`` and ``face_refine``.
 
-Two independent controls exist and they answer different questions:
+The chain runs once, at final output assembly - never while a segment is being
+rendered - so it produces no per-segment artefact and never participates in the
+segment cache fingerprint.  Tuning a room or its level is therefore free: every
+existing segment, context, and audio cache stays valid.
 
-* ``room`` + the six reverb values describe **where the scene happens**.  A
-  per-scene ``room`` field in the timeline overrides it for that segment only,
-  so a bathroom scene and a bedroom scene in one render do not share a space.
-* ``per_segment`` answers **when the effect runs**.  Off (the default) applies
-  the chain once to the finished track at final assembly, which leaves every
-  existing segment and audio cache valid.  On, it also runs on each segment as
-  it is produced, so per-segment previews carry the room sound -- at the cost of
-  joining the segment cache fingerprint, which invalidates earlier caches.
+``room`` + the six reverb values describe **where the scene happens**.  A
+per-scene ``room`` field in the timeline overrides it for that segment only, so
+a bathroom scene and a bedroom scene in one render do not share a space.
 """
 
 from __future__ import annotations
@@ -27,7 +25,6 @@ AUDIO_REFINE_VERSION = 1
 DEFAULT_AUDIO_REFINE: dict[str, Any] = {
     "version": AUDIO_REFINE_VERSION,
     "enabled": False,
-    "per_segment": False,
     "room": "",
     "reverb_enabled": True,
     "reverberance": 40.0,
@@ -79,7 +76,6 @@ def normalize_audio_refine(raw: Any) -> dict[str, Any]:
     return {
         "version": AUDIO_REFINE_VERSION,
         "enabled": _bool(raw.get("enabled"), False),
-        "per_segment": _bool(raw.get("per_segment", raw.get("perSegment")), False),
         "room": normalize_room_name(raw.get("room")),
         "reverb_enabled": _bool(raw.get("reverb_enabled", raw.get("reverbEnabled")), True),
         "reverberance": _float(raw.get("reverberance"), 40.0, 0.0, 100.0),
@@ -113,24 +109,9 @@ def audio_refine_is_active(config: Any) -> bool:
     return abs(_float(config.get("gain_db"), 0.0, -20.0, 20.0)) >= 0.01
 
 
-def audio_refine_fingerprint(config: Any) -> dict[str, Any] | bool:
-    """Cache identity for per-segment audio post-processing.
-
-    Returns ``False`` when the chain runs only at final assembly, because then it
-    produces no per-segment artefact and must not invalidate segment caches.
-    """
-    normalized = normalize_audio_refine(config)
-    if not normalized["enabled"] or not normalized["per_segment"]:
-        return False
-    if not audio_refine_is_active(normalized):
-        return False
-    return normalized
-
-
 __all__ = [
     "AUDIO_REFINE_VERSION",
     "DEFAULT_AUDIO_REFINE",
-    "audio_refine_fingerprint",
     "audio_refine_is_active",
     "normalize_audio_refine",
     "normalize_room_name",

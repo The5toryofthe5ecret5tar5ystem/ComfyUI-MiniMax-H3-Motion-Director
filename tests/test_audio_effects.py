@@ -32,7 +32,6 @@ from mmx_pkg.director.audio_effects import (
 )
 from mmx_pkg.director.audio_refine_config import (
     DEFAULT_AUDIO_REFINE,
-    audio_refine_fingerprint,
     audio_refine_is_active,
     normalize_audio_refine,
     normalize_room_name,
@@ -311,20 +310,28 @@ def test_is_active_detects_real_work():
     assert audio_refine_is_active({"enabled": True, "room": "dry", "gain_db": -4})
 
 
-def test_fingerprint_stays_false_unless_per_segment_is_enabled():
-    """Final-assembly-only processing must not invalidate segment caches."""
-    final_only = normalize_audio_refine({"enabled": True, "room": "bathroom"})
-    assert final_only["per_segment"] is False
-    assert audio_refine_fingerprint(final_only) is False
+def test_room_never_joins_the_segment_cache_fingerprint():
+    """Tuning a room must never invalidate a segment cache.
 
-    per_segment = normalize_audio_refine(
+    The room is applied at final output assembly, after every segment cache has
+    been written, so no room setting can change a per-segment artefact.
+    """
+    from mmx_pkg.director.postprocess_config import postprocess_cache_fingerprint
+
+    for config in (
+        {},
+        {"audio_refine": {"enabled": True, "room": "bathroom"}},
+        {"audio_refine": {"enabled": True, "room": "hall", "gain_db": 3}},
+        {"audio_refine": {"enabled": True, "room": "dry", "reverb_enabled": False}},
+    ):
+        assert postprocess_cache_fingerprint(config)["audio_refine"] is False
+
+
+def test_a_legacy_per_segment_field_is_ignored():
+    """Saved configs from before the option was removed must still load."""
+    legacy = normalize_audio_refine(
         {"enabled": True, "room": "bathroom", "per_segment": True}
     )
-    assert audio_refine_fingerprint(per_segment) == per_segment
 
-
-def test_fingerprint_ignores_an_inactive_chain():
-    cfg = normalize_audio_refine(
-        {"enabled": True, "per_segment": True, "room": "dry", "reverb_enabled": False}
-    )
-    assert audio_refine_fingerprint(cfg) is False
+    assert "per_segment" not in legacy
+    assert legacy["room"] == "bathroom"
