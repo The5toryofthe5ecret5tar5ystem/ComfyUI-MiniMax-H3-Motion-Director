@@ -280,3 +280,48 @@ elf woman replaces the lead in a condensed version of the giant-orc fight:
 
 Identical model subgraph, VAE and audio-refine setup to the t2v example; top-level
 **Power Lora Loader** is empty — add your own LoRA if you want one.
+
+---
+
+## `Minimax h3 Director - character replace (RefMod + SAM3) example workflow 2x5s.json`
+
+The **replace-mode** example. Where the section above recasts the performer through
+prompt-level ref2va, this one uses the Director's actual **Character Replace** feature:
+the timeline is set to **Replace: ON** and the render runs `rv2v` windows whose subject
+region is masked, so the new performer is drawn into the source footage itself.
+
+Two 5.17 s windows (0-124 and 124-248 frames at 24 fps) cover the source; identity comes
+from **RefMod** (no picture refs are attached).
+
+### What is preconfigured
+
+- timeline mode `video`, task `rv2v`, Replace ON, `replaceMode` set on the timeline.
+- Per window: `enabled: true`, `render: anchor`, `audio_policy: source`, `lead: 12`,
+  `grow: 1`, `feather: 1`, mask `kind: sam3` with `sam_prompts: ["the woman"]`.
+- `wardrobe` and identity paragraphs are written for the RefMod path already (the prompt
+  template from the prompt-writing guide, including the "no rooms from the reference"
+  rule).
+
+### Run it
+
+1. Drop your source video into `ComfyUI/input` and set it as the timeline **Source Video**
+   (`character_replace_source_example.mp4` is only a placeholder).
+2. `Load H3 RefMods` slot 1 = your character mod, `strength_1` 1.0, `copies_1` 1. Keep the
+   mod images cropped to the person - rooms and furniture in the reference leak into the
+   render as content.
+3. Open the replace windows editor, click **Test mask** on window 1 and **pick the subject
+   with click points**. Text-only SAM3 is unreliable; the `the woman` prompt is only a
+   fallback. Copy the points to window 2.
+4. **Generate**. Watch the console: `Character Replace FELL BACK to plain RV2V` means the
+   mask failed for that window and it will render as an unmasked regeneration (whole scene
+   redrawn, original performer may remain) - fix the mask before judging the output.
+
+### Notes
+
+- `anchor` re-renders the whole frame; the mask removes the old identity, it does not
+  freeze the background (use `inpaint` if pixel-exact background matters more than
+  identity).
+- `audio_policy: source` keeps the original track for the window (sample-rate handling
+  fixed - the passthrough track is no longer slowed down).
+- The **Perf** section's `verbose_logging` prints the pack's DEBUG diagnostics for a run;
+  `MINIMAX_DIRECTOR_VERBOSE=1/0` forces it on or off server-wide.
