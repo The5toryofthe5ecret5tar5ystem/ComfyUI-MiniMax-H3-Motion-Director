@@ -162,7 +162,7 @@ from .segment_continuity import (
     resolve_prev_segment_output,
 )
 from .vram_cleanup import cleanup_segment_vram
-from .replace_engine import resolve_segment_audio_policy
+from .replace_engine import align_replace_window_to_sample, resolve_segment_audio_policy
 from .replace_runtime import (
     assemble_masked_replace_latent,
     build_replace_noise_mask,
@@ -1252,22 +1252,29 @@ def execute_director_plan_core(
         positive = append_refmod_references(positive, refmod_refs)
 
         if replace_active and replace_state is not None and not replace_render_anchor:
-            if visible_clip_frames is None or int(visible_clip_frames.shape[0]) != int(num_frames):
+            if visible_clip_frames is None:
                 replace_state = None
                 replace_masked = False
-                replace_fallback_reason = (
-                    "source window length does not match the H3 sample length "
-                    "(use an H3-valid window length: frames % 17 == 5)"
-                )
+                replace_fallback_reason = "no source window frames for this segment"
                 warning_messages.append(
                     f"S{timeline_slot + 1}: Character Replace disabled "
                     f"({replace_fallback_reason}); rendering a plain window."
                 )
                 log.warning(
-                    "Segment %d: Character Replace DISABLED (length mismatch) - %s",
+                    "Segment %d: Character Replace DISABLED - %s",
                     timeline_slot + 1, replace_fallback_reason,
                 )
             else:
+                # The sample length is the aligned 17k+5 length, which is longer
+                # than a clip that is not on the grid. Pad/trim the window and its
+                # mask to match instead of dropping the masked replace.
+                visible_clip_frames, replace_state = align_replace_window_to_sample(
+                    visible_clip_frames,
+                    replace_state,
+                    int(num_frames),
+                    log=log,
+                    segment_label=timeline_slot + 1,
+                )
                 try:
                     from .refine_sampling import _split_av
                     from .replace_engine import sanitize_source_frames

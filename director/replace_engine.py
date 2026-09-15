@@ -101,6 +101,64 @@ def snap_window_length(frames: int) -> int:
     return max(1, minimax_align_frame_count(max(1, int(frames))))
 
 
+def fit_frames_to_length(tensor: torch.Tensor, want: int) -> torch.Tensor:
+    """Repeat-last pad or trim the leading frame axis of ``tensor`` to ``want`` frames.
+
+    Works for both [T, H, W] masks and [T, H, W, C] frame stacks.
+    """
+    have = int(tensor.shape[0])
+    want = max(1, int(want))
+    if have == want or have <= 0:
+        return tensor
+    if have > want:
+        return tensor[:want]
+    tail = tensor[-1:]
+    return torch.cat([tensor, tail.repeat(want - have, *([1] * (tensor.ndim - 1)))], dim=0)
+
+
+def align_replace_window_to_sample(
+    visible_frames: torch.Tensor,
+    replace_state: dict | None,
+    num_frames: int,
+    *,
+    log: Any = None,
+    segment_label: Any = None,
+) -> tuple[torch.Tensor, dict | None]:
+    """Fit a masked replace window (and its mask) to the H3 sample length.
+
+    The sampled length is the aligned 17k+5 length, which is longer than a source
+    clip that does not sit on the grid (a 97-frame clip samples as 107 frames).
+    The masked path needs the keep/cond window and its mask to match the sample
+    length frame for frame, so the tail is padded by repeating the last frame -
+    the same convention the reference-clip alignment already uses - and the
+    padding is trimmed off at export.
+
+    Without this, a clip whose length is not on the grid dropped the masked
+    replace silently and the segment fell back to a plain window render (no keep
+    region, no pixel-exact background).
+
+    Returns ``(frames, state)``; ``state["mask_vis"]`` is kept in step with the
+    window and ``state["sanitized_reference"]`` is left untouched.
+    """
+    want = max(1, int(num_frames))
+    have = int(visible_frames.shape[0]) if visible_frames is not None else 0
+    if replace_state is None or have == want:
+        return visible_frames, replace_state
+    frames = fit_frames_to_length(visible_frames, want)
+    state = dict(replace_state)
+    mask = state.get("mask_vis")
+    if mask is not None:
+        state["mask_vis"] = fit_frames_to_length(mask, want)
+    if log is not None:
+        action = "trimmed" if have > want else "tail-padded"
+        log.info(
+            "Segment %s: masked replace window %s from %d to the H3 sample length "
+            "%d frames (repeat-last padding; the extra tail is trimmed at export).",
+            segment_label, action, have, want,
+        )
+    return frames, state
+
+
 def replace_windows_in_user_order(timeline: dict) -> list[dict[str, Any]]:
     """Replace windows in JSON list order (non-contiguous / out-of-order allowed).
 
