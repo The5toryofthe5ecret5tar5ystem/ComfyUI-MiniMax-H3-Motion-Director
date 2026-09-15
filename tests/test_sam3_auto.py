@@ -7,6 +7,8 @@ import-guard behaviour are covered here.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import torch
 
@@ -337,3 +339,86 @@ def test_defaults_contract():
     assert "full body" in SAM3_DEFAULT_PROMPT
     assert "every strand" in SAM3_DEFAULT_PROMPT
     assert SAM3_OBJ_ID_DEFAULT == 1
+
+
+# ---------------------------------------------------------------------------
+# Failure reporting.
+#
+# A window with no pick points and no prompt silently runs the built-in default
+# prompt. When that finds nothing the log used to say only `responses=0`, which
+# reads as a detection problem rather than a missing-input problem. These pin
+# the operator-visible messages: what seeded the mask up front, a line per
+# failed attempt, and one clear statement that no mask was found at all.
+# ---------------------------------------------------------------------------
+
+_LOG = sam3_auto.log.name
+
+
+def _always_miss(monkeypatch):
+    # An all-zero mask is what the engine sees when SAM3 returns no responses -
+    # not None - so this is the path a real "could not find the subject" takes.
+    monkeypatch.setattr(
+        sam3_auto, "segment_window_frames",
+        lambda frames, **kw: torch.zeros(int(frames.shape[0]), 16, 16),
+    )
+    monkeypatch.setattr(sam3_auto, "release_sam3", lambda *a, **k: None)
+
+
+def test_full_miss_warns_that_the_builtin_prompt_was_substituted(monkeypatch, caplog):
+    _always_miss(monkeypatch)
+    frames = torch.rand(97, 16, 16, 3)
+    with caplog.at_level(logging.WARNING, logger=_LOG):
+        result = run_window_auto_mask(frames, prompts=[], obj_id=1, lead_frames=0)
+    assert result["mask"] is None
+    # Up front, before the attempts: no inputs, so the default is used.
+    assert "no pick points and no SAM3 prompt" in caplog.text
+    assert SAM3_DEFAULT_PROMPT in caplog.text
+    # And a single clear statement of the outcome.
+    assert "could not find a subject mask" in caplog.text
+    assert "falls back to an unmasked regeneration" in caplog.text
+
+
+def test_full_miss_logs_each_failed_attempt(monkeypatch, caplog):
+    _always_miss(monkeypatch)
+    frames = torch.rand(97, 16, 16, 3)
+    with caplog.at_level(logging.INFO, logger=_LOG):
+        run_window_auto_mask(frames, prompts=["the woman"], obj_id=1)
+    # One line per attempt, naming the frame and the coverage shortfall.
+    assert caplog.text.count("subject not found at prompt_frame=") == 5
+    assert "needs >=" in caplog.text
+
+
+def test_no_mask_returned_is_reported_separately(monkeypatch, caplog):
+    # A hard None (the predictor returned nothing at all) is distinct from an
+    # all-zero mask, and both must be visible in the log.
+    monkeypatch.setattr(sam3_auto, "segment_window_frames", lambda frames, **kw: None)
+    monkeypatch.setattr(sam3_auto, "release_sam3", lambda *a, **k: None)
+    frames = torch.rand(97, 16, 16, 3)
+    with caplog.at_level(logging.INFO, logger=_LOG):
+        result = run_window_auto_mask(frames, prompts=["the woman"], obj_id=1)
+    assert result["mask"] is None
+    assert "no mask returned at prompt_frame=" in caplog.text
+
+
+def test_supplied_prompt_is_named_and_not_reported_as_default(monkeypatch, caplog):
+    _always_miss(monkeypatch)
+    frames = torch.rand(97, 16, 16, 3)
+    with caplog.at_level(logging.INFO, logger=_LOG):
+        run_window_auto_mask(frames, prompts=["a woman in a red dress"], obj_id=1)
+    assert "a woman in a red dress" in caplog.text
+    # The outcome warning must not blame a default prompt the caller did supply.
+    assert "built-in default" not in caplog.text
+
+
+def test_points_seeded_does_not_blame_a_missing_prompt(monkeypatch, caplog):
+    _always_miss(monkeypatch)
+    frames = torch.rand(97, 16, 16, 3)
+    with caplog.at_level(logging.INFO, logger=_LOG):
+        run_window_auto_mask(
+            frames, prompts=[], obj_id=1,
+            points=[[0.5, 0.5]], point_labels=[1],
+        )
+    assert "no pick points and no SAM3 prompt" not in caplog.text
+    # Points were supplied, so nothing should claim the default prompt was used.
+    assert "built-in default" not in caplog.text
+    assert "seeding from pick points" in caplog.text

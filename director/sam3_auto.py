@@ -365,6 +365,36 @@ def run_window_auto_mask(
         for pf, relaxed in text_plan:
             items.append((pf, relaxed, None))
 
+    # Say up front what is actually seeding the mask. Without this, a window with
+    # no pick points and no prompt silently runs the built-in default, and the
+    # resulting "no mask" failure looks like a detection problem rather than a
+    # missing-input problem. Click points are much stronger than text, so the
+    # no-points case is worth stating plainly.
+    effective_prompt = next(
+        (str(p).strip() for p in (prompts or []) if str(p).strip()), None
+    )
+    # Captured before the attempt loop, which rebinds `seed` per item.
+    used_default_prompt = seed is None and effective_prompt is None
+    if used_default_prompt:
+        log.warning(
+            "SAM3 auto-mask: this window has no pick points and no SAM3 prompt. "
+            "Falling back to the built-in default prompt %r over %d text attempt(s) - "
+            "text-only detection is unreliable. Picking the subject with clicks is "
+            "far more likely to find a mask.",
+            SAM3_DEFAULT_PROMPT, len(items),
+        )
+    elif seed is None:
+        log.info(
+            "SAM3 auto-mask: no pick points for this window; seeding with the text "
+            "prompt %r over %d attempt(s).",
+            effective_prompt, len(items),
+        )
+    elif effective_prompt is None:
+        log.info(
+            "SAM3 auto-mask: seeding from pick %s over %d attempt(s).",
+            seed.get("kind"), len(items),
+        )
+
     attempted: list[str] = []
     # A mask that only covers a handful of frames (e.g. just the prompt frame)
     # is not a usable window mask - require a meaningful temporal footprint so
@@ -380,6 +410,8 @@ def run_window_auto_mask(
             mask_hi = None
             kind = (seed or {}).get("kind", None) if seed else None
             kind_label = kind if kind in ("box", "points") else "pf"
+            # `pf` is the attempts-string spelling; humans read it as "text".
+            human_label = kind_label if kind_label in ("box", "points") else "text"
             try:
                 seed_boxes = None
                 seed_points = None
@@ -409,6 +441,11 @@ def run_window_auto_mask(
                 attempted.append(
                     f"{kind_label}={pf}{'/relaxed' if relaxed else ''}:no-mask"
                 )
+                log.info(
+                    "SAM3 auto-mask: no mask returned at prompt_frame=%d%s (seed=%s) "
+                    "- trying next attempt",
+                    pf, " relaxed" if relaxed else "", human_label,
+                )
                 continue
             try:
                 _m = mask_hi.float()
@@ -430,6 +467,14 @@ def run_window_auto_mask(
                     pf, relaxed, kind_label, float(_m.mean()), regen, int(_m.shape[0]),
                 )
                 break
+            # SAM3 answered but found nothing usable: an all-zero mask (no object
+            # detected) lands here, not in the None branch above, so this is the
+            # line that actually reports "could not find the subject" in practice.
+            log.info(
+                "SAM3 auto-mask: subject not found at prompt_frame=%d%s (seed=%s) - "
+                "masked %d of %d frame(s), needs >=%d - trying next attempt",
+                pf, " relaxed" if relaxed else "", human_label, regen, int(total), usable_min,
+            )
     finally:
         try:
             release_sam3()
@@ -456,6 +501,18 @@ def run_window_auto_mask(
             "used_box": chosen_box,
             "used_points": chosen_points,
         }
+    log.warning(
+        "SAM3 could not find a subject mask anywhere in this %d-frame window "
+        "(%d attempt(s): %s). With no mask there is no Character Replace - this "
+        "window falls back to an unmasked regeneration. Check that the subject is "
+        "clearly visible, and if you are seeding by text rather than click points, "
+        "that the prompt describes what is actually on screen%s.",
+        total, len(attempted), ", ".join(attempted) or "none",
+        "" if not used_default_prompt else (
+            f" (the built-in default {SAM3_DEFAULT_PROMPT!r} was used because no "
+            "prompt and no pick points were set)"
+        ),
+    )
     return {
         "mask": None,
         "attempts": attempted,
@@ -744,7 +801,7 @@ def segment_window_frames(
                     seed_tag or "text",
                     pf,
                     seed_desc,
-                    str(text_prompts[0]) if pts is None and box is not None and text_prompts else None,
+                    str(text_prompts[0]) if text_prompts else None,
                     responses,
                     bool(seed_immediate is not None and seed_immediate.any()),
                     shape_ok, shape_resized, shape_dropped,
