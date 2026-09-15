@@ -52,6 +52,7 @@ const FIXED_LABEL_WIDGETS = Object.freeze([
     "mmx_global_refine_proxy",
     "mmx_face_refine_proxy",
     "clear_vram_between_segments",
+    "verbose_logging",
 ]);
 
 function widgetByName(node, name) {
@@ -401,6 +402,7 @@ function drawDirectorSectionFrames(node, ctx) {
         [
             "bd_grp_perf",
             "clear_vram_between_segments",
+            "verbose_logging",
         ],
     ];
 

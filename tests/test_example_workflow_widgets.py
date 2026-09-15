@@ -30,8 +30,22 @@ TAIL_AFTER_POSTPROCESS: list[tuple[str, type]] = [
     ("audio_refine_steps", int),
     ("audio_refine_denoise", float),
     ("latent_continuation_enabled", bool),
+    ("verbose_logging", bool),
     ("minimax_motion_director_ui", str),
 ]
+
+# Files saved before verbose_logging was declared end one slot earlier. Both
+# shapes must stay loadable, so every check below accepts either tail.
+LEGACY_TAIL_AFTER_POSTPROCESS: list[tuple[str, type]] = [
+    ("bd_grp_audio_refine", str),
+    ("audio_refine_enabled", bool),
+    ("audio_refine_steps", int),
+    ("audio_refine_denoise", float),
+    ("latent_continuation_enabled", bool),
+    ("minimax_motion_director_ui", str),
+]
+
+VALID_TAILS = (TAIL_AFTER_POSTPROCESS, LEGACY_TAIL_AFTER_POSTPROCESS)
 
 NUMERIC = (int, float)
 
@@ -63,9 +77,10 @@ def test_numeric_widget_slots_are_never_none(path: Path):
                 continue
             # Only the tail is type-mapped reliably enough to assert on; mid-array None
             # slots are section headers / booleans and are tolerated by ComfyUI.
-            if index >= len(values) - len(TAIL_AFTER_POSTPROCESS):
-                name, expected = TAIL_AFTER_POSTPROCESS[index - (len(values)
-                                                                - len(TAIL_AFTER_POSTPROCESS))]
+            for tail_spec in VALID_TAILS:
+                if index < len(values) - len(tail_spec):
+                    continue
+                name, expected = tail_spec[index - (len(values) - len(tail_spec))]
                 if expected in NUMERIC:
                     pytest.fail(
                         f"{path.name}: widgets_values[{index}] ({name}) is None; "
@@ -87,17 +102,23 @@ def test_audio_refine_tail_has_real_values(path: Path):
              and '"global_refine"' in v), None)
         if config_index is None:
             continue
-        tail = values[config_index + 1: config_index + 1 + len(TAIL_AFTER_POSTPROCESS)]
-        if not tail:
+        available = values[config_index + 1:]
+        if not available:
             continue                                    # older file: widgets fall back to defaults
-        assert len(tail) == len(TAIL_AFTER_POSTPROCESS), (
-            f"{path.name}: expected {len(TAIL_AFTER_POSTPROCESS)} slots after "
-            f"postprocess_config, found {len(tail)}"
-        )
-        for (name, expected), value in zip(TAIL_AFTER_POSTPROCESS, tail):
-            assert value is not None, f"{path.name}: {name} is None"
-            assert isinstance(value, expected), (
-                f"{path.name}: {name} should be {expected.__name__}, got {type(value).__name__}"
+        for tail_spec in VALID_TAILS:
+            if len(available) < len(tail_spec):
+                continue
+            tail = available[: len(tail_spec)]
+            for (name, expected), value in zip(tail_spec, tail):
+                assert value is not None, f"{path.name}: {name} is None"
+                assert isinstance(value, expected), (
+                    f"{path.name}: {name} should be {expected.__name__}, got {type(value).__name__}"
+                )
+            break
+        else:
+            pytest.fail(
+                f"{path.name}: unexpected widget tail after postprocess_config: "
+                f"{available!r}"
             )
 
 

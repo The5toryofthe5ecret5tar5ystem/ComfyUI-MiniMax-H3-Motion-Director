@@ -37,6 +37,7 @@ const COPY = Object.freeze({
             mmx_global_refine_proxy: "全局精修",
             mmx_face_refine_proxy: "人脸精修",
             clear_vram_between_segments: "段间清理显存",
+            verbose_logging: "详细日志 (DEBUG)",
         },
     },
     en: {
@@ -70,6 +71,7 @@ const COPY = Object.freeze({
             mmx_global_refine_proxy: "Global Refine",
             mmx_face_refine_proxy: "Face Refine",
             clear_vram_between_segments: "Clear VRAM Between Segments",
+            verbose_logging: "Verbose Logging (DEBUG)",
         },
     },
 });

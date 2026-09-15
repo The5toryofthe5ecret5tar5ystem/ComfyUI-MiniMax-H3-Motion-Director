@@ -23,6 +23,7 @@ from ..director.progress import (
     report_director_report,
 )
 from ..director.rtx_deblur import apply_rtx_deblur
+from ..director.verbosity import ENV_OVERRIDE, apply_director_verbose
 from ..director.video_export import FINAL_VIDEO_REGISTRY
 from .director import MiniMaxH3MotionDirector as _BaseDirector
 from .conditioning import harvest_and_report_refmods
@@ -159,6 +160,7 @@ class MiniMaxH3MotionDirector(_BaseDirector):
         postprocess_config="",
         director_inputs=None,
         refmod_conditioning=None,
+        verbose_logging=False,
         prompt=None,
         extra_pnginfo=None,
         **kwargs,
@@ -176,6 +178,7 @@ class MiniMaxH3MotionDirector(_BaseDirector):
                 + ", ".join(unexpected)
             )
         del kwargs
+        verbose_enabled = apply_director_verbose(verbose_logging)
 
         final_run_id = (
             FINAL_VIDEO_REGISTRY.begin_run(unique_id)
@@ -269,6 +272,13 @@ class MiniMaxH3MotionDirector(_BaseDirector):
                 "\n\nRefMod: refmod_conditioning is connected but supplied no "
                 "reference blocks - nothing was appended. Check that Apply H3 RefMod "
                 "receives a mod and that its retention is above 0."
+            )
+
+        if verbose_enabled:
+            report = report + (
+                "\n\nLogging: verbose - the Motion Director's own loggers run at "
+                "DEBUG for this run. Set "
+                f"{ENV_OVERRIDE}=0 to force it off server-wide."
             )
 
         postprocess = normalize_postprocess_config(postprocess_config)

@@ -42,6 +42,7 @@ const LABEL_SOURCE_BY_WIDGET = Object.freeze({
     mmx_global_refine_proxy: "mmx_global_refine_proxy",
     mmx_face_refine_proxy: "mmx_face_refine_proxy",
     clear_vram_between_segments: "clear_vram_between_segments",
+    verbose_logging: "verbose_logging",
     mmx_section_steps_proxy: "steps",
     mmx_section_sampler_proxy: "sampler_name",
     mmx_section_scheduler_proxy: "scheduler",

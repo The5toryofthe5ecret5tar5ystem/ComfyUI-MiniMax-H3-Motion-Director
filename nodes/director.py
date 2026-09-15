@@ -27,6 +27,7 @@ from ..director.progress import (
     report_director_report,
 )
 from ..director.rtx_deblur import apply_rtx_deblur
+from ..director.verbosity import apply_director_verbose
 from ..director.video_export import FINAL_VIDEO_REGISTRY
 from .director_common import (
     finalize_director_outputs,
@@ -340,6 +341,19 @@ class MiniMaxH3MotionDirector:
                         ),
                     },
                 ),
+                "verbose_logging": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": (
+                            "Run this node with the pack's own diagnostics at DEBUG: "
+                            "per-phase timings, plan and cache decisions, replace-window "
+                            "and SAM3 details, reference counts, GPU memory. Off keeps "
+                            "the normal INFO log. MINIMAX_DIRECTOR_VERBOSE=1/0 overrides "
+                            "it server-wide."
+                        ),
+                    },
+                ),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -422,6 +436,7 @@ class MiniMaxH3MotionDirector:
         prompt=None,
         extra_pnginfo=None,
         refmod_conditioning=None,
+        verbose_logging=False,
         **kwargs,
     ):
         # ComfyUI binds inputs to parameters by name, so anything still in kwargs
@@ -437,6 +452,7 @@ class MiniMaxH3MotionDirector:
                 + ", ".join(unexpected)
             )
         del kwargs
+        apply_director_verbose(verbose_logging)
         run_started = time.perf_counter()
         auto_save_seconds = None
 

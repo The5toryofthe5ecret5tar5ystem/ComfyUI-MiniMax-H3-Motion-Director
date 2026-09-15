@@ -228,6 +228,8 @@ const THUMB_PREFETCH_BATCH = 6;
 const DIRECTOR_MIN_WIDTH = 900;
 const COMFY_UPLOAD_SOFT_LIMIT = 95 * 1024 * 1024;
 const MINIMAX_CHUNK_SIZE = 8 * 1024 * 1024;
+/** localStorage flag: let the transport player play the source clip's audio. */
+const PREVIEW_AUDIO_STORAGE_KEY = "mmx_director_preview_audio";
 
 /** Segment continuity is opt-in; default off unless explicitly true in output. */
 function isContinuityEnabled(output) {
@@ -414,6 +416,7 @@ const DIRECTOR_WIDGET_LABEL_KEYS = {
     shift_video: "widget.shiftVideo",
     shift_audio: "widget.shiftAudio",
     clear_vram_between_segments: "widget.clearVram",
+    verbose_logging: "widget.verboseLogging",
     export_source_images: "widget.exportSourceImages",
     control_after_generate: "widget.controlAfterGenerate",
     "control after generate": "widget.controlAfterGenerate",
@@ -427,6 +430,7 @@ const DIRECTOR_WIDGET_TOOLTIP_KEYS = {
     color_reanchor_enabled: "widget.tooltip.colorReanchorEnabled",
     pin_renorm_enabled: "widget.tooltip.pinRenormEnabled",
     clear_vram_between_segments: "widget.tooltip.clearVram",
+    verbose_logging: "widget.tooltip.verboseLogging",
     export_source_images: "widget.tooltip.exportSourceImages",
 };
 
@@ -2068,7 +2072,7 @@ function moveDirectorDomWidgetToEnd(node) {
     node.widgets.push(widget);
 }
 
-const PERF_WIDGET_ORDER = ["bd_grp_perf", "clear_vram_between_segments", "export_source_images"];
+const PERF_WIDGET_ORDER = ["bd_grp_perf", "clear_vram_between_segments", "export_source_images", "verbose_logging"];
 
 // Appended to the shared block so the audio path never voices reference material.
 // H3 generates video AND audio from the same text, so a bare trigger token or a
@@ -3831,6 +3835,10 @@ class MiniMaxH3MotionDirectorEditor {
         this.currentFrame = 0;
         this.isPlaying = false;
         this.isLooping = false;
+        // Source-preview audio for the transport player. The Output panel's
+        // volume slider only controls the RENDERED result, not this player, so
+        // it gets its own toggle (persisted per browser).
+        this._playerAudioEnabled = this._loadPreviewAudioPref();
         this._playRaf = null;
         this._drag = null;
         this._previewSegments = null;
@@ -4743,6 +4751,7 @@ class MiniMaxH3MotionDirectorEditor {
             <div class="bd-player">
                 <button type="button" class="bd-icon-btn" data-a="play" data-i18n-title="player.playPause">▶</button>
                 <button type="button" class="bd-icon-btn" data-a="loop" data-i18n-title="player.loopOn">⟳</button>
+                <button type="button" class="bd-icon-btn active" data-a="player-audio" data-i18n-title="player.previewAudioOn">🔊</button>
                 <button type="button" class="bd-icon-btn" data-a="frame-prev" data-i18n-title="player.framePrev">‹</button>
                 <button type="button" class="bd-icon-btn" data-a="frame-next" data-i18n-title="player.frameNext">›</button>
                 <span class="bd-frame-jump" data-i18n-title="player.frameJump">
@@ -6283,12 +6292,15 @@ class MiniMaxH3MotionDirectorEditor {
         bind('[data-a="mode-segment"]', () => this.setEditMode("segment"));
         bind('[data-a="play"]', () => this.togglePlay());
         bind('[data-a="loop"]', () => this.toggleLoop());
+        bind('[data-a="player-audio"]', () => this.togglePreviewAudio());
         bind('[data-a="frame-prev"]', () => this.stepFrame(-1));
         bind('[data-a="frame-next"]', () => this.stepFrame(1));
         bind('[data-a="zoom-in"]', () => this.adjustZoom(0.5));
         bind('[data-a="zoom-out"]', () => this.adjustZoom(-0.5));
         this.refreshLiveTaePreviewButton();
         this.updateLiveSamplePanel();
+        // Stored preview-audio pref drives the stage element and the toggle glyph.
+        this._applyPreviewAudio();
 
         this.seekBar.oninput = () => {
             this.seekToFrame(+this.seekBar.value, { fromUi: true });
@@ -8833,6 +8845,7 @@ class MiniMaxH3MotionDirectorEditor {
         this.updateOutputPreview?.();
         this.updateSelectionUI?.();
         this.refreshLoopButtonTitle?.();
+        this.refreshPreviewAudioButton?.();
         this.refreshLiveTaePreviewButton?.();
         this.updateLiveSamplePanel?.();
         this.syncExternalGroupsTimeline?.();
@@ -10145,6 +10158,30 @@ class MiniMaxH3MotionDirectorEditor {
         }
     }
 
+    /**
+     * Prompt of the segment being edited right now (used to survive a source
+     * re-upload). State first, then the live textarea, then any other segment.
+     */
+    _captureSegmentPromptForReload() {
+        const segs = Array.isArray(this.timeline?.segments) ? this.timeline.segments : [];
+        const idx = Number.isFinite(this.selectedIndex) ? this.selectedIndex : 0;
+        const selected = String(segs[idx]?.prompt ?? "");
+        if (selected.trim()) return selected;
+        const domValue = this.segPrompt?.value;
+        if (typeof domValue === "string" && domValue.trim()) return domValue;
+        const other = segs.find((s) => String(s?.prompt || "").trim());
+        return String(other?.prompt || "");
+    }
+
+    /** Put a carried prompt on the fresh whole-clip segment (never clobbers). */
+    _restoreSegmentPromptAfterReload(prompt) {
+        const text = String(prompt || "");
+        if (!text.trim()) return;
+        const seg = (this.timeline?.segments || [])[0];
+        if (!seg || String(seg.prompt || "").trim()) return;
+        seg.prompt = text;
+    }
+
     _setSingleSegment(totalFrames) {
         const total = Math.max(0, totalFrames);
         this.timeline.segments = total > 0
@@ -10514,6 +10551,10 @@ class MiniMaxH3MotionDirectorEditor {
     }
 
     async _applyLoadedVideo({ fileName, relPath, subfolder, type, statusPrefix }) {
+        // A new source rebuilds the timeline into ONE whole-clip segment, so the
+        // segment the user was editing disappears. Rescue the prompt text they
+        // already wrote and put it on the replacement segment below.
+        const carriedPrompt = this._captureSegmentPromptForReload();
         const prep = await this._prepareVideoFrames({ fileName, relPath, subfolder, type, statusPrefix });
         const { totalFrames, store, viewUrl } = prep;
 
@@ -10525,6 +10566,7 @@ class MiniMaxH3MotionDirectorEditor {
         this.setSparseVideoFrames(totalFrames);
         this._syncPrimaryVideoFromClips([]);
         this._setSingleSegment(totalFrames);
+        this._restoreSegmentPromptAfterReload(carriedPrompt);
 
         this._clearPreviewVideos(true);
         this._previewVideo = this._getPreviewVideoForClip(0);
@@ -13039,6 +13081,51 @@ class MiniMaxH3MotionDirectorEditor {
         this.refreshLoopButtonTitle();
     }
 
+    /**
+     * Transport player audio. The stage video is muted while scrubbing (every
+     * seek would otherwise chirp) and only unmutes for real playback, which is
+     * when the user actually wants to hear the source clip's track.
+     */
+    isPreviewAudioEnabled() {
+        return !!this._playerAudioEnabled;
+    }
+
+    _loadPreviewAudioPref() {
+        try {
+            const raw = localStorage.getItem(PREVIEW_AUDIO_STORAGE_KEY);
+            return raw === null ? true : raw === "1";
+        } catch (_err) {
+            return true;
+        }
+    }
+
+    _applyPreviewAudio() {
+        const sound = this.isPreviewAudioEnabled() && !!this.isPlaying;
+        if (this.stageVideo) this.stageVideo.muted = !sound;
+        this.refreshPreviewAudioButton();
+    }
+
+    refreshPreviewAudioButton() {
+        const btn = this.root?.querySelector('[data-a="player-audio"]');
+        if (!btn) return;
+        const on = this.isPreviewAudioEnabled();
+        const glyph = on ? "🔊" : "🔇";
+        if (btn.textContent !== glyph) btn.textContent = glyph;
+        btn.classList.toggle("active", on);
+        btn.title = on ? t("player.previewAudioOn") : t("player.previewAudioOff");
+        btn.removeAttribute("data-i18n-title");
+    }
+
+    togglePreviewAudio() {
+        this._playerAudioEnabled = !this._playerAudioEnabled;
+        try {
+            localStorage.setItem(PREVIEW_AUDIO_STORAGE_KEY, this._playerAudioEnabled ? "1" : "0");
+        } catch (_err) {
+            /* storage unavailable - keep the session state */
+        }
+        this._applyPreviewAudio();
+    }
+
     refreshLoopButtonTitle() {
         const btn = this.root?.querySelector('[data-a="loop"]');
         if (!btn) return;
@@ -14246,6 +14333,7 @@ class MiniMaxH3MotionDirectorEditor {
 
     _stopPlay() {
         this.isPlaying = false;
+        this._applyPreviewAudio();
         this._playHandoff = false;
         this._nativePlayFailed = false;
         this._pauseSettling = true;
@@ -14289,6 +14377,8 @@ class MiniMaxH3MotionDirectorEditor {
         } catch {
             // Native play blocked/failed — keep isPlaying but drive via frame clock.
             this._nativePlayFailed = true;
+            // The element is not actually playing, so it must not hold audio open.
+            if (this.stageVideo) this.stageVideo.muted = true;
         }
     }
 
@@ -14326,6 +14416,7 @@ class MiniMaxH3MotionDirectorEditor {
 
         this.isPlaying = true;
         this._nativePlayFailed = false;
+        this._applyPreviewAudio();
         this.root.querySelector('[data-a="play"]').textContent = "⏸";
         this._lockPlayLayout();
         this._resizeObserver?.disconnect();

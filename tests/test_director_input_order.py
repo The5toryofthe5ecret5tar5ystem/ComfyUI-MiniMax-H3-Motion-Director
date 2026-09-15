@@ -79,6 +79,8 @@ EXPECTED_INPUT_ORDER: list[tuple[str, str]] = [
     ("optional", "refmod_conditioning"),
     # Appended after refmod_conditioning for the same positional-safety reason.
     ("optional", "latent_continuation_enabled"),
+    # Same rule again: appended at the end of the optional block.
+    ("optional", "verbose_logging"),
 ]
 
 # Section headers the frontend actively collapses (minimax_director_sections_core.mjs).
