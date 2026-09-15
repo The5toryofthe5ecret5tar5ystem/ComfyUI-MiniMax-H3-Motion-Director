@@ -20,6 +20,8 @@ import torch
 from ..lib.audio_io import (
     diagnose_source_audio_failure,
     extract_timeline_audio,
+    fade_audio_chunk_boundaries,
+    fade_audio_seams,
     frames_to_audio_samples,
 )
 
@@ -124,6 +126,22 @@ def _pad_or_trim_audio_to_frames(
     return {"waveform": torch.cat([wave, pad], dim=-1), "sample_rate": sr}
 
 
+def _fade_result_seams(audio: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Head/tail fades for a finished per-clip audio dict.
+
+    A per-segment export is trimmed to a frame boundary like any other, so its
+    own tail steps into silence; this keeps single-clip exports from clicking.
+    """
+    if not _audio_has_samples(audio):
+        return audio
+    wave = audio.get("waveform")
+    sr = int(audio.get("sample_rate") or SILENT_SAMPLE_RATE)
+    faded = fade_audio_seams(wave, sr)
+    if faded is wave:
+        return audio
+    return {"waveform": faded, "sample_rate": sr}
+
+
 def _align_audio_channels(wave: torch.Tensor, channels: int) -> torch.Tensor:
     """Ensure waveform is [1, C, T] with C == channels (duplicate mono / trim extra)."""
     if wave.ndim != 3:
@@ -193,13 +211,22 @@ def _merge_generated_segment_audios(
     if not parts:
         return empty_audio_dict(sr)
     parts = [_align_audio_channels(p, max_ch) for p in parts]
+    # Each part was trimmed to a frame boundary, so it usually stops mid-waveform;
+    # butting them together raw steps straight from one sample into an unrelated
+    # one, which is a click at every segment/window join. Fade the joins, then
+    # the outer edges of the finished clip (its tail has the same problem).
+    parts = fade_audio_chunk_boundaries(parts, sr)
     merged = torch.cat(parts, dim=-1)
-    return _pad_or_trim_audio_to_frames(
+    merged = _pad_or_trim_audio_to_frames(
         {"waveform": merged, "sample_rate": sr},
         frame_count=total_frames,
         fps=fps,
         sample_rate=sr,
     )
+    merged_wave = merged.get("waveform")
+    if isinstance(merged_wave, torch.Tensor):
+        merged = {"waveform": fade_audio_seams(merged_wave, sr), "sample_rate": sr}
+    return merged
 
 
 def build_director_audio_outputs(
@@ -249,8 +276,10 @@ def build_director_audio_outputs(
                 n_frames = int(getattr(tensor, "shape", [0])[0] or 0)
                 sr = int(gen.get("sample_rate") or SILENT_SAMPLE_RATE)
                 outputs.append(
-                    _pad_or_trim_audio_to_frames(
-                        gen, frame_count=n_frames, fps=fps, sample_rate=sr
+                    _fade_result_seams(
+                        _pad_or_trim_audio_to_frames(
+                            gen, frame_count=n_frames, fps=fps, sample_rate=sr
+                        )
                     )
                 )
             else:
@@ -293,8 +322,10 @@ def build_director_audio_outputs(
             n_frames = int(getattr(tensor, "shape", [0])[0] or seg.frame_count or 0)
             sr = int(audio.get("sample_rate") or silent_sample_rate)
             outputs.append(
-                _pad_or_trim_audio_to_frames(
-                    audio, frame_count=n_frames, fps=fps, sample_rate=sr
+                _fade_result_seams(
+                    _pad_or_trim_audio_to_frames(
+                        audio, frame_count=n_frames, fps=fps, sample_rate=sr
+                    )
                 )
             )
         return outputs, source_fallback
@@ -355,8 +386,10 @@ def build_director_audio_outputs(
         source_fallback = "silent"
     merged = _coerce_audio_output(extracted, sample_rate=silent_sample_rate)
     sr = int(merged.get("sample_rate") or silent_sample_rate)
-    merged = _pad_or_trim_audio_to_frames(
-        merged, frame_count=end, fps=fps, sample_rate=sr
+    merged = _fade_result_seams(
+        _pad_or_trim_audio_to_frames(
+            merged, frame_count=end, fps=fps, sample_rate=sr
+        )
     )
     out = [merged] if len(images_out) == 1 else [empty_audio_dict(silent_sample_rate) for _ in images_out]
     return out, source_fallback

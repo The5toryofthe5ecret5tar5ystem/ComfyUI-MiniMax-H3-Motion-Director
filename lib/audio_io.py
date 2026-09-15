@@ -568,6 +568,44 @@ def _fade_audio_chunk_boundaries(
     return faded
 
 
+def fade_audio_chunk_boundaries(
+    chunks: list[torch.Tensor], sample_rate: int, fade_ms: float = 3.0
+) -> list[torch.Tensor]:
+    """Public form of the timeline-join fades, for callers outside this module."""
+    return _fade_audio_chunk_boundaries(chunks, sample_rate, fade_ms=fade_ms)
+
+
+def fade_audio_seams(
+    waveform: torch.Tensor, sample_rate: int, *, fade_ms: float = 3.0
+) -> torch.Tensor:
+    """Fade the first and last few ms of a finished waveform.
+
+    Audio trimmed to a frame boundary normally stops mid-waveform, and the step
+    from that sample to silence is an audible click; the same happens at the
+    head when the source starts mid-cycle. Linear head/tail fades remove both
+    and at 3 ms are not perceptible as a level change.
+    """
+    if not isinstance(waveform, torch.Tensor) or waveform.numel() <= 0:
+        return waveform
+    if sample_rate <= 0 or fade_ms <= 0:
+        return waveform
+    samples = int(waveform.shape[-1])
+    count = min(
+        max(1, int(round(float(sample_rate) * float(fade_ms) / 1000.0))),
+        samples // 2,
+    )
+    if count <= 1:
+        return waveform
+    out = waveform.clone()
+    out[..., :count] *= torch.linspace(
+        0.0, 1.0, count, dtype=out.dtype, device=out.device
+    )
+    out[..., -count:] *= torch.linspace(
+        1.0, 0.0, count, dtype=out.dtype, device=out.device
+    )
+    return out
+
+
 def extract_timeline_audio(
     timeline: dict,
     logical_start: int,
