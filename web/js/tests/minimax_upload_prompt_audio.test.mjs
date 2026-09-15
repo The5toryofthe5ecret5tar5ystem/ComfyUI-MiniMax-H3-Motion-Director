@@ -57,12 +57,12 @@ assert.match(src, /_applyPreviewAudio\(\) \{/, "apply method must exist");
 // Only real playback may unmute; scrubbing (seeks while paused) stays silent.
 const apply = src.slice(src.indexOf("_applyPreviewAudio() {"));
 assert.match(
-    apply.slice(0, 400),
-    /const sound = this\.isPreviewAudioEnabled\(\) && !!this\.isPlaying;/,
+    apply.slice(0, 800),
+    /const sound = this\.isPreviewAudioAudible\(\) && !!this\.isPlaying;/,
     "audio must be gated on playback, not on scrubbing",
 );
-assert.match(apply.slice(0, 400), /this\.stageVideo\.muted = !sound;/, "the stage element owns the sound");
-assert.match(apply.slice(0, 400), /this\.refreshPreviewAudioButton\(\);/, "the glyph must follow the state");
+assert.match(apply.slice(0, 800), /this\.stageVideo\.muted = !sound;/, "the stage element owns the sound");
+assert.match(apply.slice(0, 800), /this\.refreshPreviewAudioButton\(\);/, "the glyph must follow the state");
 
 // Stop mutes, play unmutes, and a failed native play must not hold audio open.
 const stopPlay = src.slice(src.indexOf("_stopPlay() {"));
@@ -80,6 +80,44 @@ assert.match(
     src,
     /this\.refreshLoopButtonTitle\?\.\(\);\s*this\.refreshPreviewAudioButton\?\.\(\);/,
     "locale switch must refresh the audio toggle label",
+);
+
+// --- 3. the toggle must respect a volume, not just 100% or silence --------
+
+assert.match(src, /data-r="player-volume"/, "the transport needs a volume slider next to the toggle");
+assert.match(
+    src,
+    /this\.playerVolumeEl\.oninput = \(\) => this\.setPreviewVolume\(\+this\.playerVolumeEl\.value\);/,
+    "the slider must drive setPreviewVolume",
+);
+assert.match(src, /setPreviewVolume\(value\) \{/, "setPreviewVolume must exist");
+assert.match(src, /previewVolume\(\) \{/, "previewVolume accessor must exist");
+assert.match(src, /const PREVIEW_VOLUME_STORAGE_KEY = "mmx_director_preview_volume";/, "volume needs its own storage key");
+assert.match(
+    src,
+    /this\.stageVideo\.volume = volume;/,
+    "the stage element must actually receive the level (100% unless muted was the bug)",
+);
+assert.match(
+    src,
+    /_readVolume\(key, fallback\) \{/,
+    "stored volume must be read back and clamped",
+);
+assert.match(
+    src,
+    /_writeVolume\(PREVIEW_VOLUME_STORAGE_KEY, this\._playerVolume\);/,
+    "dragging the slider must persist the level",
+);
+// A muted-at-zero player must be visible as muted, and unmuting must be audible.
+assert.match(
+    src,
+    /isPreviewAudioAudible\(\) \{\s*return this\.isPreviewAudioEnabled\(\) && this\.previewVolume\(\) > 0;/,
+    "the glyph must reflect a zero-volume player as muted",
+);
+assert.match(
+    src,
+    /if \(this\._playerAudioEnabled && this\.previewVolume\(\) <= 0\) \{\s*this\.setPreviewVolume\(this\._previewVolumeRestoreValue\(\)\);/,
+    "unmuting at zero volume must restore the last audible level",
 );
 
 console.log("upload prompt + preview audio tests passed");

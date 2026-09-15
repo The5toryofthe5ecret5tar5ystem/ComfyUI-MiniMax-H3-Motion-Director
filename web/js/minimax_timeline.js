@@ -230,6 +230,10 @@ const COMFY_UPLOAD_SOFT_LIMIT = 95 * 1024 * 1024;
 const MINIMAX_CHUNK_SIZE = 8 * 1024 * 1024;
 /** localStorage flag: let the transport player play the source clip's audio. */
 const PREVIEW_AUDIO_STORAGE_KEY = "mmx_director_preview_audio";
+/** localStorage keys for the transport volume (current + last non-zero). */
+const PREVIEW_VOLUME_STORAGE_KEY = "mmx_director_preview_volume";
+const PREVIEW_VOLUME_LAST_STORAGE_KEY = "mmx_director_preview_volume_last";
+const PREVIEW_VOLUME_DEFAULT = 0.8;
 
 /** Segment continuity is opt-in; default off unless explicitly true in output. */
 function isContinuityEnabled(output) {
@@ -1648,6 +1652,7 @@ const STYLES = `
 .bd-icon-btn{background:#2a2a2a;border:1px solid #444;color:#eee;cursor:pointer;padding:6px 10px;border-radius:4px}
 .bd-icon-btn.active{background:#1a3a2a;color:#4fff8f;border-color:#4fff8f;box-shadow:0 0 0 1px rgba(79,255,143,.35)}
 .bd-seek{flex:1;min-width:120px;height:6px}
+.bd-vol{width:62px;height:6px}
 .bd-panel{width:100%;box-sizing:border-box;background:#222;border:1px solid #111;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:6px}
 .bd-panel.bd-rv2v-panel,.bd-panel.bd-v2v-panel{background:linear-gradient(165deg,#1c1c1c 0%,#141414 52%,#111 100%);border:1px solid #2c2c2c;border-radius:12px;padding:12px 14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.035);gap:10px}
 .bd-panel.bd-rv2v-panel>b,.bd-panel.bd-v2v-panel>b,.bd-seg-head>b{color:#f0f0f0;font-size:13px;font-weight:650;letter-spacing:.02em}
@@ -3837,8 +3842,10 @@ class MiniMaxH3MotionDirectorEditor {
         this.isLooping = false;
         // Source-preview audio for the transport player. The Output panel's
         // volume slider only controls the RENDERED result, not this player, so
-        // it gets its own toggle (persisted per browser).
+        // it gets its own toggle + volume (both persisted per browser).
         this._playerAudioEnabled = this._loadPreviewAudioPref();
+        this._playerVolume = this._loadPreviewVolumePref();
+        this._playerVolumeLast = this._loadPreviewVolumeLastPref();
         this._playRaf = null;
         this._drag = null;
         this._previewSegments = null;
@@ -4752,6 +4759,7 @@ class MiniMaxH3MotionDirectorEditor {
                 <button type="button" class="bd-icon-btn" data-a="play" data-i18n-title="player.playPause">▶</button>
                 <button type="button" class="bd-icon-btn" data-a="loop" data-i18n-title="player.loopOn">⟳</button>
                 <button type="button" class="bd-icon-btn active" data-a="player-audio" data-i18n-title="player.previewAudioOn">🔊</button>
+                <input type="range" class="bd-vol" data-r="player-volume" min="0" max="1" step="0.05" value="1" data-i18n-title="player.previewVolume">
                 <button type="button" class="bd-icon-btn" data-a="frame-prev" data-i18n-title="player.framePrev">‹</button>
                 <button type="button" class="bd-icon-btn" data-a="frame-next" data-i18n-title="player.frameNext">›</button>
                 <span class="bd-frame-jump" data-i18n-title="player.frameJump">
@@ -4995,6 +5003,7 @@ class MiniMaxH3MotionDirectorEditor {
         this.frameTotalEl = this.root.querySelector('[data-r="frame-total"]');
         this.seekBar = this.root.querySelector('[data-r="seek"]');
         this.zoomSlider = this.root.querySelector('[data-r="zoom"]');
+        this.playerVolumeEl = this.root.querySelector('[data-r="player-volume"]');
         this.stageEl = this.root.querySelector('[data-r="video-stage"]');
         this.stageVideo = this.root.querySelector('[data-r="stage-video"]');
         this.stageImg = this.root.querySelector('[data-r="stage-img"]');
@@ -6345,6 +6354,9 @@ class MiniMaxH3MotionDirectorEditor {
             });
         }
         this.zoomSlider.oninput = () => { this.zoom = +this.zoomSlider.value; this.applyZoomWidth(); this.scheduleRender(); };
+        if (this.playerVolumeEl) {
+            this.playerVolumeEl.oninput = () => this.setPreviewVolume(+this.playerVolumeEl.value);
+        }
         if (this.runSelectAllCb) {
             this.runSelectAllCb.onchange = (e) => {
                 stopDomEvent(e);
@@ -13090,6 +13102,38 @@ class MiniMaxH3MotionDirectorEditor {
         return !!this._playerAudioEnabled;
     }
 
+    /** 0..1 player volume. The Output slider below never touched this player. */
+    previewVolume() {
+        const v = Number(this._playerVolume);
+        if (!Number.isFinite(v)) return 1;
+        return Math.max(0, Math.min(1, v));
+    }
+
+    /** True only when playback would actually produce sound. */
+    isPreviewAudioAudible() {
+        return this.isPreviewAudioEnabled() && this.previewVolume() > 0;
+    }
+
+    static _readVolume(key, fallback) {
+        try {
+            const raw = localStorage.getItem(key);
+            if (raw === null) return fallback;
+            const v = Number(raw);
+            if (!Number.isFinite(v)) return fallback;
+            return Math.max(0, Math.min(1, v));
+        } catch (_err) {
+            return fallback;
+        }
+    }
+
+    static _writeVolume(key, value) {
+        try {
+            localStorage.setItem(key, String(Math.max(0, Math.min(1, Number(value) || 0))));
+        } catch (_err) {
+            /* storage unavailable - keep the session state */
+        }
+    }
+
     _loadPreviewAudioPref() {
         try {
             const raw = localStorage.getItem(PREVIEW_AUDIO_STORAGE_KEY);
@@ -13099,25 +13143,73 @@ class MiniMaxH3MotionDirectorEditor {
         }
     }
 
+    _loadPreviewVolumePref() {
+        return MiniMaxH3MotionDirectorEditor._readVolume(PREVIEW_VOLUME_STORAGE_KEY, 1);
+    }
+
+    _loadPreviewVolumeLastPref() {
+        return MiniMaxH3MotionDirectorEditor._readVolume(
+            PREVIEW_VOLUME_LAST_STORAGE_KEY,
+            PREVIEW_VOLUME_DEFAULT,
+        );
+    }
+
+    /** Volume the player should fall back to when it is unmuted at zero. */
+    _previewVolumeRestoreValue() {
+        const last = Number(this._playerVolumeLast);
+        if (Number.isFinite(last) && last > 0) return Math.max(0, Math.min(1, last));
+        return PREVIEW_VOLUME_DEFAULT;
+    }
+
     _applyPreviewAudio() {
-        const sound = this.isPreviewAudioEnabled() && !!this.isPlaying;
-        if (this.stageVideo) this.stageVideo.muted = !sound;
+        const volume = this.previewVolume();
+        const sound = this.isPreviewAudioAudible() && !!this.isPlaying;
+        if (this.stageVideo) {
+            // Set the level even while muted so unmuting never jumps back to 100%.
+            this.stageVideo.volume = volume;
+            this.stageVideo.muted = !sound;
+        }
+        if (this.playerVolumeEl) {
+            const text = String(volume);
+            if (this.playerVolumeEl.value !== text) this.playerVolumeEl.value = text;
+            this.playerVolumeEl.disabled = !this.isPreviewAudioEnabled();
+        }
         this.refreshPreviewAudioButton();
+    }
+
+    setPreviewVolume(value) {
+        const v = Number(value);
+        if (!Number.isFinite(v)) return;
+        this._playerVolume = Math.max(0, Math.min(1, v));
+        if (this._playerVolume > 0) {
+            this._playerVolumeLast = this._playerVolume;
+            MiniMaxH3MotionDirectorEditor._writeVolume(PREVIEW_VOLUME_LAST_STORAGE_KEY, this._playerVolumeLast);
+        }
+        MiniMaxH3MotionDirectorEditor._writeVolume(PREVIEW_VOLUME_STORAGE_KEY, this._playerVolume);
+        this._applyPreviewAudio();
     }
 
     refreshPreviewAudioButton() {
         const btn = this.root?.querySelector('[data-a="player-audio"]');
         if (!btn) return;
-        const on = this.isPreviewAudioEnabled();
+        const on = this.isPreviewAudioAudible();
         const glyph = on ? "🔊" : "🔇";
         if (btn.textContent !== glyph) btn.textContent = glyph;
         btn.classList.toggle("active", on);
-        btn.title = on ? t("player.previewAudioOn") : t("player.previewAudioOff");
+        const pct = Math.round(this.previewVolume() * 100);
+        const key = on ? "player.previewAudioOn" : "player.previewAudioOff";
+        const text = t(key);
+        btn.title = on ? `${text} (${pct}%)` : text;
         btn.removeAttribute("data-i18n-title");
     }
 
     togglePreviewAudio() {
         this._playerAudioEnabled = !this._playerAudioEnabled;
+        // Muting keeps the level; unmuting at zero restores the last one so the
+        // click is never a no-op.
+        if (this._playerAudioEnabled && this.previewVolume() <= 0) {
+            this.setPreviewVolume(this._previewVolumeRestoreValue());
+        }
         try {
             localStorage.setItem(PREVIEW_AUDIO_STORAGE_KEY, this._playerAudioEnabled ? "1" : "0");
         } catch (_err) {
