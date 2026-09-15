@@ -91,12 +91,20 @@ def video_has_audio(path: str) -> bool | None:
 
 
 def _parse_ffmpeg_audio_info(stderr: str) -> tuple[int, int]:
+    """Parse the input stream line ffmpeg prints for an audio stream.
+
+    Returns ``(0, 0)`` when nothing is parseable. It deliberately does NOT
+    invent a default rate: with ``-v error`` ffmpeg writes no stream line at
+    all, and the old 44100 default silently relabelled 48 kHz decodes as
+    44.1 kHz - the passthrough track then played ~9% slow and pitch-dropped.
+    Only a parsed value may override the probed/filter-requested rate.
+    """
     match = re.search(r", (\d+) Hz, (\w+), ", stderr)
     if match:
         ar = int(match.group(1))
         ac = {"mono": 1, "stereo": 2}.get(match.group(2), 2)
         return ar, ac
-    return 44100, 2
+    return 0, 0
 
 
 def _probe_audio_stream(path: str) -> tuple[int, int]:
