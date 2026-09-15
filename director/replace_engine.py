@@ -172,8 +172,19 @@ def gaussian_blur_frames(frames: torch.Tensor, sigma: float) -> torch.Tensor:
     # Depthwise: one shared kernel per channel, groups=c.
     weight_v = kernel_v.repeat(c, 1, 1, 1)
     weight_h = kernel_h.repeat(c, 1, 1, 1)
+    # The inpaint echo-free reference blurs hundreds of RGB frames; on CPU
+    # that is a multi-minute stall. Run the conv on CUDA when available and
+    # hand the result back on the input device (identical up to fp rounding).
+    src_device = source.device
+    use_gpu = src_device.type == "cpu" and torch.cuda.is_available()
+    if use_gpu:
+        source = source.to("cuda")
+        weight_v = weight_v.to("cuda")
+        weight_h = weight_h.to("cuda")
     blurred = F.conv2d(source, weight_h, padding=(0, radius), groups=c)
     blurred = F.conv2d(blurred, weight_v, padding=(radius, 0), groups=c)
+    if use_gpu:
+        blurred = blurred.to(src_device)
     return blurred.squeeze(1) if frames.ndim == 3 else blurred
 
 

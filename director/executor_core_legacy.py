@@ -1108,6 +1108,12 @@ def execute_director_plan_core(
                         "(inpaint: blurring %d reference frames at sigma 14) ...",
                         timeline_slot + 1, int(reference_clip_frames.shape[0]),
                     )
+                elif replace_render_anchor and reference_clip_frames is not None:
+                    log.info(
+                        "Segment %d: building echo-free motion reference "
+                        "(anchor: photographic-negative of %d reference frames) ...",
+                        timeline_slot + 1, int(reference_clip_frames.shape[0]),
+                    )
                 prepared = prepare_replace_window(
                     mask_spec=replace_spec.mask.to_json(),
                     start_frame=int(getattr(seg, "start_frame", 0) or 0),
@@ -1126,6 +1132,10 @@ def execute_director_plan_core(
                 else:
                     replace_state = prepared
                     reference_clip_frames = prepared["sanitized_reference"]
+                    log.info(
+                        "Segment %d: echo-free motion reference built (%d frames)",
+                        timeline_slot + 1, int(prepared["sanitized_reference"].shape[0]),
+                    )
             except Exception as exc:
                 replace_state = None
                 if not replace_fallback_reason:
@@ -1275,6 +1285,11 @@ def execute_director_plan_core(
                         and int(_mv_keep.shape[0]) == int(visible_clip_frames.shape[0])
                         and tuple(_mv_keep.shape[1:]) == tuple(visible_clip_frames.shape[1:3])
                     ):
+                        log.info(
+                            "Segment %d: subject-erasing keep/cond source "
+                            "(blur sigma 14 over %d frames) ...",
+                            timeline_slot + 1, int(visible_clip_frames.shape[0]),
+                        )
                         keep_source = sanitize_source_frames(
                             visible_clip_frames,
                             _mv_keep.float(),
@@ -1285,6 +1300,10 @@ def execute_director_plan_core(
                             "Segment %d: masked replace keep/cond source is subject-erased (echo-free keep)",
                             timeline_slot + 1,
                         )
+                    log.info(
+                        "Segment %d: VAE-encoding the masked source window (%d frames) ...",
+                        timeline_slot + 1, int(keep_source.shape[0]),
+                    )
                     source_video_latent = encode_source_video(vae, keep_source)
                     source_video_t = (
                         source_video_latent.get("samples")
