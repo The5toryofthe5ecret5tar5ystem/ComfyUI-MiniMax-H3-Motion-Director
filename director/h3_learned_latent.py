@@ -102,7 +102,12 @@ def upscale_h3_av_latent(
         raise ValueError("H3 learned latent backend supports upscale only.")
 
     if str(device or "cuda").strip().lower() == "cuda":
-        cleanup_segment_vram(enabled=True, unload_models=True)
+        # The learned-latent upscaler needs the H3 model's VRAM. A partial failure
+        # here (or a model ComfyUI cannot unload) is the usual cause of an OOM in
+        # this stage, so surface it rather than leaving only a debug line.
+        _vram = cleanup_segment_vram(enabled=True, unload_models=True)
+        for _message in (_vram or {}).get("reports") or []:
+            log.warning("H3 learned latent upscale: %s", _message)
 
     try:
         upscaled = _runtime.run_h3_latent_upscaler(

@@ -4,7 +4,7 @@ import {DEFAULT_CONFIG,ROOM_NAMES,audioRefineSummary,audioRefineVisibility,faceR
 
 let cfg=normalizePostprocessConfig({global_refine:{enabled:true,mode:"refine",seed_mode:"inherit",resolution_mode:"follow_director",upscale_method:"lanczos"}});
 assert.equal(cfg.version,11);
-assert.deepEqual(globalRefineVisibility(cfg),{secondSampling:true,upscaleEnabled:false,seedOffset:false,upscaleModel:false,learnedLatent:false,vsr:false,aspectMegapixels:false,customSize:false});
+assert.deepEqual(globalRefineVisibility(cfg),{secondSampling:true,upscaleEnabled:false,seedOffset:false,tiled:false,temporal:false,upscaleModel:false,learnedLatent:false,vsr:false,seedvr2:false,aspectMegapixels:false,customSize:false});
 assert.match(globalRefineSummary(cfg,1376,768,"zh"),/保持原 Seed/);
 cfg=setGlobalUpscaleEnabled(cfg,true); cfg.global_refine.upscale_method="nvidia_rtx_vsr"; cfg.global_refine.vsr_quality="high"; cfg.global_refine.resolution_mode="aspect_megapixels";
 assert.equal("vsr_source" in cfg.global_refine,false);

@@ -718,6 +718,18 @@ def execute_director_plan_core(
     warning_messages: list[str] = []
     global_refine_outcomes: dict[int, Any] = {}
     segment_stage_timings: dict[int, dict[str, float]] = {}
+    vram_reports: list[str] = []
+
+    def _record_vram_report(summary: dict[str, Any]) -> None:
+        """Surface a partial cleanup or an un-freeable model in the execution report.
+
+        Without this the only evidence is a log line, so "clear VRAM did nothing"
+        looks identical to a broken toggle. Surfacing it means the user is told
+        which custom node is holding the model.
+        """
+        for message in (summary or {}).get("reports") or []:
+            vram_reports.append(str(message))
+
 
     def _run_one_segment(seg, *, progress_index: int) -> tuple[torch.Tensor, dict[str, Any] | None]:
         if seg.task_key not in SUPPORTED_TASK_KEYS:
@@ -1376,7 +1388,12 @@ def execute_director_plan_core(
             phase="context_encode", phase_value=1, phase_max=1, **meta,
         )
         if clear_vram_between_segments:
-            cleanup_segment_vram(enabled=True, unload_models=seg_total > 1)
+            # Clear before sampling, not before latent construction: the point is
+            # to have the model resident for sampling and gone afterwards, so the
+            # sequence is unload -> sample -> unload rather than an extra round
+            # trip that cannot lower peak VRAM.
+            _vram = cleanup_segment_vram(enabled=True, unload_models=seg_total > 1)
+            _record_vram_report(_vram)
 
         def _report_sample_phase(phase: str, value: float) -> None:
             report_director_progress(
@@ -1603,7 +1620,9 @@ def execute_director_plan_core(
                 f"S{timeline_slot + 1}: {global_outcome.status}; keeping the first-pass result."
             )
         if global_outcome.status == "FAILED":
-            cleanup_segment_vram(enabled=True, unload_models=False)
+            _record_vram_report(
+                cleanup_segment_vram(enabled=True, unload_models=False)
+            )
             warning_messages.append(
                 f"S{timeline_slot + 1}: Global Refine FAILED; fallback FIRST_PASS_RESULT — {global_outcome.error}"
             )
@@ -1653,7 +1672,9 @@ def execute_director_plan_core(
                         "(video frozen bit-identical; audio-only partial denoise)."
                     )
                 except Exception as exc:
-                    cleanup_segment_vram(enabled=True, unload_models=False)
+                    _record_vram_report(
+                        cleanup_segment_vram(enabled=True, unload_models=False)
+                    )
                     warning_messages.append(
                         f"S{timeline_slot + 1}: Audio Refine FAILED; keeping the sampled "
                         f"audio — {exc}"
@@ -1840,7 +1861,14 @@ def execute_director_plan_core(
             except Exception as exc:
                 log.debug("Segment audio preview skipped: %s", exc)
         if clear_vram_between_segments:
-            cleanup_segment_vram(enabled=True)
+            # Last cleanup of the segment. Keep the model loaded when this is the
+            # only segment: Global Refine / Face Refine run next and would force
+            # an immediate reload (which can itself OOM where staying loaded was
+            # fine). With >1 segment the reload is unavoidable anyway.
+            _vram = cleanup_segment_vram(
+                enabled=True, unload_models=timeline_seg_total > 1
+            )
+            _record_vram_report(_vram)
         reports.append(
             f"Segment {ui_idx + 1}/{timeline_seg_total}: {task_hint} ({target_len} frames, seed={seed})"
         )
@@ -2066,7 +2094,7 @@ def execute_director_plan_core(
             ):
                 continue
             if clear_vram_between_segments and selected_results:
-                cleanup_segment_vram(enabled=True)
+                _record_vram_report(cleanup_segment_vram(enabled=True))
             _segment_started = time.perf_counter()
             chunk, audio_dict = _run_one_segment(seg, progress_index=progress_pos[seg.index])
             segment_stage_timings.setdefault(int(seg.timeline_index), {})["total"] = time.perf_counter() - _segment_started
@@ -2291,7 +2319,7 @@ def execute_director_plan_core(
         )
         positive = append_refmod_references(positive, refmod_refs)
         if clear_vram_between_segments:
-            cleanup_segment_vram(enabled=True, unload_models=True)
+            _record_vram_report(cleanup_segment_vram(enabled=True, unload_models=True))
         try:
             bridge_samples = sample_single_stage(
                 model=model, positive=positive, negative=negative, latent=latent, seed=seed,
@@ -2337,7 +2365,9 @@ def execute_director_plan_core(
                 f"Source Bridge {bridge_refine_outcome.status}; keeping the first-pass result."
             )
         if bridge_refine_outcome.status == "FAILED":
-            cleanup_segment_vram(enabled=True, unload_models=False)
+            _record_vram_report(
+                cleanup_segment_vram(enabled=True, unload_models=False)
+            )
             warning_messages.append(
                 f"S{int(left.timeline_index) + 1}->S{int(right.timeline_index) + 1} "
                 f"Source Bridge Global Refine FAILED; fallback FIRST_PASS_RESULT — {bridge_refine_outcome.error}"
@@ -2380,7 +2410,7 @@ def execute_director_plan_core(
             "audio = unchanged nominal segment audio"
         )
         if clear_vram_between_segments:
-            cleanup_segment_vram(enabled=True)
+            _record_vram_report(cleanup_segment_vram(enabled=True))
 
     if generated_bridges:
         resolved = assemble_source_bridges(all_segments, nominal_generated_frames, generated_bridges)
@@ -2504,7 +2534,9 @@ def execute_director_plan_core(
                         log.debug("Face-refined segment preview skipped: %s", exc)
     elif face_outcome.status in {"FAILED", "NO_FACE"}:
         if face_outcome.status == "FAILED":
-            cleanup_segment_vram(enabled=True, unload_models=False)
+            _record_vram_report(
+                cleanup_segment_vram(enabled=True, unload_models=False)
+            )
         warning_messages.append(
             f"Face Refine {face_outcome.status}; fallback ASSEMBLED_RESULT — {face_outcome.error}"
         )
@@ -2771,6 +2803,8 @@ def execute_director_plan_core(
     )
     for message in dict.fromkeys(warning_messages):
         execution_report.add("Warnings", f"- {message}")
+    for message in dict.fromkeys(vram_reports):
+        execution_report.add("VRAM", f"- {message}")
     execution_report.add(
         "Final", "Status: SUCCESS_WITH_WARNING" if warning_messages else "Status: SUCCESS",
     )

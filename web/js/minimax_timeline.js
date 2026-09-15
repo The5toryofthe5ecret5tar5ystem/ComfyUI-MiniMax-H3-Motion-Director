@@ -1119,13 +1119,29 @@ function migrateReorderedDirectorTail(serializedNode, currentWidgets = []) {
 
     const oldValues = values.slice();
 
+    // This migration rewrites widget values IN PLACE, so a false positive
+    // silently reassigns the user's Clear-VRAM toggle. The old check only
+    // compared types, which is satisfied by unrelated layouts. Require the
+    // exact legacy signature instead: `bd_grp_perf` must hold a header label
+    // AND the values either side of it must be the ones the legacy layout had.
+    // A modern layout can no longer satisfy this by coincidence.
+    const LEGACY_HEADERS = new Set([
+        "Performance", "性能",
+    ]);
     const looksLikeReorderedLayout = (
         typeof oldValues[perfIndex] === "string"
+        && LEGACY_HEADERS.has(oldValues[perfIndex])
         && typeof oldValues[clearVramIndex] === "boolean"
         && typeof oldValues[exportSourceIndex] === "string"
         && typeof oldValues[experimentalIndex] === "string"
+        && LEGACY_HEADERS.has(oldValues[experimentalIndex])
         && typeof oldValues[pinRenormIndex] === "boolean"
         && typeof oldValues[postprocessIndex] === "boolean"
+        // In the legacy order the group headers sat at the tail: the value at
+        // perfIndex and experimentalIndex must both be group headers, and the
+        // three booleans must be the sampled widgets. Anything else is a real
+        // (current-format) node whose values must not be touched.
+        && oldValues[perfIndex] !== oldValues[experimentalIndex]
     );
 
     if (!looksLikeReorderedLayout) {
