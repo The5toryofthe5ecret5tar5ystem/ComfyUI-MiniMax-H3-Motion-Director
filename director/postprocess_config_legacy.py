@@ -51,6 +51,9 @@ DEFAULT_POSTPROCESS_CONFIG: dict[str, Any] = {
         "tiled_refine": False,
         "tile_size": 512,
         "tile_overlap": 96,
+        "temporal_split": False,
+        "temporal_chunk_frames": 136,
+        "temporal_overlap_frames": 17,
     },
     "face_refine": {
         "enabled": False,
@@ -259,7 +262,7 @@ def normalize_postprocess_config(raw: Any) -> dict[str, Any]:
     g["skip_fl2v"] = _bool(g_raw.get("skip_fl2v"), False)
     g["upscale_method"] = _choice(
         g_raw.get("upscale_method"),
-        {"lanczos", "upscale_model", "nvidia_rtx_vsr", "h3_learned_latent"},
+        {"lanczos", "upscale_model", "nvidia_rtx_vsr", "h3_learned_latent", "seedvr2"},
         "lanczos",
     )
     g["upscale_model"] = str(g_raw.get("upscale_model") or "")
@@ -290,6 +293,9 @@ def normalize_postprocess_config(raw: Any) -> dict[str, Any]:
     g["tiled_refine"] = _bool(g_raw.get("tiled_refine"), False)
     g["tile_size"] = _snap(_int(g_raw.get("tile_size"), 512, 256, 2048))
     g["tile_overlap"] = _snap(_int(g_raw.get("tile_overlap"), 96, 0, 512))
+    g["temporal_split"] = _bool(g_raw.get("temporal_split"), False)
+    g["temporal_chunk_frames"] = _snap(_int(g_raw.get("temporal_chunk_frames"), 136, 17, 4096))
+    g["temporal_overlap_frames"] = _snap(_int(g_raw.get("temporal_overlap_frames"), 17, 0, 512))
 
     raw_version = _int(raw.get("version"), 0, 0, 10000)
     if 0 < raw_version < 4:

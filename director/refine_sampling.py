@@ -28,6 +28,7 @@ from .postprocess_config import (
 )
 from .refine_latent_stage import sync_h3_keyframe_conditioning
 from .tiled_refine import sample_tiled_refine_pass
+from .temporal_refine import sample_temporal_chunked_refine
 from .rtx_deblur import RTXDeblurOutcome, apply_rtx_deblur
 from .external_patch_guard import (
     ALLOW_REFINE_ON_EXTERNAL_PATCH,
@@ -258,6 +259,79 @@ def _upscale_rtx_vsr_exact(
         context.__exit__(None, None, None)
 
 
+def _upscale_seedvr2_exact(
+    images: torch.Tensor,
+    width: int,
+    height: int,
+    *,
+    on_progress: Callable[[float], None] | None = None,
+) -> torch.Tensor:
+    """Run SeedVR2 (video-aware, pixel-space) on decoded frames.
+
+    SeedVR2 loads its own DiT + VAE (first use downloads the checkpoints), so
+    the H3 diffusion model is unloaded first to avoid both being resident at
+    once. The upscale keeps aspect ratio (shortest edge = ``min(width, height)``);
+    the caller resizes to the exact target afterwards.
+    """
+    try:
+        from seedvr2_videoupscaler.src.interfaces.video_upscaler import SeedVR2VideoUpscaler
+    except Exception as exc:  # noqa: BLE001 - missing install or broken import
+        raise ImportError(
+            "SeedVR2 requires ComfyUI-SeedVR2_VideoUpscaler "
+            "(numz/ComfyUI-SeedVR2_VideoUpscaler) to be installed."
+        ) from exc
+
+    import comfy.model_management as model_management
+
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    dit = {
+        "model": "seedvr2_ema_3b_fp8_e4m3fn.safetensors",
+        "device": device,
+        "offload_device": "none",
+        "cache_model": False,
+        "blocks_to_swap": 0,
+        "swap_io_components": False,
+        "attention_mode": "sdpa",
+        "torch_compile_args": None,
+        "node_id": "motion_director_seedvr2_dit",
+    }
+    vae = {
+        "model": "ema_vae_fp16.safetensors",
+        "device": device,
+        "offload_device": "none",
+        "cache_model": False,
+        "encode_tiled": True,
+        "encode_tile_size": 512,
+        "encode_tile_overlap": 64,
+        "decode_tiled": True,
+        "decode_tile_size": 512,
+        "decode_tile_overlap": 64,
+        "tile_debug": False,
+        "torch_compile_args": None,
+        "node_id": "motion_director_seedvr2_vae",
+    }
+
+    # Free the H3 diffusion model so SeedVR2's 3B DiT + VAE have room; ComfyUI
+    # reloads H3 automatically on the next sample.
+    model_management.unload_all_models()
+
+    source = images[..., :3].contiguous()
+    out = SeedVR2VideoUpscaler.execute(
+        source,
+        dit,
+        vae,
+        seed=0,
+        resolution=max(8, int(min(width, height))),
+        max_resolution=max(8, int(max(width, height))),
+    )
+    result = _unpack(out)[0]
+    if not isinstance(result, torch.Tensor):
+        raise RuntimeError(f"SeedVR2 returned an unexpected result: {type(result).__name__}")
+    if on_progress is not None:
+        on_progress(1.0)
+    return result
+
+
 def upscale_image_batch_strict(
     images: torch.Tensor,
     *,
@@ -286,6 +360,13 @@ def upscale_image_batch_strict(
             width,
             height,
             quality_name=vsr_quality,
+            on_progress=on_progress,
+        )
+    elif selected == "seedvr2":
+        result = _upscale_seedvr2_exact(
+            images,
+            width,
+            height,
             on_progress=on_progress,
         )
     else:
@@ -750,8 +831,16 @@ def apply_global_refine(
             and repin is None
             and original_mask is None
         )
+        temporal_split = (
+            bool(config.get("temporal_split"))
+            and upscale_enabled
+            and repin is None
+            and original_mask is None
+        )
         tile_size = int(config.get("tile_size") or 512)
         tile_overlap = int(config.get("tile_overlap") or 96)
+        temporal_chunk_frames = int(config.get("temporal_chunk_frames") or 136)
+        temporal_overlap_frames = int(config.get("temporal_overlap_frames") or 17)
 
         for pass_index, (pass_denoise, pass_step_count) in enumerate(pass_settings):
             pass_started = time.perf_counter()
@@ -764,7 +853,29 @@ def apply_global_refine(
                         (float(_index) + max(0.0, min(1.0, float(value)))) / max(1, pass_count),
                     )
 
-            if tiled_refine:
+            if temporal_split:
+                refined = sample_temporal_chunked_refine(
+                    model=refine_model,
+                    positive=refine_positive,
+                    negative=negative,
+                    latent=refined,
+                    seed=pass_seed,
+                    cfg=cfg,
+                    steps=pass_step_count,
+                    sampler_name=sampler_name,
+                    scheduler=scheduler,
+                    shift_video=shift_video,
+                    shift_audio=shift_audio,
+                    denoise=pass_denoise,
+                    chunk_frames=temporal_chunk_frames,
+                    overlap_frames=temporal_overlap_frames,
+                    tile_size=(tile_size if tiled_refine else 0),
+                    tile_overlap=tile_overlap,
+                    on_phase=_pass_phase,
+                    on_step_preview=on_step_preview,
+                    preview_every=preview_every,
+                )
+            elif tiled_refine:
                 refined = sample_tiled_refine_pass(
                     model=refine_model,
                     positive=refine_positive,

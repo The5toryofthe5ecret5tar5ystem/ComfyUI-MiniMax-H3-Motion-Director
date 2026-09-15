@@ -20,6 +20,7 @@ const DEFAULT_CONFIG = Object.freeze({
         width: 1376, height: 768,
         rtx_deblur_enabled: false, rtx_deblur_quality: "medium", rtx_deblur_strength: 1,
         tiled_refine: false, tile_size: 512, tile_overlap: 96,
+        temporal_split: false, temporal_chunk_frames: 136, temporal_overlap_frames: 17,
     },
     face_refine: {
         enabled: false, detector: "ultralytics", detector_model: "", confidence: 0.35,
@@ -71,6 +72,8 @@ const POST_TEXT = {
         runtime_detected: "Runtime detected (validated when generation starts)",
         missing_no_downgrade: "Not installed (stage will fail without downgrade)",
         lbh_note: "Director scans compatible MiniMax H3 learned-latent checkpoints from models/latent_upscale_models automatically. Select a checkpoint below; its 2D/3D architecture is detected from the weights. No separate LBH custom node is required.",
+        seedvr2_note: "SeedVR2 is a temporal-aware video upscaler. It runs on decoded frames (pixel space) and loads its own DiT + VAE model - first use downloads ~6 GB. Much crisper than latent upscalers, but slower and heavier.",
+        temporal_note: "Split the upscaled video into overlapping time chunks and re-sample one chunk at a time, so sequence length no longer bounds VRAM. Chunk length and overlap snap to H3's 17-frame grid.",
         audio_title: "Audio Room",
         audio_note: "Puts generated audio in a space instead of leaving it dry on the camera mic. A scene can set its own room with a room field in the timeline; this is the fallback for scenes that do not, and the level control for all of them.",
         audio_room: "Room", audio_level: "Level", audio_advanced: "Advanced",
@@ -94,6 +97,8 @@ const POST_TEXT = {
         runtime_detected: "已检测到运行库（生成时验证）",
         missing_no_downgrade: "未安装（此阶段会失败，不会自动降级）",
         lbh_note: "Director 会自动扫描 models/latent_upscale_models 中兼容的 MiniMax H3 Learned Latent checkpoint。只需选择模型，2D/3D 架构会直接从权重自动识别；无需另装 LBH 自定义节点。",
+        seedvr2_note: "SeedVR2 是时序感知的视频放大模型，在解码后的像素空间运行，会加载自己的 DiT + VAE 模型（首次使用约下载 6 GB）。比潜变量放大更锐利，但更慢、更占资源。",
+        temporal_note: "将放大后的视频切成有重叠的时间块，逐块二次采样，使序列长度不再限制显存。块长与重叠会自动对齐 H3 的 17 帧网格。",
         audio_title: "音频空间",
         audio_note: "让生成的音频带上空间感，而不是贴着脸的干声。每个片段可用时间线里的 room 字段指定自己的空间；这里是未指定时的默认值，以及所有片段的电平控制。",
         audio_room: "空间", audio_level: "电平", audio_advanced: "高级",
@@ -129,6 +134,9 @@ const POST_LABELS = {
     "global_refine.tiled_refine": ["Tiled refine (VRAM-bound)", "分块精修（限制显存）"],
     "global_refine.tile_size": ["Tile Size", "分块尺寸"],
     "global_refine.tile_overlap": ["Tile Overlap", "分块重叠"],
+    "global_refine.temporal_split": ["Temporal split (VRAM-bound)", "时间分块（限制显存）"],
+    "global_refine.temporal_chunk_frames": ["Chunk Length (frames)", "块长（帧）"],
+    "global_refine.temporal_overlap_frames": ["Chunk Overlap (frames)", "块重叠（帧）"],
     "save.reuse_first_pass": ["Reuse cached first pass (skip re-render)", "复用缓存的首轮结果（跳过重新渲染）"],
     "face_refine.detector": ["Detector Engine", "检测引擎"], "face_refine.detector_model": ["Face Detector Model", "人脸检测模型"],
     "face_refine.confidence": ["Confidence", "置信度"], "face_refine.select": ["Target Face", "目标人脸"],
@@ -172,6 +180,7 @@ const POST_OPTION_LABELS = {
         lanczos: ["Lanczos", "Lanczos"], upscale_model: ["Upscale Model", "放大模型"],
         nvidia_rtx_vsr: ["NVIDIA RTX VSR", "NVIDIA RTX VSR"],
         h3_learned_latent: ["H3 Learned Latent", "H3 Learned Latent"],
+        seedvr2: ["SeedVR2 (video)", "SeedVR2（视频）"],
     },
     "global_refine.latent_upscale_precision": { fp16: ["FP16", "FP16"], bf16: ["BF16", "BF16"], fp32: ["FP32", "FP32"] },
     "global_refine.latent_upscale_device": { cuda: ["CUDA", "CUDA"], cpu: ["CPU", "CPU"] },
@@ -238,7 +247,7 @@ export function normalizePostprocessConfig(raw) {
     global.seed_offset = Number.isFinite(seedOffset)
         ? Math.max(-2147483648, Math.min(2147483647, Math.trunc(seedOffset)))
         : 1;
-    global.upscale_method = inChoice(global.upscale_method, ["lanczos", "upscale_model", "nvidia_rtx_vsr", "h3_learned_latent"], "lanczos");
+    global.upscale_method = inChoice(global.upscale_method, ["lanczos", "upscale_model", "nvidia_rtx_vsr", "h3_learned_latent", "seedvr2"], "lanczos");
     global.latent_upscale_model = String(global.latent_upscale_model || "").trim();
     delete global.latent_upscale_variant;
     global.latent_upscale_precision = inChoice(global.latent_upscale_precision, ["fp16", "bf16", "fp32"], "fp16");
@@ -252,6 +261,9 @@ export function normalizePostprocessConfig(raw) {
     global.tiled_refine = !!global.tiled_refine;
     global.tile_size = Math.max(256, Math.min(2048, Math.round(Number(global.tile_size || 512) / 32) * 32 || 512));
     global.tile_overlap = Math.max(0, Math.min(512, Math.round(Number(global.tile_overlap || 96) / 32) * 32 || 96));
+    global.temporal_split = !!global.temporal_split;
+    global.temporal_chunk_frames = Math.max(17, Math.min(4096, Math.round(Number(global.temporal_chunk_frames || 136) / 17) * 17 || 136));
+    global.temporal_overlap_frames = Math.max(0, Math.min(512, Math.round(Number(global.temporal_overlap_frames || 17) / 17) * 17 || 17));
     const face=result.face_refine;
     face.enabled=!!face.enabled;
     face.detector=inChoice(face.detector,["ultralytics","insightface"],"ultralytics");
@@ -322,9 +334,11 @@ export function globalRefineVisibility(config) {
         upscaleEnabled,
         seedOffset: global.second_sampling_enabled && global.seed_mode === "offset",
         tiled: global.second_sampling_enabled && global.tiled_refine,
+        temporal: global.second_sampling_enabled && global.temporal_split,
         upscaleModel: upscaleEnabled && global.upscale_method === "upscale_model",
         learnedLatent: upscaleEnabled && global.upscale_method === "h3_learned_latent",
         vsr: upscaleEnabled && global.upscale_method === "nvidia_rtx_vsr",
+        seedvr2: upscaleEnabled && global.upscale_method === "seedvr2",
         aspectMegapixels: upscaleEnabled && global.resolution_mode === "aspect_megapixels",
         customSize: upscaleEnabled && global.resolution_mode === "custom",
     };
@@ -359,6 +373,8 @@ export function globalRefineSummary(config, width = 864, height = 480, locale = 
             method = `RTX VSR ${quality.charAt(0).toUpperCase()}${quality.slice(1)}`;
         } else if (global.upscale_method === "h3_learned_latent") {
             method = "H3 Learned Latent";
+        } else if (global.upscale_method === "seedvr2") {
+            method = "SeedVR2";
         }
         parts.push(`${method} → ${targetW}×${targetH}`);
     }
@@ -518,13 +534,17 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
             ${field("Tiled refine (VRAM-bound)", "global_refine.tiled_refine", "checkbox")}
             ${conditional("tiled", field("Tile Size", "global_refine.tile_size", "number", 'min="256" max="2048" step="32"'))}
             ${conditional("tiled", field("Tile Overlap", "global_refine.tile_overlap", "number", 'min="0" max="512" step="32"'))}
+            ${field("Temporal split (VRAM-bound)", "global_refine.temporal_split", "checkbox")}
+            ${conditional("temporal", field("Chunk Length (frames)", "global_refine.temporal_chunk_frames", "number", 'min="17" max="4096" step="17"'))}
+            ${conditional("temporal", field("Chunk Overlap (frames)", "global_refine.temporal_overlap_frames", "number", 'min="0" max="512" step="17"'))}
+            <p class="mmx-post-note mmx-post-wide" data-conditional="temporal" data-post-text="temporal_note"></p>
           </div></div>
         </div>
         <div class="mmx-post-section" data-upscale-section>
           <div class="mmx-post-section-head"><h4 data-post-text="upscale">Upscale</h4><label class="mmx-post-subenable"><input type="checkbox" data-upscale-enabled> <span data-post-text="enabled">ON / OFF</span></label></div>
           <div class="mmx-post-section-body" data-upscale-body>
             <div class="mmx-post-grid">
-              ${field("Method", "global_refine.upscale_method", "select", options([["lanczos","Lanczos"],["upscale_model","Upscale Model"],["nvidia_rtx_vsr","NVIDIA RTX VSR"],["h3_learned_latent","H3 Learned Latent"]]))}
+              ${field("Method", "global_refine.upscale_method", "select", options([["lanczos","Lanczos"],["upscale_model","Upscale Model (Real-ESRGAN etc.)"],["nvidia_rtx_vsr","NVIDIA RTX VSR"],["h3_learned_latent","H3 Learned Latent"],["seedvr2","SeedVR2 (video)"]]))}
               ${conditional("upscale_model", field("Model", "global_refine.upscale_model", "select", '<option value="">—</option>'))}
               ${conditional("learned_latent", field("H3 Latent Model", "global_refine.latent_upscale_model", "select", '<option value="">—</option>'))}
               ${conditional("learned_latent", field("Precision", "global_refine.latent_upscale_precision", "select", options([["fp16","FP16"],["bf16","BF16"],["fp32","FP32"]])))}
@@ -532,6 +552,7 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
               <p class="mmx-post-note mmx-post-wide" data-conditional="learned_latent" data-post-text="lbh_note"></p>
               ${conditional("vsr_quality", field("VSR Quality", "global_refine.vsr_quality", "select", options([["low","Low"],["medium","Medium"],["high","High"],["ultra","Ultra"]])))}
               <div class="mmx-post-capability mmx-post-wide" data-conditional="vsr_status" data-capability="nvidia_rtx_vsr"></div>
+              <p class="mmx-post-note mmx-post-wide" data-conditional="seedvr2" data-post-text="seedvr2_note"></p>
             </div>
             <div class="mmx-post-divider-title" data-post-text="output_resolution">Output Resolution</div>
             <div class="mmx-post-grid">
@@ -693,10 +714,12 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
         root.querySelector("[data-upscale-body]").hidden = !visible.upscaleEnabled;
         setConditional("seed_offset", !visible.seedOffset);
         setConditional("tiled", !visible.tiled);
+        setConditional("temporal", !visible.temporal);
         setConditional("upscale_model", !visible.upscaleModel);
         setConditional("learned_latent", !visible.learnedLatent);
         setConditional("vsr_quality", !visible.vsr);
         setConditional("vsr_status", !visible.vsr);
+        setConditional("seedvr2", !visible.seedvr2);
         setConditional("aspect", !visible.aspectMegapixels);
         setConditional("megapixels", !visible.aspectMegapixels);
         setConditional("width", !visible.customSize);

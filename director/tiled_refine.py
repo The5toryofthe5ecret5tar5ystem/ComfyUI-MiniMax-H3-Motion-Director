@@ -27,12 +27,12 @@ LATENT_UNIT = 16
 def _split_streams(latent: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor | None, dict[str, Any]]:
     samples = latent.get("samples") if isinstance(latent, dict) else None
     extra = {key: value for key, value in (latent or {}).items() if key != "samples"}
-    if hasattr(samples, "unbind"):
+    if isinstance(samples, torch.Tensor):
+        streams = [samples]
+    elif hasattr(samples, "unbind"):
         streams = list(samples.unbind())
     elif isinstance(samples, (tuple, list)):
         streams = list(samples)
-    elif isinstance(samples, torch.Tensor):
-        streams = [samples]
     else:
         streams = []
     video = streams[0] if streams else None
