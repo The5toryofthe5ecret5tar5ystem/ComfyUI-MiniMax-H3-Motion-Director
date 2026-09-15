@@ -43,6 +43,28 @@ def _safe_basename(name: str) -> str:
     return base or "video.mp4"
 
 
+# The SeedVR2 upscaler is consumed through its own custom node's package, which is
+# not installed as a top-level module name we can find_spec for by a fixed path.
+# Probe the package name first, then the exact module the refine stage imports, so
+# the UI can tell the user before a run fails inside the upscale stage.
+_SEEDVR2_PACKAGES = ("seedvr2_videoupscaler",)
+_SEEDVR2_MODULE = "seedvr2_videoupscaler.src.interfaces.video_upscaler"
+
+
+def _seedvr2_available() -> bool:
+    """Whether the SeedVR2 video upscaler can be imported."""
+    try:
+        if any(importlib.util.find_spec(name) is not None for name in _SEEDVR2_PACKAGES):
+            return True
+    except (ImportError, ValueError):
+        # find_spec raises when a parent package is missing.
+        pass
+    try:
+        return importlib.util.find_spec(_SEEDVR2_MODULE) is not None
+    except (ImportError, ValueError):
+        return False
+
+
 async def minimax_upload_video_chunk(request):
     try:
         post = await request.post()
@@ -261,6 +283,7 @@ async def minimax_postprocess_capabilities(_request):
         "sam_model_folder": os.path.join(folder_paths.models_dir, "sams"),
         "dependencies": {
             "nvidia_rtx_vsr": importlib.util.find_spec("nvvfx") is not None,
+            "seedvr2": _seedvr2_available(),
             "ultralytics": importlib.util.find_spec("ultralytics") is not None,
             "insightface": importlib.util.find_spec("insightface") is not None,
             "sam": importlib.util.find_spec("ultralytics") is not None,

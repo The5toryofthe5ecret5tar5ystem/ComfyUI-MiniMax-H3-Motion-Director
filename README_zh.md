@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.7.0-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.8.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -9,8 +9,9 @@
 > - **Re-ground 分段（防累积漂移）**：时间线每段边界下方新增 **R 圆圈**，左键切换（开启后变琥珀色）。开启的段落会从「链首 root」而非上一段重新锚定上下文，用于长片每 3–5 段设置一次，配合 Latent Scale Lock 与 Color Re-anchor 抑制色彩/画面漂移。
 > - **性能修复**：修复打开 Director 面板时因超长提示词逐字裁剪导致的长时间卡顿（改为二分查找 `fitCanvasText`，实测约快 525 倍）；批量卡片启用 `content-visibility` 优化滚动。
 > - **新版 ComfyUI 兼容**：H3 节点改为关键字传参，兼容 v0.34.x 之后 io.Schema / ComfyNode 重写版 ComfyUI，修复 `//: 'str' and 'int'` 崩溃。
+> - **v1.8.0 新增**：**Global Refine 时间分块（temporal split）**——二段采样过去一次性重采样整段放大后的潜变量，显存占用随序列长度线性上升；现在改为逐块重采样并交叉淡入淡出，峰值显存只受单个块限制，长片因此变得可精修。块长与重叠自动对齐 H3 的 17 帧网格（`temporal_chunk_frames` / `temporal_overlap_frames`），可与**平铺精修**组合（时间外层 + 空间内层），在小显存显卡上两者并用；音频原样透传、不参与重采样。作用范围是刻意的：仅在**无 Motion Context 重锚定且无 H3 噪声掩码**时启用，此时条件对每个块一致、无需逐块重定时间锚。交叉淡入权重逐 token 求和为 1，因此在恒等采样器下拼接是无损的。另新增 **SeedVR2 放大方式**（时序感知的像素空间放大，自带 3B DiT + VAE，首次使用约需下载 6 GB；会先卸载 H3 模型再重载），面板会实时探测该节点是否可导入。**并修复「段间清理显存」看似无效的问题**：清理步骤此前共用一个 `try`，第一步抛错会连带跳过卸载与清缓存；段末清理无条件卸载模型，单段任务会立刻为重载买单；而 ComfyUI 无法卸载的模型（包装器已被回收，`free_memory` 会跳过）只写日志。现在逐步隔离、单段时保留模型，并在节点执行报告中新增 **VRAM** 栏，点名失败步骤或被占用的模型。示例工作流的 `clear_vram_between_segments` 此前为 `false`（与默认值相反），现已改为 `true`。
 > - **v1.7.0 新增**：**首轮复用（Reuse cached first pass）**——勾选后首轮 H3 采样的原始 AV 潜变量按「除后期处理外」的指纹写入磁盘，之后用相同 seed / 提示词 / 参考图 / 分辨率、但调整 Global Refine / Face Refine / Audio Room 时可直接跳过首轮采样、只重跑后期（实测 107 帧 r2v 从 363 秒降至 33 秒）；seed / 提示词 / 参考图 / 分辨率 / 采样器 / 模型改变时缓存自动失效。另新增 **平铺精修（tiled refine）**（把 Global Refine 二段采样切成重叠空间块以降低显存占用）、**对比导出（export comparison）**（同时写出 `_raw_firstpass` 与 `_postprocessed` 便于对比）、**外部 patch 时跳过精修（allow_refine_on_external_patch）**，以及**实验性「潜空间接续」（latent_continuation_enabled，早期测试）**——把上一段末尾潜变量直接注入下一段采样流并用嵌套噪声掩码锁定。
-> - **v1.5.0 新增**：**Audio Room（逐场景声场）**——后期处理面板新增第三栏，为模型生成的音频加上真实空间感。可选 `bedroom` / `bathroom` / `bar` / `office` / `car` / `hall` / `cathedral` / `outdoor` / `dry` 等预设（一次设定全部六个混响参数），也可选 **Custom** 自行调整混响量、高频衰减、空间尺寸、立体声深度、预延迟与湿声增益；另有独立的**电平**（标准化 / 增益）。每个片段可在时间线的 `room` 字段声明自己的空间，同一支影片里的浴室与卧室不再共用一套声场。该处理在输出组装阶段执行、位于片段音频缓存之后，**不会使任何片段、上下文缓存或已完成渲染失效**；立体声与采样数完整保留，处理失败的音轨保持干声并**在报告中点名**。另新增**共享提示块静音守卫**，以及一批 **Resume 正确性修复**（四个 plan builder 各自漏传 resume 标志、引擎接管起点、预览与音频检查盲区、停止后状态残留）和 **CUDA OOM 被误报为采样器不兼容**的修复。
+> - **v1.5.0 新增**：**Audio Room（逐场景声场）**——后期处理面板新增第三栏，为模型生成的音频加上真实空间感。可选 `bedroom` / `bathroom` / `bar` / `office` / `car` / `hall` / `cathedral` / `outdoor` / `dry` 等预设（一次设定全部六个混响参数），也可选 **Custom** 自行调整混响量、高频衰减、空间尺寸、立体声深度、预延迟与湿声增益；另有独立的**电平**（标准化 / 增益）。每个片段可在时间线的 `room` 字段声明自己的空间，同一支影片里的浴室与卧室不再共用一套声场。该处理在输出组装阶段执行、位于片段音频缓存之后，**不会使任何片段、上下文缓存或已完成渲染失效**；立体声与采样数完整保留，处理失败的音轨保持干声并**在报告中点名**。另新增**共享提示块静音守卫**，以及一批 **Resume 正确性修复**（四个 plan builder 各自漏传 resume 标志、引擎接管起点、预览与音频检查盲区、停止后状态残留）和 **CUDA OOM 被误报为采样器不兼容**的修复。**Audio Room（逐场景声场）**——后期处理面板新增第三栏，为模型生成的音频加上真实空间感。可选 `bedroom` / `bathroom` / `bar` / `office` / `car` / `hall` / `cathedral` / `outdoor` / `dry` 等预设（一次设定全部六个混响参数），也可选 **Custom** 自行调整混响量、高频衰减、空间尺寸、立体声深度、预延迟与湿声增益；另有独立的**电平**（标准化 / 增益）。每个片段可在时间线的 `room` 字段声明自己的空间，同一支影片里的浴室与卧室不再共用一套声场。该处理在输出组装阶段执行、位于片段音频缓存之后，**不会使任何片段、上下文缓存或已完成渲染失效**；立体声与采样数完整保留，处理失败的音轨保持干声并**在报告中点名**。另新增**共享提示块静音守卫**，以及一批 **Resume 正确性修复**（四个 plan builder 各自漏传 resume 标志、引擎接管起点、预览与音频检查盲区、停止后状态残留）和 **CUDA OOM 被误报为采样器不兼容**的修复。
 > - **v1.4.0 新增**：**Stop 部分导出**（停止时把已完成片段合成为可用的部分视频，Resume 仍从第一个未完成片段继续）、**时间线撤销/重做**（Ctrl+Z / Ctrl+Shift+Z，输入框内不会抢撤销）、**命名预设**（只保存采样/接续/输出设置，不含片段、提示词与种子）、**多种子 Sweep**（同一项目按不同种子渲染多次对比）、以及 **Validate / Preview prompt / References** 预检工具。
 > - **测试与 CI**：`python -m pytest`（326 个测试，无需 ComfyUI 即可运行）+ 前端 jsdom 测试，CI 见 `.github/workflows/tests.yml`。
 > - **示例工作流**：`example_workflows/` 内含可直接运行的 **ref2va** 示例与配套 AI 生成参考图。
@@ -25,7 +26,7 @@
 
 在一个生产界面中完成 `T2V / I2V / FL2V / R2V / V2V / RV2V`，按片段混合不同生成方式，在镜头之间传递画面与生成音频上下文，只重跑需要修改的片段，管理可复用素材，实时预览生成过程，完成后期精修并导出最终视频，而不需要把 ComfyUI 节点图堆成一堵墙。
 
-> 当前版本：**v1.7.0**
+> 当前版本：**v1.8.0**
 
 <!-- IMAGE SLOT 1
 把 Mixed + Selective Run 主截图放到：

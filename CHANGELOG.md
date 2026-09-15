@@ -3,6 +3,75 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## v1.8.0 — 2026-09-15
+
+Refine longer clips by splitting them in time, a new video upscaler, and a
+Clear-VRAM toggle that actually frees memory.
+
+### Added
+
+- **Temporal split for Global Refine (`temporal_split`, `temporal_chunk_frames`,
+  `temporal_overlap_frames`).** The second-sampling pass re-sampled the entire upscaled
+  latent at once, so activation VRAM scaled with sequence length. It now re-samples one
+  overlapping time chunk at a time and cross-fades the overlaps, bounding peak VRAM to a
+  single chunk. Chunk length and overlap snap to H3's 17-frame grid. Audio is carried
+  through unchanged (never re-sampled). Deliberately scoped: used only when there is no
+  Motion Context repinning and no H3 noise mask, so conditioning applies uniformly to every
+  chunk and needs no per-chunk time re-anchoring. Composes with Tiled refine as a temporal
+  outer loop around the spatial inner loop, and falls back to the tiled or plain
+  single-stage path when one chunk covers the whole clip. The cross-fade weights sum to 1
+  per token, so an identity sampler reproduces the input exactly.
+- **SeedVR2 upscale method (`upscale_method: "seedvr2"`).** Temporal-aware pixel-space
+  upscaling. It loads its own 3B DiT + VAE (the H3 model is unloaded first, then reloaded),
+  keeps aspect ratio, and the caller resizes to the exact target.
+- **Runtime probe for SeedVR2.** The post-process panel checks whether the SeedVR2 package
+  is importable and reports it in the capability line, so a missing install is visible
+  before a run instead of failing inside the upscale stage.
+
+### Fixed
+
+- **Clear VRAM Between Segments could silently do nothing.** Three causes:
+  - Every cleanup step ran inside a single `try`, so a raise in the *first* step
+    (`cleanup_models_gc`) skipped the unload and the cache empty that follow — one failing
+    call disabled the entire cleanup. Each step now runs in its own guarded call and
+    reports its own failure.
+  - The end-of-segment cleanup always unloaded the model, so a single-segment run dropped
+    it and immediately reloaded it for Global Refine / Face Refine. That is wasted work,
+    and on a low-VRAM card the reload could OOM where staying loaded was fine. It now
+    honours `seg_total > 1`, matching the pre-sampling call.
+  - A model ComfyUI cannot unload (dead wrapper — `free_memory` skips those entries) was
+    reported only to the log.
+
+  `cleanup_segment_vram` now returns a summary and the executor surfaces it as a **VRAM**
+  section in the execution report, naming the failing step or the anchored model, so
+  "freed nothing" no longer looks identical to "worked".
+- **The bundled example workflows shipped `clear_vram_between_segments: false`**, the
+  opposite of the declared default. They now ship `true`.
+- **The legacy widget-reorder migration could reassign the Clear-VRAM toggle.**
+  `migrateReorderedDirectorTail` rewrites widget values in place, and its guard only
+  compared value *types*, which unrelated layouts satisfy. It now also requires real
+  group-header labels (`Performance` / `性能`) on both header slots.
+- **`_split_streams` mis-split a plain tensor in tiled refine.** `torch.Tensor` has
+  `unbind`, so the `hasattr(samples, "unbind")` branch matched a bare tensor before the
+  `isinstance` check could. The tensor check now comes first.
+
+### Changed
+
+- **`gaussian_blur_frames` runs on CUDA when available.** The inpaint echo-free reference
+  blurs hundreds of RGB frames; on CPU that was a multi-minute stall. The result is
+  returned on the input device (identical up to fp rounding).
+- Four `log.info` calls around the Character Replace echo-free reference,
+  subject-erasing keep/cond source, and masked-source VAE encode, so a slow stage is
+  identifiable from the log instead of looking like a hang.
+
+### Tests
+
+- New `tests/test_temporal_refine.py` (grid snapping, edge ramp, and a lossless-stitch
+  invariant under an identity sampler) and expanded
+  `tests/test_vram_cleanup_leak_report.py` covering per-step failure isolation, the
+  partial-failure report, the anchored-model report, `unload_models=False`, the disabled
+  no-op, and a missing `comfy` module.
+
 ## v1.7.0 — 2026-09-14
 
 Render once, then iterate on post-processing without re-rendering; VRAM-bounded

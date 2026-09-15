@@ -339,6 +339,7 @@ export function globalRefineVisibility(config) {
         learnedLatent: upscaleEnabled && global.upscale_method === "h3_learned_latent",
         vsr: upscaleEnabled && global.upscale_method === "nvidia_rtx_vsr",
         seedvr2: upscaleEnabled && global.upscale_method === "seedvr2",
+        seedvr2Status: upscaleEnabled && global.upscale_method === "seedvr2",
         aspectMegapixels: upscaleEnabled && global.resolution_mode === "aspect_megapixels",
         customSize: upscaleEnabled && global.resolution_mode === "custom",
     };
@@ -553,6 +554,7 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
               ${conditional("vsr_quality", field("VSR Quality", "global_refine.vsr_quality", "select", options([["low","Low"],["medium","Medium"],["high","High"],["ultra","Ultra"]])))}
               <div class="mmx-post-capability mmx-post-wide" data-conditional="vsr_status" data-capability="nvidia_rtx_vsr"></div>
               <p class="mmx-post-note mmx-post-wide" data-conditional="seedvr2" data-post-text="seedvr2_note"></p>
+              <div class="mmx-post-capability mmx-post-wide" data-conditional="seedvr2_status" data-capability="seedvr2"></div>
             </div>
             <div class="mmx-post-divider-title" data-post-text="output_resolution">Output Resolution</div>
             <div class="mmx-post-grid">
@@ -696,6 +698,13 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
         if (vsr && capabilities) {
             const ready = !!capabilities.dependencies?.nvidia_rtx_vsr;
             vsr.textContent = `RTX VSR: ${POST_TEXT[lang][ready ? "runtime_detected" : "missing_no_downgrade"]}`;
+            vsr.classList.toggle("bad", !ready);
+        }
+        const seedvr2 = root.querySelector('[data-capability="seedvr2"]');
+        if (seedvr2 && capabilities) {
+            const ready = !!capabilities.dependencies?.seedvr2;
+            seedvr2.textContent = `SeedVR2: ${POST_TEXT[lang][ready ? "runtime_detected" : "missing_no_downgrade"]}`;
+            seedvr2.classList.toggle("bad", !ready);
         }
         // Pass the resolved language through: render() would otherwise consult
         // locale() and re-render English summaries over translated labels.
@@ -720,6 +729,7 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
         setConditional("vsr_quality", !visible.vsr);
         setConditional("vsr_status", !visible.vsr);
         setConditional("seedvr2", !visible.seedvr2);
+        setConditional("seedvr2_status", !visible.seedvr2Status);
         setConditional("aspect", !visible.aspectMegapixels);
         setConditional("megapixels", !visible.aspectMegapixels);
         setConditional("width", !visible.customSize);
@@ -777,6 +787,12 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
         const vsr = root.querySelector('[data-capability="nvidia_rtx_vsr"]');
         const ready = !!caps.dependencies?.nvidia_rtx_vsr;
         vsr.classList.toggle("bad", !ready);
+        const sv2 = root.querySelector('[data-capability="seedvr2"]');
+        if (sv2) {
+            const sv2Ready = !!caps.dependencies?.seedvr2;
+            sv2.textContent = `SeedVR2: ${POST_TEXT[locale() === "en" ? "en" : "zh"][sv2Ready ? "runtime_detected" : "missing_no_downgrade"]}`;
+            sv2.classList.toggle("bad", !sv2Ready);
+        }
         updateLocale(locale());
     }).catch(() => {});
     return { root, render, updateLocale, destroy: unsubscribe };

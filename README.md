@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.7.0-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.8.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.7.0**
+> Current version: **v1.8.0**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,20 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.8.0 — VRAM that actually frees, plus a longer-clip refine
+
+**Temporal split for Global Refine.** `temporal_split` re-samples the upscaled video one overlapping time chunk at a time and cross-fades the overlaps, so peak VRAM is bounded by a single chunk instead of the whole clip — which is what made long clips un-refinable. Chunk length and overlap snap to H3's 17-frame grid (`temporal_chunk_frames`, `temporal_overlap_frames`). It composes with Tiled refine (temporal outer loop, spatial inner), so temporal and spatial splitting can be combined on a small card. Audio is carried through untouched. Scoped by design: it is only used when there is no Motion Context repinning and no H3 noise mask, since only then does conditioning apply uniformly to every chunk without per-chunk time re-anchoring. The cross-fade weights sum to 1 per token, so with an identity sampler the stitch is lossless — the property the test suite pins.
+
+**SeedVR2 upscaler.** `seedvr2` joins the pixel-space upscale methods. It is temporal-aware and much crisper than the latent upscalers, but slower and heavier: it loads its own 3B DiT + VAE (~6 GB on first use), so the H3 model is unloaded first and reloaded afterwards. It keeps aspect ratio, and the caller resizes to the exact target. The post-process panel now probes for it at runtime and tells you before a run if the node is missing, instead of failing inside the upscale stage.
+
+**Clear VRAM Between Segments now does what it says.** Three separate bugs made this toggle look inert, and users reported it as "not working":
+
+- A failure in the *first* cleanup step cancelled every step after it, so one raising call silently disabled the whole cleanup. Each step is now isolated.
+- The end-of-segment cleanup always unloaded the model, so a single-segment run dropped it and immediately reloaded it for Global Refine / Face Refine — wasted work, and on a low-VRAM card that reload could OOM where staying loaded was fine. It now keeps the model loaded when there is only one segment.
+- Everything was silent. A model ComfyUI *cannot* unload (its wrapper was collected, and `free_memory` skips dead entries) was reported only to the log, so "freed nothing" looked identical to "worked". Cleanup now reports into the node's execution report under a **VRAM** heading, naming the failure or the stuck model so you know which custom node is holding it.
+
+The bundled example workflows also shipped `clear_vram_between_segments: false`, the opposite of the declared default — they now ship `true`.
 
 ### v1.7.0 — render once, then iterate on post-process without re-rendering
 
@@ -410,6 +424,8 @@ SIGMAS
 and the Director uses external sampling. Otherwise it uses its internal sampler, scheduler, step count, Video Sigma Shift, and Audio Sigma Shift settings.
 
 For longer jobs, **Clear VRAM Between Segments** can reduce memory pressure by releasing models/cache between segment runs. This trades some speed for lower VRAM usage and is intended as a stability option rather than a performance boost.
+
+Each cleanup step is isolated, so one failing step no longer cancels the rest. If the models cannot be freed — usually because a third-party custom node is still holding a reference to a model whose ComfyUI wrapper was already released, which makes `free_memory` skip it — the node's execution report gains a **VRAM** section naming the problem, and the log carries a referrer scan pointing at the object that holds the model. Set `MINIMAX_DIRECTOR_LEAK_SCAN=0` to silence that scan.
 
 ---
 
