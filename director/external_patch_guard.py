@@ -25,6 +25,90 @@ _DIFFUSION_MODEL = "diffusion_model"
 ALLOW_REFINE_ON_EXTERNAL_PATCH = "allow_refine_on_external_patch"
 
 
+def _module_of(obj: Any) -> str:
+    """Best-effort ``module.qualname`` for a wrapper or override callable.
+
+    This is the whole point of the report: the module names the pack that
+    installed the patch, which is what someone reading the log actually needs.
+    A bound method reports its owner class (``state.make_attention_override``),
+    and a ``functools.partial`` is unwrapped so it reports the wrapped function
+    rather than ``functools``.
+    """
+    if obj is None:
+        return ""
+    wrapped = getattr(obj, "func", None)
+    if wrapped is not None and callable(wrapped):
+        obj = wrapped
+    qual = (
+        getattr(obj, "__qualname__", None)
+        or getattr(obj, "__name__", None)
+        or type(obj).__qualname__
+    )
+    owner = getattr(obj, "__self__", None)
+    if owner is not None:
+        return f"{type(owner).__module__}.{type(owner).__qualname__}.{qual}"
+    module = getattr(obj, "__module__", None) or type(obj).__module__
+    return f"{module}.{qual}" if module else str(qual)
+
+
+def _describe_installed(value: Any) -> str:
+    """Describe an installed wrapper value.
+
+    ComfyUI stores wrappers as a list of callables per key, so a bare
+    ``type(value)`` would report ``builtins.list`` and tell you nothing. Walk
+    the list and describe the first callable instead.
+    """
+    candidates = value if isinstance(value, (list, tuple)) else [value]
+    for item in candidates:
+        if callable(item):
+            return _module_of(item)
+    return ""
+
+
+def external_attention_patch_findings(model: Any) -> list[str]:
+    """Name every external patch signature found on ``model``.
+
+    Returns one human-readable finding per signature, for example::
+
+        ['diffusion_model wrapper "h3_sla_state" (sla.patch._make_wrapper.<locals>.wrapper)',
+         'optimized_attention_override = comfyui_kjnodes.nodes.model_optimization_nodes._PreparedAttention']
+
+    An empty list means the model is clean. Inspection is best-effort and never
+    raises, so a run is never blocked by the check itself.
+    """
+    findings: list[str] = []
+
+    try:
+        wrappers = getattr(model, "wrappers", None) or {}
+        diffusion = wrappers.get(_DIFFUSION_MODEL) or {}
+        if isinstance(diffusion, dict):
+            for key, value in sorted(diffusion.items(), key=lambda pair: str(pair[0])):
+                if not value:
+                    continue
+                source = _describe_installed(value)
+                findings.append(
+                    f'diffusion_model wrapper "{key}"'
+                    + (f" ({source})" if source else "")
+                )
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    try:
+        model_options = getattr(model, "model_options", None) or {}
+        transformer_options = model_options.get("transformer_options") or {}
+        override = transformer_options.get("optimized_attention_override")
+        if override is not None:
+            source = _module_of(override)
+            findings.append(
+                "optimized_attention_override"
+                + (f" = {source}" if source else "")
+            )
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    return findings
+
+
 def model_has_external_attention_patch(model: Any) -> bool:
     """True when ``model`` carries an external H3 attention / diffusion patch.
 
@@ -32,22 +116,13 @@ def model_has_external_attention_patch(model: Any) -> bool:
       * any ``diffusion_model`` wrapper installed on the model's wrapper table
         (H3-SLA-Attention registers the ``h3_sla_state`` key; Spectrum-MiniMax-H3
         registers its own key). The Director and ComfyUI core never install a
-        ``diffusion_model`` wrapper of their own, so any present one is external.
+        ``diffusion_model`` wrapper of their own - the Director's live-preview
+        hook is an ``OUTER_SAMPLE`` wrapper - so any present one is external.
       * a transformer-level ``optimized_attention_override`` (the mechanism
         attention-backend / sparse-attention nodes use to re-route H3 attention).
 
     Inspection is best-effort: on any error it returns False so a run is never
-    blocked by the check itself.
+    blocked by the check itself. Use :func:`external_attention_patch_findings`
+    when you need to know *which* patch was found.
     """
-    try:
-        wrappers = getattr(model, "wrappers", None) or {}
-        diffusion = wrappers.get(_DIFFUSION_MODEL) or {}
-        if diffusion and any(diffusion.values()):
-            return True
-        model_options = getattr(model, "model_options", None) or {}
-        transformer_options = model_options.get("transformer_options") or {}
-        if transformer_options.get("optimized_attention_override") is not None:
-            return True
-    except Exception:  # pragma: no cover - defensive
-        return False
-    return False
+    return bool(external_attention_patch_findings(model))

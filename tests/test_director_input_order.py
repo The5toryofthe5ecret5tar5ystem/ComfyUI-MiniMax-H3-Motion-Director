@@ -77,6 +77,8 @@ EXPECTED_INPUT_ORDER: list[tuple[str, str]] = [
     # insert shifts every later widgets_values position, so saved workflows
     # silently rehydrate the wrong values.
     ("optional", "refmod_conditioning"),
+    # Appended after refmod_conditioning for the same positional-safety reason.
+    ("optional", "latent_continuation_enabled"),
 ]
 
 # Section headers the frontend actively collapses (minimax_director_sections_core.mjs).

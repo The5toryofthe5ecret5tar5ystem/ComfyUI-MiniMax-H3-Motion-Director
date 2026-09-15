@@ -325,6 +325,21 @@ class MiniMaxH3MotionDirector:
                         ),
                     },
                 ),
+                # Appended at the very end (after refmod_conditioning) so existing
+                # widgets_values positions stay unchanged - same rule as above.
+                "latent_continuation_enabled": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": (
+                            "EXPERIMENTAL / EARLY TEST - latent continuation. Inject the "
+                            "previous segment's final latent directly into this segment's "
+                            "sampling stream (locked with a nested noise mask) instead of "
+                            "only conditioning on it. Requires Motion Context to be enabled. "
+                            "Do not rely on it for production output yet."
+                        ),
+                    },
+                ),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -387,6 +402,7 @@ class MiniMaxH3MotionDirector:
         source_overlap_frames=5,
         audio_context_enabled=True,
         color_reanchor_enabled=False,
+        latent_continuation_enabled=False,
         audio_refine_enabled=False,
         audio_refine_steps=6,
         audio_refine_denoise=0.5,
@@ -485,6 +501,7 @@ class MiniMaxH3MotionDirector:
             source_overlap_frames=source_overlap_frames,
             audio_context_enabled=audio_context_enabled,
             color_reanchor_enabled=color_reanchor_enabled,
+            latent_continuation_enabled=latent_continuation_enabled,
             audio_refine_enabled=audio_refine_enabled,
             audio_refine_steps=audio_refine_steps,
             audio_refine_denoise=audio_refine_denoise,
@@ -528,6 +545,8 @@ class MiniMaxH3MotionDirector:
                 phase_max=max(1, int(total)),
             )
 
+        if deblur_config.get("rtx_deblur_enabled"):
+            log.info("[Motion Director] === RTX Deblur ===")
         _report_deblur_progress(0, deblur_total)
         deblur_outcome = apply_rtx_deblur(
             deblur_config,
@@ -597,6 +616,8 @@ class MiniMaxH3MotionDirector:
         if final_run_id is not None:
             try:
                 save_config = postprocess["save"]
+                if save_config.get("auto_save"):
+                    log.info("[Motion Director] === Save video (auto-save) ===")
                 _save_started = time.perf_counter()
                 record, auto_result = FINAL_VIDEO_REGISTRY.register_final(
                     unique_id,

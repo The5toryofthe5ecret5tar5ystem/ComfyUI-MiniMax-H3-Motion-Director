@@ -228,6 +228,42 @@ def save_final_video(record: FinalVideoRecord, raw_config: Any) -> dict[str, Any
     }
 
 
+def _save_with_suffix(images: Any, audio: Any, fps: float, save_config: Any, suffix: str) -> dict[str, Any]:
+    """Save one set of decoded frames/audio using the save config plus a filename suffix."""
+    config = dict(normalize_save_config(save_config))
+    config["filename_prefix"] = _safe_filename_prefix(config["filename_prefix"]) + suffix
+    final_images = _combine_images(images)
+    video = construct_final_video(final_images, audio, float(fps))
+    record = FinalVideoRecord(
+        node_id="comparison",
+        run_id="comparison",
+        video=video,
+        fps=float(fps),
+        frame_count=int(final_images.shape[0]),
+        images=final_images,
+    )
+    return save_final_video(record, config)
+
+
+def save_comparison_videos(
+    raw_images: Any,
+    raw_audio: Any,
+    processed_images: Any,
+    processed_audio: Any,
+    fps: float,
+    save_config: Any,
+) -> dict[str, Any]:
+    """Write the pre-postprocess and post-postprocess videos side by side for A/B.
+
+    The raw result is saved as ``<prefix>_raw_firstpass`` and the processed result
+    as ``<prefix>_postprocessed``, both honouring the Save Video section's output
+    path / format / codec / encoding / crf settings.
+    """
+    raw = _save_with_suffix(raw_images, raw_audio, fps, save_config, "_raw_firstpass")
+    processed = _save_with_suffix(processed_images, processed_audio, fps, save_config, "_postprocessed")
+    return {"raw": raw, "processed": processed}
+
+
 class FinalVideoRegistry:
     """Keep only the latest completed VIDEO for each Director node."""
 
@@ -414,6 +450,7 @@ __all__ = [
     "StaleFinalVideoRun",
     "construct_final_video",
     "normalize_save_config",
+    "save_comparison_videos",
     "save_final_video",
     "video_save_capabilities",
 ]

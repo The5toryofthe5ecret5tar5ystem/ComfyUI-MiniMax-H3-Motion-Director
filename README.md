@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.5.0-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.7.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.5.0**
+> Current version: **v1.7.0**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,18 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.7.0 — render once, then iterate on post-process without re-rendering
+
+**Reuse the first pass.** Turn on **Reuse cached first pass** and the raw first-pass AV latent is written to disk keyed on everything that produced it *except* post-processing. Re-run with the same seed, prompt, references and resolution but different Global Refine, Face Refine or Audio Room settings and the expensive H3 sample is skipped — a 107-frame r2v render measured 363 s down to 33 s on reuse. The key only invalidates when the seed, prompt, references, resolution, sampler or model change, because those genuinely change the first pass. Every hit and miss is logged, and a settings snapshot plus a field-level drift diff explain any surprise miss.
+
+**Tiled refine.** The Global Refine second pass can now run as overlapping spatial tiles (`tile_size`, `tile_overlap`), so a large upscale fits in less VRAM. Each tile is sampled alone with its own keyframe crop, brightness-matched back to the input, and stitched with a linear cross-fade on the interior edges; audio is taken from the first tile.
+
+**Compare raw vs processed.** **Export comparison** writes `<prefix>_raw_firstpass` and `<prefix>_postprocessed` so the unprocessed and processed videos can be A/B'd side by side.
+
+**Refine opt-out on an external patch.** `allow_refine_on_external_patch` lets the second sampling pass be skipped when a patch already supplied the output.
+
+**Latent continuation (early test).** An opt-in, experimental `latent_continuation_enabled` port of the community "continue in latent space" joiner: the previous segment's final latent is injected into the next segment's sampling stream and locked with a nested H3 noise mask. Flagged EARLY TEST — not for production yet.
 
 ### v1.6.0 — RefMod identity references, and a Results player that streams
 
@@ -101,7 +113,7 @@ Global Refine is now skipped automatically (keeping the first-pass result) when 
 
 ### Tests + CI
 
-- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 464 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
+- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 492 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
 
 ### Example workflows
 
@@ -485,7 +497,7 @@ See [`NOTICE`](NOTICE), [`LICENSE`](LICENSE), and [`LICENSES`](LICENSES) for the
 The test suites run without a live ComfyUI instance (CPU is enough for the Python tests):
 
 ```bash
-# Python unit + contract tests (464 tests) — any working directory, no ComfyUI needed
+# Python unit + contract tests (492 tests) — any working directory, no ComfyUI needed
 python -m pytest
 
 # Frontend unit tests (jsdom is a dev-only dependency)

@@ -23,6 +23,8 @@ DEFAULT_POSTPROCESS_CONFIG: dict[str, Any] = {
         "mode": "refine",
         "second_sampling_enabled": True,
         "result_previews_enabled": False,
+        "allow_refine_on_external_patch": False,
+        "export_comparison": False,
         "refine_model": "",
         "passes": 1,
         "denoise": 0.25,
@@ -46,6 +48,9 @@ DEFAULT_POSTPROCESS_CONFIG: dict[str, Any] = {
         "rtx_deblur_enabled": False,
         "rtx_deblur_quality": "medium",
         "rtx_deblur_strength": 1.0,
+        "tiled_refine": False,
+        "tile_size": 512,
+        "tile_overlap": 96,
     },
     "face_refine": {
         "enabled": False,
@@ -96,6 +101,7 @@ DEFAULT_POSTPROCESS_CONFIG: dict[str, Any] = {
     },
     "save": {
         "auto_save": False,
+        "reuse_first_pass": False,
         "output_path": "",
         "filename_prefix": "MiniMaxH3_Director",
         "format": "auto",
@@ -234,6 +240,8 @@ def normalize_postprocess_config(raw: Any) -> dict[str, Any]:
     g["mode"] = _choice(g_raw.get("mode"), {"refine", "upscale"}, "refine")
     g["second_sampling_enabled"] = _bool(g_raw.get("second_sampling_enabled"), True)
     g["result_previews_enabled"] = _bool(g_raw.get("result_previews_enabled"), False)
+    g["allow_refine_on_external_patch"] = _bool(g_raw.get("allow_refine_on_external_patch"), False)
+    g["export_comparison"] = _bool(g_raw.get("export_comparison"), False)
     g["refine_model"] = str(g_raw.get("refine_model") or "").strip()
     g["passes"] = _int(g_raw.get("passes"), 1, 1, 9999)
 
@@ -279,6 +287,9 @@ def normalize_postprocess_config(raw: Any) -> dict[str, Any]:
         g_raw.get("rtx_deblur_quality"), {"low", "medium", "high", "ultra"}, "medium"
     )
     g["rtx_deblur_strength"] = _float(g_raw.get("rtx_deblur_strength"), 1.0, 0.0, 3.0)
+    g["tiled_refine"] = _bool(g_raw.get("tiled_refine"), False)
+    g["tile_size"] = _snap(_int(g_raw.get("tile_size"), 512, 256, 2048))
+    g["tile_overlap"] = _snap(_int(g_raw.get("tile_overlap"), 96, 0, 512))
 
     raw_version = _int(raw.get("version"), 0, 0, 10000)
     if 0 < raw_version < 4:
@@ -350,6 +361,7 @@ def normalize_postprocess_config(raw: Any) -> dict[str, Any]:
 
     s = result["save"]
     s["auto_save"] = _bool(s_raw.get("auto_save"), False)
+    s["reuse_first_pass"] = _bool(s_raw.get("reuse_first_pass"), False)
 
     s["output_path"] = str(
         s_raw.get("output_path") or ""

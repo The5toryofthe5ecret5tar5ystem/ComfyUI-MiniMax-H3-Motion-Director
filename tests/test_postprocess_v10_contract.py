@@ -78,3 +78,33 @@ def test_face_refine_changes_cache_identity_but_result_preview_does_not():
     }
     assert postprocess_cache_fingerprint(base) == postprocess_cache_fingerprint(preview)
     assert postprocess_cache_fingerprint(base) != postprocess_cache_fingerprint(changed_face)
+
+
+def test_external_patch_opt_out_changes_cache_identity():
+    """The opt-out can make refine skip, so it must be part of the identity."""
+    base = {
+        "version": 11,
+        "global_refine": {"enabled": True, "allow_refine_on_external_patch": False},
+    }
+    opted_out = {
+        "version": 11,
+        "global_refine": {"enabled": True, "allow_refine_on_external_patch": True},
+    }
+    assert postprocess_cache_fingerprint(base) != postprocess_cache_fingerprint(opted_out)
+
+
+def test_comparison_export_does_not_change_cache_identity():
+    """Exporting a raw copy beside the processed video never changes frames."""
+    base = {
+        "version": 11,
+        "global_refine": {"enabled": True, "export_comparison": False},
+    }
+    with_export = {
+        "version": 11,
+        "global_refine": {"enabled": True, "export_comparison": True},
+    }
+    normalized = normalize_postprocess_config(
+        {"global_refine": {"export_comparison": "true"}}
+    )
+    assert normalized["global_refine"]["export_comparison"] is True
+    assert postprocess_cache_fingerprint(base) == postprocess_cache_fingerprint(with_export)

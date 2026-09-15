@@ -37,6 +37,16 @@ from .core_sampling import (
 )
 from .postprocess_config import normalize_postprocess_config, postprocess_cache_fingerprint
 from .refine_sampling import apply_global_refine
+from .first_pass_cache import (
+    build_first_pass_settings,
+    first_pass_device,
+    load_first_pass_latent,
+    replace_first_pass_identity,
+    restore_av_latent,
+    save_first_pass_latent,
+)
+from .latent_continuation import build_pinned_latent
+from .video_export import save_comparison_videos
 from .seam_report import build_seam_report_lines
 from .preview_manager import DirectorPreviewManager
 from .preview_clip import build_result_preview
@@ -446,6 +456,7 @@ def execute_director_plan_core(
     source_overlap_frames: int = 5,
     audio_context_enabled: bool = True,
     color_reanchor_enabled: bool = False,
+    latent_continuation_enabled: bool = False,
     audio_refine_enabled: bool = False,
     audio_refine_steps: int = 6,
     audio_refine_denoise: float = 0.5,
@@ -478,6 +489,7 @@ def execute_director_plan_core(
     plan.source_overlap_frames = requested_source_bridge
     plan.color_reanchor_enabled = bool(color_reanchor_enabled)
     color_reanchor_requested = bool(color_reanchor_enabled)
+    latent_continuation_requested = bool(latent_continuation_enabled)
     # Audio Refine (freeze-video, audio-only partial denoise) is meaningful only
     # when audio is actually generated from the AV latent.
     audio_refine_requested = bool(
@@ -566,6 +578,17 @@ def execute_director_plan_core(
             "model_shift_audio": float(getattr(model_sampling, "audio_shift", 0.0)),
         })
     plan.cache_settings = cache_settings
+
+    reuse_first_pass = bool((postprocess.get("save") or {}).get("reuse_first_pass"))
+    log.info("[Motion Director] Reuse cached first pass: %s", "ON" if reuse_first_pass else "OFF")
+    first_pass_settings: dict[str, Any] | None = None
+    if reuse_first_pass:
+        first_pass_settings = build_first_pass_settings(
+            cache_settings,
+            seed=int(seed),
+            context_length=int(requested_context or 0),
+        )
+
     live_tae_preview = bool(preview_config["enabled"])
 
     all_segments = plan.segments
@@ -591,6 +614,8 @@ def execute_director_plan_core(
     selected_results: dict[int, tuple[torch.Tensor, dict[str, Any]]] = {}
     all_export_results: dict[int, tuple[torch.Tensor, dict[str, Any]]] = {}
     nominal_generated_frames: dict[int, torch.Tensor] = {}
+    pre_refine_frames: dict[int, torch.Tensor] = {}
+    pre_refine_audios: dict[int, dict[str, Any]] = {}
     reports: list[str] = [plan_summary(plan), "", "Execution path: ComfyUI official MiniMax H3"]
     reports.append(f"Legacy global Motion Context default: {'ON' if motion_enabled else 'OFF'}")
     reports.append(
@@ -678,6 +703,7 @@ def execute_director_plan_core(
         reports.append("Segment continuity: OFF — per-segment generation only.")
 
     completed_outputs: dict[int, torch.Tensor] = {}
+    completed_latents: dict[int, Any] = {}
     completed_contexts: dict[int, CachedMotionContext] = {}
     completed_refine_contexts: dict[int, tuple[dict[str, Any], dict[str, Any]]] = {}
     execution_report = DirectorExecutionReport()
@@ -1364,24 +1390,118 @@ def execute_director_plan_core(
                 x0=x0, latent_shapes=latent_shapes,
             )
 
+        _latent_continuation_active = False
+        if (
+            latent_continuation_requested
+            and timeline_slot > 0
+            and context_span > 0
+            and not replace_active
+            and (timeline_slot - 1) in completed_latents
+        ):
+            try:
+                latent = build_pinned_latent(
+                    latent,
+                    completed_latents[timeline_slot - 1],
+                    span=int(context_span),
+                )
+                _latent_continuation_active = True
+                reports.append(
+                    f"Segment {timeline_slot + 1}: EXPERIMENTAL latent continuation - "
+                    f"pinned previous {int(context_span)}-frame latent tail into the stream."
+                )
+                log.info(
+                    "[Motion Director] S%d/%d: EXPERIMENTAL latent continuation (%d frames pinned)",
+                    int(timeline_slot) + 1, int(seg_total), int(context_span),
+                )
+            except Exception as exc:
+                warning_messages.append(
+                    f"S{timeline_slot + 1}: latent continuation failed ({exc}); "
+                    "falling back to conditioning-only continuity."
+                )
+                log.warning(
+                    "Latent continuation failed for segment %d: %s",
+                    int(timeline_slot) + 1, exc,
+                )
+
+        seg_first_pass_settings = first_pass_settings
+        if first_pass_settings is not None and replace_active and replace_spec is not None:
+            seg_first_pass_settings = dict(first_pass_settings)
+            seg_first_pass_settings["first_pass_replace_identity"] = replace_first_pass_identity(
+                replace_spec,
+                mask_vis=(replace_state or {}).get("mask_vis"),
+                source_frames=visible_clip_frames,
+                mode="anchor" if replace_render_anchor else "inpaint",
+            )
+        log.info(
+            "[Motion Director] S%d/%d: first-pass sampling (%d frames, seed %d)",
+            int(timeline_slot) + 1, int(seg_total), int(num_frames), int(seed),
+        )
         _h3_sample_started = time.perf_counter()
         try:
-            samples = sample_single_stage(
-                model=model, positive=positive, negative=negative, latent=latent, seed=seed,
-                cfg=cfg, steps=steps, sampler_name=sampler, scheduler=scheduler,
-                shift_video=shift_video, shift_audio=shift_audio,
-                external_sampler=external_sampler, external_sigmas=external_sigmas,
-                on_phase=_report_sample_phase,
-                on_step_preview=_report_step_preview if live_tae_preview else None,
-                preview_every=int(preview_config["preview_every"]),
-            )
-            stage_times["h3_sampling"] = time.perf_counter() - _h3_sample_started
+            if seg_first_pass_settings is not None:
+                cached_first_pass = load_first_pass_latent(
+                    node_id, seg, plan, settings=seg_first_pass_settings,
+                )
+                if cached_first_pass is not None:
+                    samples = restore_av_latent(
+                        cached_first_pass, device=first_pass_device(latent),
+                    )
+                    stage_times["h3_sampling"] = 0.0
+                    log.info(
+                        "[Motion Director] S%d/%d: reused cached first-pass latent; "
+                        "first-pass sampling skipped (postprocess-only).",
+                        int(timeline_slot) + 1, int(seg_total),
+                    )
+                    reports.append(
+                        f"Segment {timeline_slot + 1}: reused cached first-pass latent; "
+                        "first-pass sampling skipped (postprocess-only)."
+                    )
+                else:
+                    log.info(
+                        "[Motion Director] S%d/%d: no cached first-pass latent found; "
+                        "sampling will run and save the cache for next time.",
+                        int(timeline_slot) + 1, int(seg_total),
+                    )
+                    samples = sample_single_stage(
+                        model=model, positive=positive, negative=negative, latent=latent, seed=seed,
+                        cfg=cfg, steps=steps, sampler_name=sampler, scheduler=scheduler,
+                        shift_video=shift_video, shift_audio=shift_audio,
+                        external_sampler=external_sampler, external_sigmas=external_sigmas,
+                        on_phase=_report_sample_phase,
+                        on_step_preview=_report_step_preview if live_tae_preview else None,
+                        preview_every=int(preview_config["preview_every"]),
+                    )
+                    stage_times["h3_sampling"] = time.perf_counter() - _h3_sample_started
+                    saved_first_pass = save_first_pass_latent(
+                        node_id, seg, plan, latent=samples, settings=seg_first_pass_settings,
+                    )
+                    log.info(
+                        "[Motion Director] S%d/%d: cached first-pass latent %s.",
+                        int(timeline_slot) + 1, int(seg_total),
+                        "saved" if saved_first_pass else "NOT saved (see warnings)",
+                    )
+            else:
+                samples = sample_single_stage(
+                    model=model, positive=positive, negative=negative, latent=latent, seed=seed,
+                    cfg=cfg, steps=steps, sampler_name=sampler, scheduler=scheduler,
+                    shift_video=shift_video, shift_audio=shift_audio,
+                    external_sampler=external_sampler, external_sigmas=external_sigmas,
+                    on_phase=_report_sample_phase,
+                    on_step_preview=_report_step_preview if live_tae_preview else None,
+                    preview_every=int(preview_config["preview_every"]),
+                )
+                stage_times["h3_sampling"] = time.perf_counter() - _h3_sample_started
         except torch.cuda.OutOfMemoryError as exc:
             raise RuntimeError(
                 "Motion Director ran out of VRAM during H3 sampling. Motion Context adds conditioning rows; "
                 "reduce resolution, use fewer references, or keep clear_vram_between_segments enabled. "
                 "No context/reference was silently removed."
             ) from exc
+
+        if _latent_continuation_active and isinstance(samples, dict):
+            # The pinned noise mask is only consumed during first-pass sampling;
+            # it must not leak into the refine pass.
+            samples.pop("noise_mask", None)
 
         def _repin_refined_context(refine_positive, refine_latent):
             if context_entry is None or not apply_visual_context:
@@ -1424,6 +1544,28 @@ def execute_director_plan_core(
             )
             return rebuilt
 
+        if (
+            global_refine_config.get("enabled")
+            and global_refine_config.get("export_comparison")
+            and not replace_masked
+            and getattr(samples, "is_nested", False)
+        ):
+            try:
+                _pre_images, _pre_audio = _decode_av_latent(samples, vae, audio_vae)
+                pre_refine_frames[timeline_slot] = _pre_images.detach().cpu()
+                _pre_audio_cpu = {
+                    key: (value.detach().cpu() if isinstance(value, torch.Tensor) else value)
+                    for key, value in (_pre_audio or {}).items()
+                }
+                pre_refine_audios[timeline_slot] = _pre_audio_cpu
+            except Exception as exc:
+                log.warning(
+                    "S%d: pre-refine comparison decode skipped: %s",
+                    int(timeline_slot) + 1, exc,
+                )
+
+        if global_refine_config.get("enabled"):
+            log.info("[Motion Director] S%d/%d: Global Refine", int(timeline_slot) + 1, int(seg_total))
         global_outcome = apply_global_refine(
             global_refine_config,
             task_key=seg.task_key,
@@ -1484,6 +1626,7 @@ def execute_director_plan_core(
                     "nested H3 AV latent."
                 )
             else:
+                log.info("[Motion Director] S%d/%d: Audio Refine", int(timeline_slot) + 1, int(seg_total))
                 _audio_refine_started = time.perf_counter()
                 try:
                     samples = sample_audio_refine_pass(
@@ -1516,6 +1659,10 @@ def execute_director_plan_core(
                         f"audio — {exc}"
                     )
 
+        if latent_continuation_requested:
+            completed_latents[timeline_slot] = (
+                samples if isinstance(samples, dict) else {"samples": samples}
+            )
         report_director_progress(
             node_id, segment_index=progress_index, segment_total=seg_total,
             phase="decode", phase_value=0, phase_max=1, **meta,
@@ -1813,6 +1960,10 @@ def execute_director_plan_core(
     # to decide whether a Resume is possible.
     resume_state.begin_run(node_id, len(all_segments), reset_done=not resume_active)
     segment_total_run = len(all_segments)
+    log.info(
+        "[Motion Director] === Run start: %d segment(s) ===",
+        len(all_segments),
+    )
     resume_from_index: int | None = None
     if resume_active:
         requested_from = getattr(plan, "resume_from", None)
@@ -2262,6 +2413,7 @@ def execute_director_plan_core(
         node_id, segment_index=max(0, seg_total - 1), segment_total=max(1, seg_total),
         phase="assemble", phase_value=0, phase_max=1,
     )
+    log.info("[Motion Director] === Assembly ===")
     _assembly_started = time.perf_counter()
     if plan.export_mode == "all":
         missing_all = [seg.index for seg in all_segments if seg.index not in all_export_results]
@@ -2296,6 +2448,8 @@ def execute_director_plan_core(
             phase=phase, phase_value=value, phase_max=1,
         )
 
+    if face_refine_config.get("enabled"):
+        log.info("[Motion Director] === Face Refine ===")
     face_outcome = apply_face_refine(
         face_refine_config,
         images=combined,
@@ -2354,6 +2508,41 @@ def execute_director_plan_core(
         warning_messages.append(
             f"Face Refine {face_outcome.status}; fallback ASSEMBLED_RESULT — {face_outcome.error}"
         )
+
+    if global_refine_config.get("export_comparison") and pre_refine_frames:
+        try:
+            required_slots = {int(seg.timeline_index) for seg in export_segments}
+            if not required_slots.issubset(pre_refine_frames.keys()):
+                warning_messages.append(
+                    "Comparison export skipped: one or more segments came from cache "
+                    "(no raw first-pass was produced this run)."
+                )
+            else:
+                pre_chunks = [pre_refine_frames[int(seg.timeline_index)] for seg in export_segments]
+                pre_audios = [pre_refine_audios[int(seg.timeline_index)] for seg in export_segments]
+                if context_pipeline_active or bridge_feature_active:
+                    from ..lib.image_prep import cat_frames_variable_size
+                    pre_combined = cat_frames_variable_size(pre_chunks)
+                else:
+                    pre_combined = concat_continuous_chunks(pre_chunks, export_segments, plan)
+                comparison = save_comparison_videos(
+                    raw_images=pre_combined,
+                    raw_audio=pre_audios,
+                    processed_images=combined,
+                    processed_audio=export_audios,
+                    fps=float(plan.frame_rate or 24.0),
+                    save_config=postprocess["save"],
+                )
+                raw_path = (comparison.get("raw") or {}).get("path")
+                processed_path = (comparison.get("processed") or {}).get("path")
+                execution_report.add(
+                    "Comparison Export",
+                    f"Raw (pre-postprocess): {raw_path or 'FAILED'}",
+                    f"Processed: {processed_path or 'FAILED'}",
+                )
+        except Exception as exc:
+            warning_messages.append(f"Comparison export failed: {exc}")
+            log.warning("Comparison export failed: %s", exc)
 
     skipped_indices = set(range(len(all_segments))) - set(run_indices)
     execution_report.add(

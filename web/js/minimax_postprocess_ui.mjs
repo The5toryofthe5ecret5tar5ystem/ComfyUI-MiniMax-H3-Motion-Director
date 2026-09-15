@@ -11,6 +11,7 @@ const DEFAULT_CONFIG = Object.freeze({
     version: 11,
     global_refine: {
         enabled: false, mode: "refine", second_sampling_enabled: true, result_previews_enabled: false, denoise: 0.25, steps: 0,
+        allow_refine_on_external_patch: false, export_comparison: false,
         seed_mode: "inherit", seed_offset: 1, skip_fl2v: false,
         upscale_method: "lanczos", upscale_model: "",
         latent_upscale_model: "", latent_upscale_precision: "fp16", latent_upscale_device: "cuda",
@@ -18,6 +19,7 @@ const DEFAULT_CONFIG = Object.freeze({
         resolution_mode: "follow_director", aspect: "16:9", megapixels: 1,
         width: 1376, height: 768,
         rtx_deblur_enabled: false, rtx_deblur_quality: "medium", rtx_deblur_strength: 1,
+        tiled_refine: false, tile_size: 512, tile_overlap: 96,
     },
     face_refine: {
         enabled: false, detector: "ultralytics", detector_model: "", confidence: 0.35,
@@ -40,7 +42,7 @@ const DEFAULT_CONFIG = Object.freeze({
     },
     preview: { enabled: true, preview_frames: 8, preview_fps: 12, max_resolution: 1024, jpeg_quality: 80, preview_every: 1 },
     save: {
-        auto_save: false, filename_prefix: "video/MiniMaxH3_Director",
+        auto_save: false, reuse_first_pass: false, filename_prefix: "video/MiniMaxH3_Director",
         format: "auto", codec: "auto", encoding: "auto", crf: 23,
     },
 });
@@ -57,6 +59,7 @@ const clampNum = (value, fallback, low, high) => {
 
 const POST_TEXT = {
     en: {
+        reuse_title: "Reuse / Performance",
         global_title: "Global Refine", face_title: "Face Refine", sampling: "Second Sampling",
         upscale: "Upscale", output_resolution: "Output Resolution",
         detection_canvas: "Detection", tracking_denoise: "Refine",
@@ -75,8 +78,11 @@ const POST_TEXT = {
         audio_custom_note: "Reverb runs before level, so the tail cannot push the result into clipping.",
         audio_sox_note: "Requires SoX on PATH. Leave the path empty to auto-detect.",
         audio_final_only: "Applied once to the finished track. Segment caches stay valid.",
+        export_comparison_note: "Enabling adds one extra VAE decode per segment and keeps a full-resolution raw copy in RAM for the whole run.",
+        reuse_first_pass_note: "Render the base video once, then reuse its cached first pass on later runs so you can iterate on postprocess (Global Refine / Face Refine / Audio Room) without re-rendering. Overhead: one extra latent cache file per segment (disk) and it's invalidated if you change seed, prompt, refs, or resolution.",
     },
     zh: {
+        reuse_title: "复用 / 性能",
         global_title: "全局精修", face_title: "人脸精修", sampling: "二次采样",
         upscale: "放大", output_resolution: "输出分辨率",
         detection_canvas: "检测", tracking_denoise: "精修",
@@ -95,6 +101,8 @@ const POST_TEXT = {
         audio_custom_note: "混响在电平之前处理，避免尾音把结果推到削波。",
         audio_sox_note: "需要 PATH 中存在 SoX。路径留空表示自动检测。",
         audio_final_only: "仅在成品音轨上处理一次，不会使片段缓存失效。",
+        export_comparison_note: "开启后每个片段会额外解码一次 VAE，并在整个运行期间保留一份全分辨率原始副本（占用内存）。",
+        reuse_first_pass_note: "先渲染一次基础版本，之后复用其缓存的首轮结果，即可在不重新渲染的情况下反复调整后处理（全局精修 / 人脸精修 / 音频空间）。代价：每个片段额外写入一份潜变量缓存（占用磁盘）；修改 seed、提示词、参考图或分辨率会使缓存失效。",
     },
 };
 
@@ -104,6 +112,8 @@ const POST_LABELS = {
     "global_refine.seed_mode": ["Refine Randomness", "精修随机性"],
     "global_refine.seed_offset": ["Seed Offset", "Seed 偏移"],
     "global_refine.result_previews_enabled": ["Pass Result Previews (extra VAE decode)", "阶段结果预览（额外 VAE 解码）"],
+    "global_refine.allow_refine_on_external_patch": ["Allow Refine with external attention patch", "允许外部注意力补丁时仍运行精修"],
+    "global_refine.export_comparison": ["Export raw vs processed (extra VAE decode + RAM)", "导出原始与处理后对比（额外 VAE 解码 + 内存）"],
     "global_refine.skip_fl2v": ["Skip FL2V", "跳过 FL2V"],
     "global_refine.upscale_method": ["Method", "放大方法"],
     "global_refine.upscale_model": ["Model", "模型"],
@@ -116,6 +126,10 @@ const POST_LABELS = {
     "global_refine.megapixels": ["Megapixels", "百万像素"],
     "global_refine.width": ["Width", "宽度"],
     "global_refine.height": ["Height", "高度"],
+    "global_refine.tiled_refine": ["Tiled refine (VRAM-bound)", "分块精修（限制显存）"],
+    "global_refine.tile_size": ["Tile Size", "分块尺寸"],
+    "global_refine.tile_overlap": ["Tile Overlap", "分块重叠"],
+    "save.reuse_first_pass": ["Reuse cached first pass (skip re-render)", "复用缓存的首轮结果（跳过重新渲染）"],
     "face_refine.detector": ["Detector Engine", "检测引擎"], "face_refine.detector_model": ["Face Detector Model", "人脸检测模型"],
     "face_refine.confidence": ["Confidence", "置信度"], "face_refine.select": ["Target Face", "目标人脸"],
     "face_refine.crop_factor": ["Crop Factor", "裁切倍率"], "face_refine.canvas_mode": ["Canvas Quality", "画布质量"],
@@ -217,6 +231,8 @@ export function normalizePostprocessConfig(raw) {
     global.mode = inChoice(global.mode, ["refine", "upscale"], "refine");
     global.second_sampling_enabled = global.second_sampling_enabled !== false;
     global.result_previews_enabled = global.result_previews_enabled === true;
+    global.allow_refine_on_external_patch = global.allow_refine_on_external_patch === true;
+    global.export_comparison = global.export_comparison === true;
     global.seed_mode = inChoice(global.seed_mode, ["inherit", "offset"], "inherit");
     const seedOffset = Number(global.seed_offset);
     global.seed_offset = Number.isFinite(seedOffset)
@@ -233,6 +249,9 @@ export function normalizePostprocessConfig(raw) {
     global.rtx_deblur_quality = inChoice(global.rtx_deblur_quality, ["low", "medium", "high", "ultra"], "medium");
     const deblurStrength = Number(global.rtx_deblur_strength);
     global.rtx_deblur_strength = Number.isFinite(deblurStrength) ? Math.max(0, Math.min(3, deblurStrength)) : 1;
+    global.tiled_refine = !!global.tiled_refine;
+    global.tile_size = Math.max(256, Math.min(2048, Math.round(Number(global.tile_size || 512) / 32) * 32 || 512));
+    global.tile_overlap = Math.max(0, Math.min(512, Math.round(Number(global.tile_overlap || 96) / 32) * 32 || 96));
     const face=result.face_refine;
     face.enabled=!!face.enabled;
     face.detector=inChoice(face.detector,["ultralytics","insightface"],"ultralytics");
@@ -263,6 +282,7 @@ export function normalizePostprocessConfig(raw) {
     audio.sox_path=String(audio.sox_path||"").trim().slice(0,2048);
     result.preview.enabled = result.preview.enabled !== false;
     result.save.auto_save = !!result.save.auto_save;
+    result.save.reuse_first_pass = !!result.save.reuse_first_pass;
     result.save.filename_prefix = String(result.save.filename_prefix || "video/MiniMaxH3_Director").trim().slice(0, 512) || "video/MiniMaxH3_Director";
     result.save.format = String(result.save.format || "auto").trim().toLowerCase().slice(0, 32) || "auto";
     result.save.codec = String(result.save.codec || "auto").trim().toLowerCase().slice(0, 64) || "auto";
@@ -301,6 +321,7 @@ export function globalRefineVisibility(config) {
         secondSampling: global.second_sampling_enabled,
         upscaleEnabled,
         seedOffset: global.second_sampling_enabled && global.seed_mode === "offset",
+        tiled: global.second_sampling_enabled && global.tiled_refine,
         upscaleModel: upscaleEnabled && global.upscale_method === "upscale_model",
         learnedLatent: upscaleEnabled && global.upscale_method === "h3_learned_latent",
         vsr: upscaleEnabled && global.upscale_method === "nvidia_rtx_vsr",
@@ -329,6 +350,7 @@ export function globalRefineSummary(config, width = 864, height = 480, locale = 
     } else {
         parts.push(zh ? "二次采样 OFF" : "Second Sampling OFF");
     }
+    if (global.export_comparison) parts.push(zh ? "导出对比 ON" : "Compare Export ON");
     if (global.mode === "upscale") {
         const [targetW, targetH] = resolveGlobalTarget(config, width, height);
         let method = global.upscale_method === "upscale_model" ? (global.upscale_model || (zh ? "放大模型" : "Upscale Model")) : "Lanczos";
@@ -435,7 +457,13 @@ function ensureStyles() {
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-.mmx-postprocess{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;height:100%;min-height:0;box-sizing:border-box}
+.mmx-postprocess-page{display:flex;flex-direction:column;gap:8px;height:100%;min-height:0;box-sizing:border-box}
+.mmx-post-reuse-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid #343434;border-radius:8px;background:#181818;padding:6px 10px;flex:0 0 auto;box-sizing:border-box}
+.mmx-post-reuse-title{margin:0;font-size:13px;color:#ddd;white-space:nowrap}
+.mmx-post-reuse-check{display:flex;align-items:center;gap:6px;font-size:12px;color:#aaa;white-space:nowrap}
+.mmx-post-reuse-note{margin:0;color:#aaa;font-size:12px;line-height:1.45;flex:1 1 260px;min-width:220px}
+.mmx-post-reuse-bar .mmx-post-note{font-size:12px;line-height:1.45;color:#aaa}
+.mmx-postprocess{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;flex:1 1 auto;min-height:0;box-sizing:border-box}
 .mmx-post-column{min-width:0;overflow:auto;border:1px solid #343434;border-radius:8px;background:#181818;padding:10px;box-sizing:border-box}
 .mmx-post-head,.mmx-post-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.mmx-post-head{margin-bottom:8px}.mmx-post-head h3{margin:0;font-size:15px}
 .mmx-post-section-head h4{margin:0;font-size:12px;color:#ddd}.mmx-post-enable,.mmx-post-subenable{display:flex;align-items:center;gap:6px;color:#4fff8f;font-weight:650}
@@ -464,8 +492,14 @@ function conditional(name, content) { return `<div class="mmx-post-conditional" 
 export function mountPostprocessUI(container, store, { fetchApi, directorSize = () => [864, 480], locale = () => "zh" } = {}) {
     ensureStyles();
     const root = document.createElement("div");
-    root.className = "mmx-postprocess";
+    root.className = "mmx-postprocess-page";
     root.innerHTML = `
+      <div class="mmx-post-reuse-bar">
+        <h3 class="mmx-post-reuse-title" data-post-text="reuse_title">Reuse / Performance</h3>
+        <label class="mmx-post-reuse-check"><span data-field-label="save.reuse_first_pass">Reuse cached first pass (skip re-render)</span><input type="checkbox" data-path="save.reuse_first_pass"></label>
+        <p class="mmx-post-note mmx-post-reuse-note" data-post-text="reuse_first_pass_note"></p>
+      </div>
+      <div class="mmx-postprocess">
       <section class="mmx-post-column" data-section="global_refine">
         <div class="mmx-post-head"><h3 data-post-text="global_title">全局精修</h3><label class="mmx-post-enable"><input type="checkbox" data-path="global_refine.enabled"> <span data-post-text="enabled">ON / OFF</span></label></div>
         <p class="mmx-post-summary" data-summary="global_refine"></p>
@@ -478,6 +512,12 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
             ${conditional("seed_offset", field("Seed Offset", "global_refine.seed_offset", "number", 'min="-2147483648" max="2147483647" step="1"'))}
             ${field("Pass Result Previews (extra VAE decode)", "global_refine.result_previews_enabled", "checkbox")}
             ${field("Skip FL2V", "global_refine.skip_fl2v", "checkbox")}
+            ${field("Allow Refine with external attention patch", "global_refine.allow_refine_on_external_patch", "checkbox")}
+            ${field("Export raw vs processed (extra VAE decode)", "global_refine.export_comparison", "checkbox")}
+            <p class="mmx-post-note mmx-post-wide" data-post-text="export_comparison_note"></p>
+            ${field("Tiled refine (VRAM-bound)", "global_refine.tiled_refine", "checkbox")}
+            ${conditional("tiled", field("Tile Size", "global_refine.tile_size", "number", 'min="256" max="2048" step="32"'))}
+            ${conditional("tiled", field("Tile Overlap", "global_refine.tile_overlap", "number", 'min="0" max="512" step="32"'))}
           </div></div>
         </div>
         <div class="mmx-post-section" data-upscale-section>
@@ -590,7 +630,8 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
           </div>
           <p class="mmx-post-note" data-post-text="audio_final_only"></p>
         </details>
-      </section>`;
+      </section>
+      </div>`;
     container.replaceChildren(root);
 
     // An emptied number field must stay "" so normalize can apply that field's
@@ -651,6 +692,7 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
         root.querySelector("[data-upscale-enabled]").checked = visible.upscaleEnabled;
         root.querySelector("[data-upscale-body]").hidden = !visible.upscaleEnabled;
         setConditional("seed_offset", !visible.seedOffset);
+        setConditional("tiled", !visible.tiled);
         setConditional("upscale_model", !visible.upscaleModel);
         setConditional("learned_latent", !visible.learnedLatent);
         setConditional("vsr_quality", !visible.vsr);

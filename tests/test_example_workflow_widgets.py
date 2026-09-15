@@ -29,6 +29,7 @@ TAIL_AFTER_POSTPROCESS: list[tuple[str, type]] = [
     ("audio_refine_enabled", bool),
     ("audio_refine_steps", int),
     ("audio_refine_denoise", float),
+    ("latent_continuation_enabled", bool),
     ("minimax_motion_director_ui", str),
 ]
 

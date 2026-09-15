@@ -1,7 +1,7 @@
 {
   "id": "tkl1j7zz8tinelny4iltivo93f",
   "revision": 0,
-  "last_node_id": 16,
+  "last_node_id": 17,
   "last_link_id": 78,
   "nodes": [
     {
@@ -18,7 +18,7 @@
       "flags": {
         "pinned": true
       },
-      "order": 7,
+      "order": 8,
       "mode": 0,
       "inputs": [
         {
@@ -71,7 +71,7 @@
       "flags": {
         "pinned": true
       },
-      "order": 8,
+      "order": 9,
       "mode": 0,
       "inputs": [
         {
@@ -148,7 +148,7 @@
       "flags": {
         "pinned": true
       },
-      "order": 10,
+      "order": 11,
       "mode": 0,
       "inputs": [
         {
@@ -250,7 +250,7 @@
       "flags": {
         "pinned": true
       },
-      "order": 9,
+      "order": 10,
       "mode": 0,
       "inputs": [
         {
@@ -328,7 +328,7 @@
         "collapsed": true,
         "pinned": true
       },
-      "order": 14,
+      "order": 15,
       "mode": 0,
       "inputs": [
         {
@@ -413,12 +413,12 @@
       ],
       "size": [
         623.5162204999688,
-        717
+        741
       ],
       "flags": {
         "pinned": true
       },
-      "order": 12,
+      "order": 13,
       "mode": 0,
       "inputs": [
         {
@@ -506,11 +506,11 @@
           "seed": 557837627721219,
           "control_after_generate": "fixed",
           "frame_rate": 24,
-          "width": 1152,
-          "height": 640,
-          "ref_max_size": 1152,
+          "width": 960,
+          "height": 544,
+          "ref_max_size": 960,
           "total_frames": 107,
-          "timeline_data": "{\"version\":5,\"editMode\":\"segment\",\"totalFrames\":107,\"frameRate\":24,\"width\":1152,\"height\":640,\"refMaxSize\":1152,\"output\":{\"mode\":\"fixed\",\"aspectRatio\":\"16:9 (宽屏)\",\"megapixels\":0.7,\"multiple\":32,\"longEdge\":1152,\"width\":1152,\"height\":640,\"maxExportFrames\":0,\"exportMode\":\"all\",\"audioMode\":\"generate\",\"continuityEnabled\":false,\"continuityOverlapFrames\":9},\"videoClips\":[],\"video\":{\"fileName\":\"\",\"videoFile\":\"\",\"subfolder\":\"\",\"type\":\"input\",\"frames\":[],\"frameMap\":[],\"sourceFrameCount\":2192,\"deletedSourceRanges\":[]},\"global\":{\"taskType\":\"r2v — 参考主体生视频(Reference images to video)\",\"prompt\":\"Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.\",\"refs\":[],\"referenceVideo\":{\"videoFile\":\"\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"},\"continuousReference\":false,\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\"}},\"segments\":[{\"id\":\"29a6fab84cac4\",\"start\":0,\"length\":107,\"frameCount\":107,\"durationSec\":4,\"prompt\":\"subject_definitions:\\n<Subject 1> is the woman in the attached character reference - a swift, athletic forest runner. Her face, hair and build come from that reference and are not described here.\\nIdentity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman.\\nReference rule: the attached character reference is a static identity reference only. It never shows her in motion, and its background, framing, panel layout and any standing pose must never appear in the video. Every shot uses the running, leaping or balancing action described for that shot, and all motion, camera moves and cuts are created fresh by each shot's description.\\nwardrobe:\\nHer clothing comes from {{mmx-ref:picture:f-679ad2b20f8ae020}}. Reproduce the garment only - the same colour, fabric, cut and length. {{mmx-ref:picture:f-679ad2b20f8ae020}} must not supply a face, hair, body shape, skin tone, background or framing, and must not supply any other character visible in that image. The character reference supplies her face, hair and build and must not supply clothing.\\nStyle: cinematic, photoreal, warm golden sunlight raking through the trees, rim light, volumetric god rays, long warm shadows, drifting leaves.\\nAudio: only her quiet exertion breaths, soft grunts on jumps and landings, clothes rustling, running footfalls, and forest ambience (wind in the canopy, distant birds, a far creek). No dialogue and no music at any point.\\nsummary:\\nGolden-hour opening - <Subject 1> sprints through dense old-growth forest. The camera opens on her face in a medium shot, then widens to track her full-body run through the trees.\\n\\ndetailed_description:\\n[Shot 1] The shot opens on a medium three-quarter shot of <Subject 1> running toward camera between sunlit trunks, her face clearly lit by warm golden light, hair and light clothing moving with her stride. She passes beside the lens and the camera cuts to a wide tracking shot of her full body sprinting between the trees at a fast, fluid pace. A low side-tracking shot runs alongside her, then a brief front-facing shot shows her leaping a mossy fallen log mid-stride and keeping going. She moves in a dynamic forward-leaning stride - arms and legs pumping, torso angled into the motion - never a static standing pose and never anything resembling a reference sheet or grid. Camera motion is fast but smooth, matching her speed; pans and angle changes are quick and dynamic. Sunlight flares between the trees, long warm shadows, drifting leaves. She breathes steadily, focused, expression determined. Audio: rhythmic breaths and light exertion, a soft grunt on the log leap, footfalls on leaf litter, clothes rustling, forest ambience - wind through high branches, distant birdsong. No dialogue, no music.Scene: a vast primeval forest in warm golden-hour light.\",\"negativePrompt\":\"\",\"taskType\":\"\",\"refs\":[],\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\",\"fileName\":\"\"},\"contextLink\":{\"schema\":\"previous_context_link_v1\",\"enabled\":false,\"visual\":false,\"audio\":false}}],\"gen\":{\"defaultFrameCount\":124},\"runSelectEnabled\":false,\"runSelection\":[],\"liveTaePreview\":true,\"timelineMode\":\"prompt_batch\",\"seedMode\":\"fixed\",\"r2vCommon\":{\"refs\":[{\"index\":0,\"assetId\":\"f-679ad2b20f8ae020\",\"imageFile\":\"s-l1200.jpg\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"}],\"refAudios\":[],\"refVideos\":[]},\"audioRoles\":{\"version\":2,\"global\":{},\"segments\":{\"kpitn0lc1y24\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd6xc017sfx\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"6nh65qltw80c\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"5tj4pbjue0b5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd742qtt1j5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd75khcyo5j\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ppwhynvmh6dl\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ktu1hxyhbgkt\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"3vfh02dd3jcm\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"g3enuyym0eig\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"efi4gybtvbck\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"4jojwloea5jf\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"zsaamjk7yav6\":{},\"29a6fab84cac4\":{},\"de5e0c94506f4\":{},\"3fd81b443c664\":{}}},\"resumeRun\":{\"enabled\":false,\"from\":null}}",
+          "timeline_data": "{\"version\":5,\"editMode\":\"segment\",\"totalFrames\":107,\"frameRate\":24,\"width\":960,\"height\":544,\"refMaxSize\":960,\"output\":{\"mode\":\"fixed\",\"aspectRatio\":\"16:9 (宽屏)\",\"megapixels\":0.5,\"multiple\":32,\"longEdge\":960,\"width\":960,\"height\":544,\"maxExportFrames\":0,\"exportMode\":\"all\",\"audioMode\":\"generate\",\"continuityEnabled\":false,\"continuityOverlapFrames\":9},\"videoClips\":[],\"video\":{\"fileName\":\"\",\"videoFile\":\"\",\"subfolder\":\"\",\"type\":\"input\",\"frames\":[],\"frameMap\":[],\"sourceFrameCount\":2192,\"deletedSourceRanges\":[]},\"global\":{\"taskType\":\"r2v — 参考主体生视频(Reference images to video)\",\"prompt\":\"Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.\",\"refs\":[],\"referenceVideo\":{\"videoFile\":\"\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"},\"continuousReference\":false,\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\"}},\"segments\":[{\"id\":\"29a6fab84cac4\",\"start\":0,\"length\":107,\"frameCount\":107,\"durationSec\":4,\"prompt\":\"subject_definitions:\\n<Subject 1> is the woman in the attached character reference - a swift, athletic forest runner. Her face, hair and build come from that reference and are not described here.\\nIdentity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman.\\nReference rule: the attached character reference is a static identity reference only. It never shows her in motion, and its background, framing, panel layout and any standing pose must never appear in the video. Every shot uses the running, leaping or balancing action described for that shot, and all motion, camera moves and cuts are created fresh by each shot's description.\\nwardrobe:\\nHer clothing comes from {{mmx-ref:picture:f-679ad2b20f8ae020}}. Reproduce the garment only - the same colour, fabric, cut and length. {{mmx-ref:picture:f-679ad2b20f8ae020}} must not supply a face, hair, body shape, skin tone, background or framing, and must not supply any other character visible in that image. The character reference supplies her face, hair and build and must not supply clothing.\\nStyle: cinematic, photoreal, warm golden sunlight raking through the trees, rim light, volumetric god rays, long warm shadows, drifting leaves.\\nAudio: only her quiet exertion breaths, soft grunts on jumps and landings, clothes rustling, running footfalls, and forest ambience (wind in the canopy, distant birds, a far creek). No dialogue and no music at any point.\\nsummary:\\nGolden-hour opening - <Subject 1> sprints through dense old-growth forest. The camera opens on her face in a medium shot, then widens to track her full-body run through the trees.\\n\\ndetailed_description:\\n[Shot 1] The shot opens on a medium three-quarter shot of <Subject 1> running toward camera between sunlit trunks, her face clearly lit by warm golden light, hair and light clothing moving with her stride. She passes beside the lens and the camera cuts to a wide tracking shot of her full body sprinting between the trees at a fast, fluid pace. A low side-tracking shot runs alongside her, then a brief front-facing shot shows her leaping a mossy fallen log mid-stride and keeping going. She moves in a dynamic forward-leaning stride - arms and legs pumping, torso angled into the motion - never a static standing pose and never anything resembling a reference sheet or grid. Camera motion is fast but smooth, matching her speed; pans and angle changes are quick and dynamic. Sunlight flares between the trees, long warm shadows, drifting leaves. She breathes steadily, focused, expression determined. Audio: rhythmic breaths and light exertion, a soft grunt on the log leap, footfalls on leaf litter, clothes rustling, forest ambience - wind through high branches, distant birdsong. No dialogue, no music.Scene: a vast primeval forest in warm golden-hour light.\",\"negativePrompt\":\"\",\"taskType\":\"\",\"refs\":[],\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\",\"fileName\":\"\"},\"contextLink\":{\"schema\":\"previous_context_link_v1\",\"enabled\":false,\"visual\":false,\"audio\":false}}],\"gen\":{\"defaultFrameCount\":124},\"runSelectEnabled\":false,\"runSelection\":[],\"liveTaePreview\":true,\"timelineMode\":\"prompt_batch\",\"seedMode\":\"fixed\",\"r2vCommon\":{\"refs\":[{\"index\":0,\"assetId\":\"f-679ad2b20f8ae020\",\"imageFile\":\"s-l1200.jpg\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"}],\"refAudios\":[],\"refVideos\":[]},\"audioRoles\":{\"version\":2,\"global\":{},\"segments\":{\"kpitn0lc1y24\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd6xc017sfx\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"6nh65qltw80c\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"5tj4pbjue0b5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd742qtt1j5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd75khcyo5j\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ppwhynvmh6dl\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ktu1hxyhbgkt\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"3vfh02dd3jcm\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"g3enuyym0eig\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"efi4gybtvbck\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"4jojwloea5jf\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"zsaamjk7yav6\":{},\"29a6fab84cac4\":{},\"de5e0c94506f4\":{},\"3fd81b443c664\":{}}},\"resumeRun\":{\"enabled\":false,\"from\":null}}",
           "bd_grp_motion": "Cross-Segment Continuity",
           "motion_context_enabled": true,
           "context_length": 44,
@@ -528,11 +528,12 @@
           "export_source_images": false,
           "bd_grp_experimental": "Experimental",
           "pin_renorm_enabled": true,
-          "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":true,\"mode\":\"upscale\",\"second_sampling_enabled\":true,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":true,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":true,\"room\":\"outdoor\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":true,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+          "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":true,\"denoise\":0.25,\"steps\":0,\"allow_refine_on_external_patch\":true,\"export_comparison\":true,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"h3_learned_latent\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"aspect_megapixels\",\"aspect\":\"16:9\",\"megapixels\":2,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"tiled_refine\":false,\"tile_size\":768,\"tile_overlap\":32,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"outdoor\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":true,\"reuse_first_pass\":true,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
           "bd_grp_audio_refine": "Audio Refine",
           "audio_refine_enabled": false,
           "audio_refine_steps": 6,
           "audio_refine_denoise": 0.5,
+          "latent_continuation_enabled": false,
           "minimax_motion_director_ui": ""
         }
       },
@@ -544,11 +545,11 @@
         557837627721219,
         "fixed",
         24,
-        1152,
-        640,
-        1152,
+        960,
+        544,
+        960,
         107,
-        "{\"version\":5,\"editMode\":\"segment\",\"totalFrames\":107,\"frameRate\":24,\"width\":1152,\"height\":640,\"refMaxSize\":1152,\"output\":{\"mode\":\"fixed\",\"aspectRatio\":\"16:9 (宽屏)\",\"megapixels\":0.7,\"multiple\":32,\"longEdge\":1152,\"width\":1152,\"height\":640,\"maxExportFrames\":0,\"exportMode\":\"all\",\"audioMode\":\"generate\",\"continuityEnabled\":false,\"continuityOverlapFrames\":9},\"videoClips\":[],\"video\":{\"fileName\":\"\",\"videoFile\":\"\",\"subfolder\":\"\",\"type\":\"input\",\"frames\":[],\"frameMap\":[],\"sourceFrameCount\":2192,\"deletedSourceRanges\":[]},\"global\":{\"taskType\":\"r2v — 参考主体生视频(Reference images to video)\",\"prompt\":\"Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.\",\"refs\":[],\"referenceVideo\":{\"videoFile\":\"\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"},\"continuousReference\":false,\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\"}},\"segments\":[{\"id\":\"29a6fab84cac4\",\"start\":0,\"length\":107,\"frameCount\":107,\"durationSec\":4,\"prompt\":\"subject_definitions:\\n<Subject 1> is the woman in the attached character reference - a swift, athletic forest runner. Her face, hair and build come from that reference and are not described here.\\nIdentity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman.\\nReference rule: the attached character reference is a static identity reference only. It never shows her in motion, and its background, framing, panel layout and any standing pose must never appear in the video. Every shot uses the running, leaping or balancing action described for that shot, and all motion, camera moves and cuts are created fresh by each shot's description.\\nwardrobe:\\nHer clothing comes from {{mmx-ref:picture:f-679ad2b20f8ae020}}. Reproduce the garment only - the same colour, fabric, cut and length. {{mmx-ref:picture:f-679ad2b20f8ae020}} must not supply a face, hair, body shape, skin tone, background or framing, and must not supply any other character visible in that image. The character reference supplies her face, hair and build and must not supply clothing.\\nStyle: cinematic, photoreal, warm golden sunlight raking through the trees, rim light, volumetric god rays, long warm shadows, drifting leaves.\\nAudio: only her quiet exertion breaths, soft grunts on jumps and landings, clothes rustling, running footfalls, and forest ambience (wind in the canopy, distant birds, a far creek). No dialogue and no music at any point.\\nsummary:\\nGolden-hour opening - <Subject 1> sprints through dense old-growth forest. The camera opens on her face in a medium shot, then widens to track her full-body run through the trees.\\n\\ndetailed_description:\\n[Shot 1] The shot opens on a medium three-quarter shot of <Subject 1> running toward camera between sunlit trunks, her face clearly lit by warm golden light, hair and light clothing moving with her stride. She passes beside the lens and the camera cuts to a wide tracking shot of her full body sprinting between the trees at a fast, fluid pace. A low side-tracking shot runs alongside her, then a brief front-facing shot shows her leaping a mossy fallen log mid-stride and keeping going. She moves in a dynamic forward-leaning stride - arms and legs pumping, torso angled into the motion - never a static standing pose and never anything resembling a reference sheet or grid. Camera motion is fast but smooth, matching her speed; pans and angle changes are quick and dynamic. Sunlight flares between the trees, long warm shadows, drifting leaves. She breathes steadily, focused, expression determined. Audio: rhythmic breaths and light exertion, a soft grunt on the log leap, footfalls on leaf litter, clothes rustling, forest ambience - wind through high branches, distant birdsong. No dialogue, no music.Scene: a vast primeval forest in warm golden-hour light.\",\"negativePrompt\":\"\",\"taskType\":\"\",\"refs\":[],\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\",\"fileName\":\"\"},\"contextLink\":{\"schema\":\"previous_context_link_v1\",\"enabled\":false,\"visual\":false,\"audio\":false}}],\"gen\":{\"defaultFrameCount\":124},\"runSelectEnabled\":false,\"runSelection\":[],\"liveTaePreview\":true,\"timelineMode\":\"prompt_batch\",\"seedMode\":\"fixed\",\"r2vCommon\":{\"refs\":[{\"index\":0,\"assetId\":\"f-679ad2b20f8ae020\",\"imageFile\":\"s-l1200.jpg\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"}],\"refAudios\":[],\"refVideos\":[]},\"audioRoles\":{\"version\":2,\"global\":{},\"segments\":{\"kpitn0lc1y24\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd6xc017sfx\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"6nh65qltw80c\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"5tj4pbjue0b5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd742qtt1j5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd75khcyo5j\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ppwhynvmh6dl\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ktu1hxyhbgkt\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"3vfh02dd3jcm\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"g3enuyym0eig\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"efi4gybtvbck\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"4jojwloea5jf\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"zsaamjk7yav6\":{},\"29a6fab84cac4\":{},\"de5e0c94506f4\":{},\"3fd81b443c664\":{}}},\"resumeRun\":{\"enabled\":false,\"from\":null}}",
+        "{\"version\":5,\"editMode\":\"segment\",\"totalFrames\":107,\"frameRate\":24,\"width\":960,\"height\":544,\"refMaxSize\":960,\"output\":{\"mode\":\"fixed\",\"aspectRatio\":\"16:9 (宽屏)\",\"megapixels\":0.5,\"multiple\":32,\"longEdge\":960,\"width\":960,\"height\":544,\"maxExportFrames\":0,\"exportMode\":\"all\",\"audioMode\":\"generate\",\"continuityEnabled\":false,\"continuityOverlapFrames\":9},\"videoClips\":[],\"video\":{\"fileName\":\"\",\"videoFile\":\"\",\"subfolder\":\"\",\"type\":\"input\",\"frames\":[],\"frameMap\":[],\"sourceFrameCount\":2192,\"deletedSourceRanges\":[]},\"global\":{\"taskType\":\"r2v — 参考主体生视频(Reference images to video)\",\"prompt\":\"Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.\",\"refs\":[],\"referenceVideo\":{\"videoFile\":\"\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"},\"continuousReference\":false,\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\"}},\"segments\":[{\"id\":\"29a6fab84cac4\",\"start\":0,\"length\":107,\"frameCount\":107,\"durationSec\":4,\"prompt\":\"subject_definitions:\\n<Subject 1> is the woman in the attached character reference - a swift, athletic forest runner. Her face, hair and build come from that reference and are not described here.\\nIdentity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman.\\nReference rule: the attached character reference is a static identity reference only. It never shows her in motion, and its background, framing, panel layout and any standing pose must never appear in the video. Every shot uses the running, leaping or balancing action described for that shot, and all motion, camera moves and cuts are created fresh by each shot's description.\\nwardrobe:\\nHer clothing comes from {{mmx-ref:picture:f-679ad2b20f8ae020}}. Reproduce the garment only - the same colour, fabric, cut and length. {{mmx-ref:picture:f-679ad2b20f8ae020}} must not supply a face, hair, body shape, skin tone, background or framing, and must not supply any other character visible in that image. The character reference supplies her face, hair and build and must not supply clothing.\\nStyle: cinematic, photoreal, warm golden sunlight raking through the trees, rim light, volumetric god rays, long warm shadows, drifting leaves.\\nAudio: only her quiet exertion breaths, soft grunts on jumps and landings, clothes rustling, running footfalls, and forest ambience (wind in the canopy, distant birds, a far creek). No dialogue and no music at any point.\\nsummary:\\nGolden-hour opening - <Subject 1> sprints through dense old-growth forest. The camera opens on her face in a medium shot, then widens to track her full-body run through the trees.\\n\\ndetailed_description:\\n[Shot 1] The shot opens on a medium three-quarter shot of <Subject 1> running toward camera between sunlit trunks, her face clearly lit by warm golden light, hair and light clothing moving with her stride. She passes beside the lens and the camera cuts to a wide tracking shot of her full body sprinting between the trees at a fast, fluid pace. A low side-tracking shot runs alongside her, then a brief front-facing shot shows her leaping a mossy fallen log mid-stride and keeping going. She moves in a dynamic forward-leaning stride - arms and legs pumping, torso angled into the motion - never a static standing pose and never anything resembling a reference sheet or grid. Camera motion is fast but smooth, matching her speed; pans and angle changes are quick and dynamic. Sunlight flares between the trees, long warm shadows, drifting leaves. She breathes steadily, focused, expression determined. Audio: rhythmic breaths and light exertion, a soft grunt on the log leap, footfalls on leaf litter, clothes rustling, forest ambience - wind through high branches, distant birdsong. No dialogue, no music.Scene: a vast primeval forest in warm golden-hour light.\",\"negativePrompt\":\"\",\"taskType\":\"\",\"refs\":[],\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\",\"fileName\":\"\"},\"contextLink\":{\"schema\":\"previous_context_link_v1\",\"enabled\":false,\"visual\":false,\"audio\":false}}],\"gen\":{\"defaultFrameCount\":124},\"runSelectEnabled\":false,\"runSelection\":[],\"liveTaePreview\":true,\"timelineMode\":\"prompt_batch\",\"seedMode\":\"fixed\",\"r2vCommon\":{\"refs\":[{\"index\":0,\"assetId\":\"f-679ad2b20f8ae020\",\"imageFile\":\"s-l1200.jpg\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"}],\"refAudios\":[],\"refVideos\":[]},\"audioRoles\":{\"version\":2,\"global\":{},\"segments\":{\"kpitn0lc1y24\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd6xc017sfx\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"6nh65qltw80c\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"5tj4pbjue0b5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd742qtt1j5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd75khcyo5j\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ppwhynvmh6dl\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ktu1hxyhbgkt\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"3vfh02dd3jcm\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"g3enuyym0eig\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"efi4gybtvbck\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"4jojwloea5jf\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"zsaamjk7yav6\":{},\"29a6fab84cac4\":{},\"de5e0c94506f4\":{},\"3fd81b443c664\":{}}},\"resumeRun\":{\"enabled\":false,\"from\":null}}",
         null,
         null,
         null,
@@ -582,11 +583,12 @@
         false,
         "Experimental",
         true,
-        "{\"version\":11,\"global_refine\":{\"enabled\":true,\"mode\":\"upscale\",\"second_sampling_enabled\":true,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":true,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":true,\"room\":\"outdoor\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":true,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+        "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":true,\"denoise\":0.25,\"steps\":0,\"allow_refine_on_external_patch\":true,\"export_comparison\":true,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"h3_learned_latent\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"aspect_megapixels\",\"aspect\":\"16:9\",\"megapixels\":2,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"tiled_refine\":false,\"tile_size\":768,\"tile_overlap\":32,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"outdoor\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":true,\"reuse_first_pass\":true,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
         "Audio Refine",
         false,
         6,
         0.5,
+        false,
         ""
       ],
       "widgets_values_named": {
@@ -597,11 +599,11 @@
         "seed": 557837627721219,
         "control_after_generate": "fixed",
         "frame_rate": 24,
-        "width": 1152,
-        "height": 640,
-        "ref_max_size": 1152,
+        "width": 960,
+        "height": 544,
+        "ref_max_size": 960,
         "total_frames": 107,
-        "timeline_data": "{\"version\":5,\"editMode\":\"segment\",\"totalFrames\":107,\"frameRate\":24,\"width\":1152,\"height\":640,\"refMaxSize\":1152,\"output\":{\"mode\":\"fixed\",\"aspectRatio\":\"16:9 (宽屏)\",\"megapixels\":0.7,\"multiple\":32,\"longEdge\":1152,\"width\":1152,\"height\":640,\"maxExportFrames\":0,\"exportMode\":\"all\",\"audioMode\":\"generate\",\"continuityEnabled\":false,\"continuityOverlapFrames\":9},\"videoClips\":[],\"video\":{\"fileName\":\"\",\"videoFile\":\"\",\"subfolder\":\"\",\"type\":\"input\",\"frames\":[],\"frameMap\":[],\"sourceFrameCount\":2192,\"deletedSourceRanges\":[]},\"global\":{\"taskType\":\"r2v — 参考主体生视频(Reference images to video)\",\"prompt\":\"Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.\",\"refs\":[],\"referenceVideo\":{\"videoFile\":\"\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"},\"continuousReference\":false,\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\"}},\"segments\":[{\"id\":\"29a6fab84cac4\",\"start\":0,\"length\":107,\"frameCount\":107,\"durationSec\":4,\"prompt\":\"subject_definitions:\\n<Subject 1> is the woman in the attached character reference - a swift, athletic forest runner. Her face, hair and build come from that reference and are not described here.\\nIdentity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman.\\nReference rule: the attached character reference is a static identity reference only. It never shows her in motion, and its background, framing, panel layout and any standing pose must never appear in the video. Every shot uses the running, leaping or balancing action described for that shot, and all motion, camera moves and cuts are created fresh by each shot's description.\\nwardrobe:\\nHer clothing comes from {{mmx-ref:picture:f-679ad2b20f8ae020}}. Reproduce the garment only - the same colour, fabric, cut and length. {{mmx-ref:picture:f-679ad2b20f8ae020}} must not supply a face, hair, body shape, skin tone, background or framing, and must not supply any other character visible in that image. The character reference supplies her face, hair and build and must not supply clothing.\\nStyle: cinematic, photoreal, warm golden sunlight raking through the trees, rim light, volumetric god rays, long warm shadows, drifting leaves.\\nAudio: only her quiet exertion breaths, soft grunts on jumps and landings, clothes rustling, running footfalls, and forest ambience (wind in the canopy, distant birds, a far creek). No dialogue and no music at any point.\\nsummary:\\nGolden-hour opening - <Subject 1> sprints through dense old-growth forest. The camera opens on her face in a medium shot, then widens to track her full-body run through the trees.\\n\\ndetailed_description:\\n[Shot 1] The shot opens on a medium three-quarter shot of <Subject 1> running toward camera between sunlit trunks, her face clearly lit by warm golden light, hair and light clothing moving with her stride. She passes beside the lens and the camera cuts to a wide tracking shot of her full body sprinting between the trees at a fast, fluid pace. A low side-tracking shot runs alongside her, then a brief front-facing shot shows her leaping a mossy fallen log mid-stride and keeping going. She moves in a dynamic forward-leaning stride - arms and legs pumping, torso angled into the motion - never a static standing pose and never anything resembling a reference sheet or grid. Camera motion is fast but smooth, matching her speed; pans and angle changes are quick and dynamic. Sunlight flares between the trees, long warm shadows, drifting leaves. She breathes steadily, focused, expression determined. Audio: rhythmic breaths and light exertion, a soft grunt on the log leap, footfalls on leaf litter, clothes rustling, forest ambience - wind through high branches, distant birdsong. No dialogue, no music.Scene: a vast primeval forest in warm golden-hour light.\",\"negativePrompt\":\"\",\"taskType\":\"\",\"refs\":[],\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\",\"fileName\":\"\"},\"contextLink\":{\"schema\":\"previous_context_link_v1\",\"enabled\":false,\"visual\":false,\"audio\":false}}],\"gen\":{\"defaultFrameCount\":124},\"runSelectEnabled\":false,\"runSelection\":[],\"liveTaePreview\":true,\"timelineMode\":\"prompt_batch\",\"seedMode\":\"fixed\",\"r2vCommon\":{\"refs\":[{\"index\":0,\"assetId\":\"f-679ad2b20f8ae020\",\"imageFile\":\"s-l1200.jpg\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"}],\"refAudios\":[],\"refVideos\":[]},\"audioRoles\":{\"version\":2,\"global\":{},\"segments\":{\"kpitn0lc1y24\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd6xc017sfx\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"6nh65qltw80c\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"5tj4pbjue0b5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd742qtt1j5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd75khcyo5j\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ppwhynvmh6dl\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ktu1hxyhbgkt\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"3vfh02dd3jcm\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"g3enuyym0eig\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"efi4gybtvbck\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"4jojwloea5jf\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"zsaamjk7yav6\":{},\"29a6fab84cac4\":{},\"de5e0c94506f4\":{},\"3fd81b443c664\":{}}},\"resumeRun\":{\"enabled\":false,\"from\":null}}",
+        "timeline_data": "{\"version\":5,\"editMode\":\"segment\",\"totalFrames\":107,\"frameRate\":24,\"width\":960,\"height\":544,\"refMaxSize\":960,\"output\":{\"mode\":\"fixed\",\"aspectRatio\":\"16:9 (宽屏)\",\"megapixels\":0.5,\"multiple\":32,\"longEdge\":960,\"width\":960,\"height\":544,\"maxExportFrames\":0,\"exportMode\":\"all\",\"audioMode\":\"generate\",\"continuityEnabled\":false,\"continuityOverlapFrames\":9},\"videoClips\":[],\"video\":{\"fileName\":\"\",\"videoFile\":\"\",\"subfolder\":\"\",\"type\":\"input\",\"frames\":[],\"frameMap\":[],\"sourceFrameCount\":2192,\"deletedSourceRanges\":[]},\"global\":{\"taskType\":\"r2v — 参考主体生视频(Reference images to video)\",\"prompt\":\"Golden-hour forest run: <Subject 1>, the woman in the attached character reference, sprints through a vast primeval forest across three 7-second shots - a fast run through dense trees, clearing a creek and a log, vaulting to a high branch, then stopping at a cliff edge to look out over the endless forest. Cinematic, photoreal, warm golden light, rim light, volumetric god rays. Her motion is always generated fresh; the static reference never dictates a pose or framing. Identity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman. Her outfit is a fitted dark-teal trail-running tank top, black compression shorts with a thin reflective side stripe, and a worn olive utility belt, and it is set by the prompt rather than by the character reference. Audio: exertion breaths, soft grunts, footfalls, forest ambience. No dialogue, no music.\",\"refs\":[],\"referenceVideo\":{\"videoFile\":\"\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"},\"continuousReference\":false,\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\"}},\"segments\":[{\"id\":\"29a6fab84cac4\",\"start\":0,\"length\":107,\"frameCount\":107,\"durationSec\":4,\"prompt\":\"subject_definitions:\\n<Subject 1> is the woman in the attached character reference - a swift, athletic forest runner. Her face, hair and build come from that reference and are not described here.\\nIdentity lock: her face, hair and build are locked to the attached character reference and stay identical in every frame and every shot - never a different woman.\\nReference rule: the attached character reference is a static identity reference only. It never shows her in motion, and its background, framing, panel layout and any standing pose must never appear in the video. Every shot uses the running, leaping or balancing action described for that shot, and all motion, camera moves and cuts are created fresh by each shot's description.\\nwardrobe:\\nHer clothing comes from {{mmx-ref:picture:f-679ad2b20f8ae020}}. Reproduce the garment only - the same colour, fabric, cut and length. {{mmx-ref:picture:f-679ad2b20f8ae020}} must not supply a face, hair, body shape, skin tone, background or framing, and must not supply any other character visible in that image. The character reference supplies her face, hair and build and must not supply clothing.\\nStyle: cinematic, photoreal, warm golden sunlight raking through the trees, rim light, volumetric god rays, long warm shadows, drifting leaves.\\nAudio: only her quiet exertion breaths, soft grunts on jumps and landings, clothes rustling, running footfalls, and forest ambience (wind in the canopy, distant birds, a far creek). No dialogue and no music at any point.\\nsummary:\\nGolden-hour opening - <Subject 1> sprints through dense old-growth forest. The camera opens on her face in a medium shot, then widens to track her full-body run through the trees.\\n\\ndetailed_description:\\n[Shot 1] The shot opens on a medium three-quarter shot of <Subject 1> running toward camera between sunlit trunks, her face clearly lit by warm golden light, hair and light clothing moving with her stride. She passes beside the lens and the camera cuts to a wide tracking shot of her full body sprinting between the trees at a fast, fluid pace. A low side-tracking shot runs alongside her, then a brief front-facing shot shows her leaping a mossy fallen log mid-stride and keeping going. She moves in a dynamic forward-leaning stride - arms and legs pumping, torso angled into the motion - never a static standing pose and never anything resembling a reference sheet or grid. Camera motion is fast but smooth, matching her speed; pans and angle changes are quick and dynamic. Sunlight flares between the trees, long warm shadows, drifting leaves. She breathes steadily, focused, expression determined. Audio: rhythmic breaths and light exertion, a soft grunt on the log leap, footfalls on leaf litter, clothes rustling, forest ambience - wind through high branches, distant birdsong. No dialogue, no music.Scene: a vast primeval forest in warm golden-hour light.\",\"negativePrompt\":\"\",\"taskType\":\"\",\"refs\":[],\"refAudios\":[],\"refVideos\":[],\"genImage\":{\"imageFile\":\"\",\"fileName\":\"\"},\"contextLink\":{\"schema\":\"previous_context_link_v1\",\"enabled\":false,\"visual\":false,\"audio\":false}}],\"gen\":{\"defaultFrameCount\":124},\"runSelectEnabled\":false,\"runSelection\":[],\"liveTaePreview\":true,\"timelineMode\":\"prompt_batch\",\"seedMode\":\"fixed\",\"r2vCommon\":{\"refs\":[{\"index\":0,\"assetId\":\"f-679ad2b20f8ae020\",\"imageFile\":\"s-l1200.jpg\",\"fileName\":\"\",\"type\":\"input\",\"subfolder\":\"\"}],\"refAudios\":[],\"refVideos\":[]},\"audioRoles\":{\"version\":2,\"global\":{},\"segments\":{\"kpitn0lc1y24\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd6xc017sfx\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"6nh65qltw80c\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"5tj4pbjue0b5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd742qtt1j5\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"mtqd75khcyo5j\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ppwhynvmh6dl\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"ktu1hxyhbgkt\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"3vfh02dd3jcm\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"g3enuyym0eig\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"efi4gybtvbck\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"4jojwloea5jf\":{\"r2v-common-audio-d6f29f66-b0f9-4815-b83b-7a2e9dd01e24\":{\"role\":\"reference\",\"sourceDuration\":3.176,\"trimStart\":0,\"trimEnd\":3.176,\"timelineStart\":0}},\"zsaamjk7yav6\":{},\"29a6fab84cac4\":{},\"de5e0c94506f4\":{},\"3fd81b443c664\":{}}},\"resumeRun\":{\"enabled\":false,\"from\":null}}",
         "bd_grp_motion": "Cross-Segment Continuity",
         "motion_context_enabled": true,
         "context_length": 44,
@@ -619,11 +621,12 @@
         "export_source_images": false,
         "bd_grp_experimental": "Experimental",
         "pin_renorm_enabled": true,
-        "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":true,\"mode\":\"upscale\",\"second_sampling_enabled\":true,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":true,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":true,\"room\":\"outdoor\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":true,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+        "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":true,\"denoise\":0.25,\"steps\":0,\"allow_refine_on_external_patch\":true,\"export_comparison\":true,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"h3_learned_latent\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"aspect_megapixels\",\"aspect\":\"16:9\",\"megapixels\":2,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"tiled_refine\":false,\"tile_size\":768,\"tile_overlap\":32,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"outdoor\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":true,\"reuse_first_pass\":true,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
         "bd_grp_audio_refine": "Audio Refine",
         "audio_refine_enabled": false,
         "audio_refine_steps": 6,
         "audio_refine_denoise": 0.5,
+        "latent_continuation_enabled": null,
         "minimax_motion_director_ui": ""
       },
       "color": "#235263FF",
@@ -643,7 +646,7 @@
       "flags": {
         "pinned": true
       },
-      "order": 5,
+      "order": 6,
       "mode": 0,
       "inputs": [
         {
@@ -740,7 +743,7 @@
         "collapsed": true,
         "pinned": true
       },
-      "order": 13,
+      "order": 14,
       "mode": 0,
       "inputs": [
         {
@@ -796,12 +799,12 @@
       ],
       "size": [
         430,
-        336.8888888888889
+        341.6666666666667
       ],
       "flags": {
         "pinned": true
       },
-      "order": 15,
+      "order": 16,
       "mode": 0,
       "inputs": [
         {
@@ -856,7 +859,7 @@
       "flags": {
         "pinned": true
       },
-      "order": 11,
+      "order": 12,
       "mode": 0,
       "inputs": [
         {
@@ -1025,7 +1028,7 @@
         "collapsed": true,
         "pinned": true
       },
-      "order": 4,
+      "order": 5,
       "mode": 0,
       "inputs": [
         {
@@ -1248,7 +1251,7 @@
       "flags": {
         "pinned": true
       },
-      "order": 6,
+      "order": 7,
       "mode": 0,
       "inputs": [
         {
@@ -1351,6 +1354,35 @@
       },
       "color": "#432",
       "bgcolor": "#653"
+    },
+    {
+      "id": 17,
+      "type": "MarkdownNote",
+      "pos": [
+        -150,
+        1230
+      ],
+      "size": [
+        471.19406814458273,
+        90.90596735534609
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Post Processing and Spectrum Apply ------------------>",
+      "properties": {},
+      "widgets_values": [
+        "To allow for post processing to work you have to either disable Spectrum apply MiniMax H3 node to the right OR enable the 2 options below in the Motion Director post processing section.\n\nPass Result Previews (extra VAE decode)\n\nAllow Refine with external attention patch"
+      ],
+      "widgets_values_named": {
+        "text": "To allow for post processing to work you have to either disable Spectrum apply MiniMax H3 node to the right OR enable the 2 options below in the Motion Director post processing section.\n\nPass Result Previews (extra VAE decode)\n\nAllow Refine with external attention patch"
+      },
+      "color": "#322",
+      "bgcolor": "#533"
     }
   ],
   "links": [
@@ -1608,7 +1640,7 @@
         "version": 1,
         "state": {
           "lastGroupId": 900,
-          "lastNodeId": 16,
+          "lastNodeId": 17,
           "lastLinkId": 78,
           "lastRerouteId": 0
         },
@@ -2246,59 +2278,6 @@
             "bgcolor": "#5307EDFF"
           },
           {
-            "id": 8,
-            "type": "MiniMaxH3SigmaShift",
-            "pos": [
-              792.2324552929866,
-              385.0178357626544
-            ],
-            "size": [
-              235.16493681837335,
-              82
-            ],
-            "flags": {},
-            "order": 5,
-            "mode": 0,
-            "inputs": [
-              {
-                "localized_name": "model",
-                "name": "model",
-                "type": "MODEL",
-                "link": 50
-              }
-            ],
-            "outputs": [
-              {
-                "localized_name": "MODEL",
-                "name": "MODEL",
-                "type": "MODEL",
-                "links": [
-                  46
-                ]
-              }
-            ],
-            "properties": {
-              "cnr_id": "comfy-core",
-              "ver": "0.34.0",
-              "Node name for S&R": "MiniMaxH3SigmaShift",
-              "ue_properties": {
-                "widget_ue_connectable": {},
-                "input_ue_unconnectable": {},
-                "version": "7.8"
-              }
-            },
-            "widgets_values": [
-              12,
-              3
-            ],
-            "widgets_values_named": {
-              "shift_video": 12,
-              "shift_audio": 3
-            },
-            "color": "#4806CEFF",
-            "bgcolor": "#5307EDFF"
-          },
-          {
             "id": "um",
             "type": "UNETLoader",
             "pos": [
@@ -2403,6 +2382,59 @@
             ],
             "widgets_values_named": {
               "shift_video": 6,
+              "shift_audio": 3
+            },
+            "color": "#4806CEFF",
+            "bgcolor": "#5307EDFF"
+          },
+          {
+            "id": 8,
+            "type": "MiniMaxH3SigmaShift",
+            "pos": [
+              792.2324552929866,
+              385.0178357626544
+            ],
+            "size": [
+              235.16493681837335,
+              82
+            ],
+            "flags": {},
+            "order": 5,
+            "mode": 4,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 50
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "MODEL",
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  46
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.34.0",
+              "Node name for S&R": "MiniMaxH3SigmaShift",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "input_ue_unconnectable": {},
+                "version": "7.8"
+              }
+            },
+            "widgets_values": [
+              12,
+              3
+            ],
+            "widgets_values_named": {
+              "shift_video": 12,
               "shift_audio": 3
             },
             "color": "#4806CEFF",
@@ -2558,10 +2590,10 @@
     "ue_links": [],
     "links_added_by_ue": [],
     "ds": {
-      "scale": 0.8531888145315719,
+      "scale": 0.8531888145315721,
       "offset": [
-        829.4865060481278,
-        -636.328865967036
+        348.88335954877635,
+        -471.2154820484698
       ]
     },
     "frontendVersion": "1.51.10",

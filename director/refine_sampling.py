@@ -27,10 +27,11 @@ from .postprocess_config import (
     resolve_vsr_quality_name,
 )
 from .refine_latent_stage import sync_h3_keyframe_conditioning
+from .tiled_refine import sample_tiled_refine_pass
 from .rtx_deblur import RTXDeblurOutcome, apply_rtx_deblur
 from .external_patch_guard import (
     ALLOW_REFINE_ON_EXTERNAL_PATCH,
-    model_has_external_attention_patch,
+    external_attention_patch_findings,
 )
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director.refine")
@@ -530,20 +531,26 @@ def apply_global_refine(
         return GlobalRefineOutcome(samples=samples, status="DISABLED")
     if force_skip_reason:
         return GlobalRefineOutcome(samples=samples, status=f"SKIPPED ({force_skip_reason})")
-    if (not config.get(ALLOW_REFINE_ON_EXTERNAL_PATCH)
-            and model_has_external_attention_patch(model)):
-        log.warning(
-            "Global Refine skipped: the sampling model carries an external H3 "
-            "attention/diffusion patch (H3-SLA Attention / Spectrum / "
-            "optimized_attention_override). Refining through such a model has "
-            "crashed at the CUDA level; keeping the first-pass result. Set "
-            "%s in the post-process config to run it anyway.",
-            ALLOW_REFINE_ON_EXTERNAL_PATCH,
-        )
-        return GlobalRefineOutcome(
-            samples=samples,
-            status="SKIPPED (external attention-patched model)",
-        )
+    if not config.get(ALLOW_REFINE_ON_EXTERNAL_PATCH):
+        findings = external_attention_patch_findings(model)
+        if findings:
+            log.warning(
+                "Global Refine skipped: the sampling model carries an external H3 "
+                "attention/diffusion patch (%s). Refining through such a model has "
+                "crashed at the CUDA level; keeping the first-pass result. Remove that "
+                "node from the model chain, or set %s in the post-process config to "
+                "run it anyway.",
+                "; ".join(findings),
+                ALLOW_REFINE_ON_EXTERNAL_PATCH,
+            )
+            return GlobalRefineOutcome(
+                samples=samples,
+                status=(
+                    "SKIPPED (external attention-patched model: "
+                    + "; ".join(findings)
+                    + ")"
+                ),
+            )
     if config.get("skip_fl2v") and task_key == "fl2v":
         return GlobalRefineOutcome(samples=samples, status="SKIPPED")
 
@@ -737,6 +744,15 @@ def apply_global_refine(
         if on_phase:
             on_phase("global_refine", 0)
 
+        tiled_refine = (
+            bool(config.get("tiled_refine"))
+            and upscale_enabled
+            and repin is None
+            and original_mask is None
+        )
+        tile_size = int(config.get("tile_size") or 512)
+        tile_overlap = int(config.get("tile_overlap") or 96)
+
         for pass_index, (pass_denoise, pass_step_count) in enumerate(pass_settings):
             pass_started = time.perf_counter()
             pass_seed = refine_seed_for(config, seed, pass_index)
@@ -748,24 +764,45 @@ def apply_global_refine(
                         (float(_index) + max(0.0, min(1.0, float(value)))) / max(1, pass_count),
                     )
 
-            refined = sample_single_stage(
-                model=refine_model,
-                positive=refine_positive,
-                negative=negative,
-                latent=refined,
-                seed=pass_seed,
-                cfg=cfg,
-                steps=pass_step_count,
-                sampler_name=sampler_name,
-                scheduler=scheduler,
-                shift_video=shift_video,
-                shift_audio=shift_audio,
-                denoise=pass_denoise,
-                phase_name="global_refine",
-                on_phase=_pass_phase,
-                on_step_preview=on_step_preview,
-                preview_every=preview_every,
-            )
+            if tiled_refine:
+                refined = sample_tiled_refine_pass(
+                    model=refine_model,
+                    positive=refine_positive,
+                    negative=negative,
+                    latent=refined,
+                    seed=pass_seed,
+                    cfg=cfg,
+                    steps=pass_step_count,
+                    sampler_name=sampler_name,
+                    scheduler=scheduler,
+                    shift_video=shift_video,
+                    shift_audio=shift_audio,
+                    denoise=pass_denoise,
+                    tile_size=tile_size,
+                    tile_overlap=tile_overlap,
+                    on_phase=_pass_phase,
+                    on_step_preview=on_step_preview,
+                    preview_every=preview_every,
+                )
+            else:
+                refined = sample_single_stage(
+                    model=refine_model,
+                    positive=refine_positive,
+                    negative=negative,
+                    latent=refined,
+                    seed=pass_seed,
+                    cfg=cfg,
+                    steps=pass_step_count,
+                    sampler_name=sampler_name,
+                    scheduler=scheduler,
+                    shift_video=shift_video,
+                    shift_audio=shift_audio,
+                    denoise=pass_denoise,
+                    phase_name="global_refine",
+                    on_phase=_pass_phase,
+                    on_step_preview=on_step_preview,
+                    preview_every=preview_every,
+                )
             elapsed = time.perf_counter() - pass_started
             pass_timings.append(elapsed)
             pass_denoises.append(float(pass_denoise))

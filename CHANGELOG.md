@@ -3,6 +3,51 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## v1.7.0 — 2026-09-14
+
+Render once, then iterate on post-processing without re-rendering; VRAM-bounded
+refine; and an opt-in experimental latent-space continuation.
+
+### Added
+
+- **Reuse first pass (`save.reuse_first_pass`).** The first-pass H3 sample is the
+  expensive half of a render. With the checkbox on, the raw AV latent is cached on disk
+  keyed on everything that produced it *except* post-processing, so a later run with the
+  same seed / prompt / references / resolution but different Global Refine, Face Refine or
+  Audio Room settings skips sampling entirely and only re-runs post-processing. A 107-frame
+  r2v render measured 363 s down to 33 s on reuse. The key deliberately invalidates when
+  the seed, prompt, references, resolution, sampler or model change, because those
+  genuinely change the first pass. Every hit and miss is now logged, and a settings
+  snapshot plus a field-level drift diff explain any unexpected miss (e.g. the H3 loader's
+  non-deterministic quantization-op registration order shifting the model-runtime hash
+  across restarts).
+- **Tiled refine (`tiled_refine`, `tile_size`, `tile_overlap`).** The Global Refine
+  second-sampling pass can now be split into overlapping spatial tiles, so a large upscale
+  fits in less VRAM: each tile is sampled alone (with its own keyframe crop), brightness is
+  matched back to the input, and tiles are stitched with a linear cross-fade on the interior
+  edges. Audio is taken from the first tile.
+- **Export comparison (`export_comparison`).** Writes both the raw first pass and the
+  post-processed result to `<prefix>_raw_firstpass` and `<prefix>_postprocessed` so the two
+  can be compared side by side.
+- **Refine opt-out on an external patch (`allow_refine_on_external_patch`).** When a patch
+  (external) supplies the output, the second sampling pass can now be skipped via config.
+- **Latent continuation (EXPERIMENTAL, opt-in `latent_continuation_enabled`).** Ports the
+  community "video joiner / continue in latent space" mechanism natively: the previous
+  segment's final latent is injected directly into the next segment's sampling stream and
+  locked with a nested H3 noise mask (0 = preserve, 1 = generate), instead of the
+  conditioning-only Motion Context. Marked EARLY TEST in the tooltip; needs GPU validation
+  before production use.
+
+### Changed
+
+- The post-process page now puts the reuse / performance toggles in a compact bar at the
+  top instead of scattering them through Global Refine.
+
+### Tests
+
+- 492 tests, with new suites for the first-pass cache, tiled refine, and latent
+  continuation.
+
 ## v1.6.0 — 2026-09-13
 
 RefMod identity references, a Results player that streams instead of shipping base64, and

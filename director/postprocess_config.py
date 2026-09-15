@@ -67,7 +67,9 @@ def postprocess_cache_fingerprint(config: dict[str, Any]) -> dict[str, Any]:
 
     Face Refine now runs before segment/cache finalization on normal Motion
     Context chains, so its settings must invalidate stale segment/context
-    caches. Result previews remain UI-only and are deliberately excluded.
+    caches. Result previews and the raw-vs-processed comparison export remain
+    UI-only (they do not change the produced frames) and are deliberately
+    excluded.
 
     Audio room simulation is deliberately excluded.  It is applied at final
     output assembly, after every segment cache has been written, so no room
@@ -77,6 +79,7 @@ def postprocess_cache_fingerprint(config: dict[str, Any]) -> dict[str, Any]:
     global_refine = dict(normalized["global_refine"])
     face_refine = dict(normalized["face_refine"])
     global_refine.pop("result_previews_enabled", None)
+    global_refine.pop("export_comparison", None)
     return {
         "global_refine": global_refine if global_refine["enabled"] else False,
         "face_refine": face_refine if face_refine["enabled"] else False,
