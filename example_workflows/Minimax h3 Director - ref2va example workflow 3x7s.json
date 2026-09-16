@@ -1,8 +1,8 @@
 {
   "id": "tkl1j7zz8tinelny4iltivo93f",
   "revision": 0,
-  "last_node_id": 14,
-  "last_link_id": 73,
+  "last_node_id": 18,
+  "last_link_id": 88,
   "nodes": [
     {
       "id": "cff",
@@ -16,7 +16,7 @@
         82
       ],
       "flags": {},
-      "order": 3,
+      "order": 6,
       "mode": 0,
       "inputs": [
         {
@@ -67,7 +67,7 @@
         370
       ],
       "flags": {},
-      "order": 4,
+      "order": 7,
       "mode": 0,
       "inputs": [
         {
@@ -142,7 +142,7 @@
         658
       ],
       "flags": {},
-      "order": 6,
+      "order": 9,
       "mode": 0,
       "inputs": [
         {
@@ -242,7 +242,7 @@
         490
       ],
       "flags": {},
-      "order": 5,
+      "order": 8,
       "mode": 0,
       "inputs": [
         {
@@ -351,7 +351,8 @@
           "name": "CLIP",
           "type": "CLIP",
           "links": [
-            55
+            55,
+            82
           ]
         },
         {
@@ -428,7 +429,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 10,
+      "order": 13,
       "mode": 0,
       "inputs": [
         {
@@ -514,7 +515,7 @@
         106
       ],
       "flags": {},
-      "order": 7,
+      "order": 10,
       "mode": 0,
       "inputs": [
         {
@@ -564,10 +565,10 @@
       ],
       "size": [
         623.5162204999688,
-        799
+        867
       ],
       "flags": {},
-      "order": 8,
+      "order": 11,
       "mode": 0,
       "inputs": [
         {
@@ -606,7 +607,7 @@
           "name": "refmod_conditioning",
           "shape": 7,
           "type": "CONDITIONING",
-          "link": 77
+          "link": 83
         },
         {
           "name": "director_inputs",
@@ -677,11 +678,13 @@
           "export_source_images": false,
           "bd_grp_experimental": "Experimental",
           "pin_renorm_enabled": true,
-          "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+          "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"allow_refine_on_external_patch\":false,\"export_comparison\":false,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"latent_upscale_cache_model\":false,\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"tiled_refine\":false,\"tile_size\":512,\"tile_overlap\":96,\"temporal_split\":false,\"temporal_chunk_frames\":136,\"temporal_overlap_frames\":17,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"reuse_first_pass\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
           "bd_grp_audio_refine": "Audio Refine",
           "audio_refine_enabled": false,
           "audio_refine_steps": 6,
           "audio_refine_denoise": 0.5,
+          "latent_continuation_enabled": false,
+          "verbose_logging": false,
           "minimax_motion_director_ui": ""
         }
       },
@@ -727,15 +730,16 @@
         3,
         null,
         "Performance",
-        false,
+        true,
         false,
         "Experimental",
         true,
-        "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+        "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"allow_refine_on_external_patch\":false,\"export_comparison\":false,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"latent_upscale_cache_model\":false,\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"tiled_refine\":false,\"tile_size\":512,\"tile_overlap\":96,\"temporal_split\":false,\"temporal_chunk_frames\":136,\"temporal_overlap_frames\":17,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"reuse_first_pass\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
         "Audio Refine",
         false,
         6,
         0.5,
+        false,
         false,
         ""
       ],
@@ -769,11 +773,13 @@
         "export_source_images": false,
         "bd_grp_experimental": "Experimental",
         "pin_renorm_enabled": true,
-        "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
+        "postprocess_config": "{\"version\":11,\"global_refine\":{\"enabled\":false,\"mode\":\"refine\",\"second_sampling_enabled\":false,\"result_previews_enabled\":false,\"denoise\":0.25,\"steps\":0,\"allow_refine_on_external_patch\":false,\"export_comparison\":false,\"seed_mode\":\"inherit\",\"seed_offset\":1,\"skip_fl2v\":false,\"upscale_method\":\"lanczos\",\"upscale_model\":\"\",\"latent_upscale_model\":\"minimax_h3_latent_upscaler_3d_fp16.safetensors\",\"latent_upscale_precision\":\"fp16\",\"latent_upscale_device\":\"cuda\",\"latent_upscale_cache_model\":false,\"vsr_quality\":\"high\",\"resolution_mode\":\"follow_director\",\"aspect\":\"16:9\",\"megapixels\":1,\"width\":1376,\"height\":768,\"rtx_deblur_enabled\":false,\"rtx_deblur_quality\":\"medium\",\"rtx_deblur_strength\":1,\"tiled_refine\":false,\"tile_size\":512,\"tile_overlap\":96,\"temporal_split\":false,\"temporal_chunk_frames\":136,\"temporal_overlap_frames\":17,\"passes\":1},\"face_refine\":{\"enabled\":false,\"detector\":\"ultralytics\",\"detector_model\":\"face_yolov8m.pt\",\"confidence\":0.35,\"select\":\"largest\",\"crop_factor\":2.5,\"canvas_mode\":\"auto_capped_768\",\"canvas_size\":768,\"smooth_method\":\"gaussian\",\"smooth_window\":21,\"size_smooth_window\":51,\"size_mode\":\"adaptive\",\"adaptive\":true,\"base_denoise\":0.45,\"strength_small_face\":0.8,\"strength_large_face\":0.35,\"face_px_small\":30,\"face_px_large\":120,\"mask_mode\":\"rect\",\"paste_region\":\"face_rect\",\"feather\":24,\"colour_match\":true,\"blend\":1,\"undetected_frames\":\"fade\",\"identity_reference\":\"\",\"identity_track\":false,\"identity_threshold\":0.28,\"fallback_detector\":\"none\",\"fallback_head_frac\":0.5,\"gamma\":1,\"denoise_smooth\":9,\"mask_dilation\":24,\"feather_scales_with_crop\":false,\"sam_model\":\"\",\"sam_threshold\":0.93,\"sam_dilation\":0,\"sam_temporal_smooth\":5},\"audio_refine\":{\"version\":1,\"enabled\":false,\"room\":\"\",\"reverb_enabled\":true,\"reverberance\":40,\"hf_damping\":55,\"room_scale\":45,\"stereo_depth\":70,\"pre_delay_ms\":12,\"wet_gain_db\":-2,\"normalize\":false,\"gain_db\":0,\"use_limiter\":true,\"sox_path\":\"\"},\"preview\":{\"enabled\":true,\"preview_frames\":8,\"preview_fps\":12,\"max_resolution\":1024,\"jpeg_quality\":80,\"preview_every\":1},\"save\":{\"auto_save\":false,\"reuse_first_pass\":false,\"filename_prefix\":\"video/MiniMaxH3_Director\",\"format\":\"auto\",\"codec\":\"auto\",\"encoding\":\"auto\",\"crf\":23}}",
         "bd_grp_audio_refine": "Audio Refine",
         "audio_refine_enabled": false,
         "audio_refine_steps": 6,
         "audio_refine_denoise": 0.5,
+        "latent_continuation_enabled": false,
+        "verbose_logging": false,
         "minimax_motion_director_ui": ""
       },
       "color": "#235263FF",
@@ -791,7 +797,7 @@
         210
       ],
       "flags": {},
-      "order": 2,
+      "order": 5,
       "mode": 0,
       "inputs": [
         {
@@ -887,7 +893,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 9,
+      "order": 12,
       "mode": 0,
       "inputs": [
         {
@@ -946,7 +952,7 @@
         106
       ],
       "flags": {},
-      "order": 11,
+      "order": 14,
       "mode": 0,
       "inputs": [
         {
@@ -988,66 +994,82 @@
       "bgcolor": "#482E82FF"
     },
     {
-      "id": "rmclip",
-      "type": "CLIPTextEncode",
+      "id": 16,
+      "type": "12c2c789-00a6-4f9d-8dbb-7e049b276ffc",
       "pos": [
-        -493.3511441442944,
-        1619
+        380,
+        1390
       ],
       "size": [
-        270,
-        100
+        326.98101495074786,
+        250
       ],
       "flags": {
-        "collapsed": true,
         "pinned": true
       },
-      "order": 5,
+      "order": 4,
       "mode": 4,
       "inputs": [
         {
           "name": "clip",
           "type": "CLIP",
-          "link": 74
+          "link": 82
         }
       ],
       "outputs": [
         {
-          "name": "CONDITIONING",
+          "name": "conditioning",
           "type": "CONDITIONING",
           "links": [
-            75
+            83
           ]
         }
       ],
-      "title": "RefMod carrier (text ignored)",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.35.0",
-        "Node name for S&R": "CLIPTextEncode",
         "ue_properties": {
           "widget_ue_connectable": {},
-          "version": "7.8",
-          "input_ue_unconnectable": {}
-        }
+          "input_ue_unconnectable": {},
+          "version": "7.8"
+        },
+        "previewExposures": []
       },
       "widgets_values": [
-        ""
+        "people/elf_girl",
+        1,
+        1,
+        40000,
+        "",
+        2,
+        "All",
+        1,
+        1
       ],
       "widgets_values_named": {
-        "text": ""
-      }
+        "mod_1": "people/elf_girl",
+        "strength_1": 1,
+        "retention": 1,
+        "scramble_seed": 40000,
+        "save_preset_as": "",
+        "copies_1": 2,
+        "components_1": "All",
+        "visual_strength_1": 1,
+        "audio_strength_1": 1
+      },
+      "color": "#432",
+      "bgcolor": "#653"
     },
     {
-      "id": "rmload",
-      "type": "MiniMaxH3RefModsLoader",
+      "id": 17,
+      "type": "MarkdownNote",
       "pos": [
-        -493.3511441442944,
-        1659
+        -50,
+        1390
       ],
       "size": [
-        340,
-        342
+        410,
+        470
       ],
       "flags": {
         "pinned": true
@@ -1055,27 +1077,9 @@
       "order": 2,
       "mode": 4,
       "inputs": [],
-      "outputs": [
-        {
-          "name": "mods",
-          "type": "H3_REF_MODS",
-          "links": [
-            76
-          ]
-        },
-        {
-          "name": "prompt_hint",
-          "type": "STRING",
-          "links": []
-        }
-      ],
+      "outputs": [],
+      "title": "RefMod identity preset",
       "properties": {
-        "cnr_id": "ComfyUI-MiniMaxH3Mod",
-        "ver": "cd27d1109a0da5f0a162ab59d53c6507251d4c34",
-        "Node name for S&R": "MiniMaxH3RefModsLoader",
-        "refmod_visible_slots": [
-          1
-        ],
         "ue_properties": {
           "widget_ue_connectable": {},
           "version": "7.8",
@@ -1083,180 +1087,34 @@
         }
       },
       "widgets_values": [
-        true,
-        "people/elf_girl",
-        1,
-        2,
-        "(none)",
-        1,
-        1,
-        "(none)",
-        1,
-        1,
-        "(none)",
-        1,
-        1,
-        "(none)",
-        1,
-        1,
-        "(none)",
-        1,
-        1,
-        "(none)",
-        1,
-        1,
-        "(none)",
-        1,
-        1,
-        0,
-        "All",
-        1,
-        1,
-        "All",
-        1,
-        1,
-        "All",
-        1,
-        1,
-        "All",
-        1,
-        1,
-        "All",
-        1,
-        1,
-        "All",
-        1,
-        1,
-        "All",
-        1,
-        1,
-        "All",
-        1,
-        1,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null
+        "# Character Replace example (RefMod identity + SAM3 masks)\n\n## Quick start\n\n1. Drop your source video into `ComfyUI/input` and point the timeline Source Video at it\n   (currently `character_replace_source_example.mp4`).\n2. `Load H3 RefMods` slot 1 = your character mod, `strength_1` 1.0, `copies_1` 1.\n   Keep the mod images cropped to the person - rooms and furniture in the reference\n   leak into the render as content.\n3. Replace is already ON: two 5-second windows, SAM3 auto-masks, render = `anchor`,\n   audio policy = `source`, lead 12, grow 1, feather 1.\n4. Use `Test mask` on a window and PICK the subject with click points. Points are far\n   more reliable than text - the `the woman` prompt in `sam_prompts` is only a fallback.\n   Copy the points to the other windows, then render.\n5. Watch the console: `FELL BACK to plain RV2V` means the mask failed for that window\n   and the render will not replace anything.\n\n## Which channel owns the outfit\n\nThe RefMod reference carries everything its images show - face, clothing, rooms. If the\noutfit should come from the reference, keep `wardrobe:` matching it. If the outfit must\ncome from the prompt, crop the mod images so they do not show a conflicting outfit.\n\n## Perf section\n\n`verbose_logging` prints the pack's own DEBUG diagnostics for a run (phase timings,\ncache decisions, SAM3 attempts, reference counts). `MINIMAX_DIRECTOR_VERBOSE=1/0`\nforces it on or off server-wide."
       ],
       "widgets_values_named": {
-        "show_info": true,
-        "mod_1": "people/elf_girl",
-        "strength_1": 1,
-        "copies_1": 2,
-        "mod_2": "(none)",
-        "strength_2": 1,
-        "copies_2": 1,
-        "mod_3": "(none)",
-        "strength_3": 1,
-        "copies_3": 1,
-        "mod_4": "(none)",
-        "strength_4": 1,
-        "copies_4": 1,
-        "mod_5": "(none)",
-        "strength_5": 1,
-        "copies_5": 1,
-        "mod_6": "(none)",
-        "strength_6": 1,
-        "copies_6": 1,
-        "mod_7": "(none)",
-        "strength_7": 1,
-        "copies_7": 1,
-        "mod_8": "(none)",
-        "strength_8": 1,
-        "copies_8": 1,
-        "max_total_tokens": 0,
-        "components_1": "All",
-        "visual_strength_1": 1,
-        "audio_strength_1": 1,
-        "components_2": "All",
-        "visual_strength_2": 1,
-        "audio_strength_2": 1,
-        "components_3": "All",
-        "visual_strength_3": 1,
-        "audio_strength_3": 1,
-        "components_4": "All",
-        "visual_strength_4": 1,
-        "audio_strength_4": 1,
-        "components_5": "All",
-        "visual_strength_5": 1,
-        "audio_strength_5": 1,
-        "components_6": "All",
-        "visual_strength_6": 1,
-        "audio_strength_6": 1,
-        "components_7": "All",
-        "visual_strength_7": 1,
-        "audio_strength_7": 1,
-        "components_8": "All",
-        "visual_strength_8": 1,
-        "audio_strength_8": 1,
-        "Refresh RefMods": null,
-        "RefMod library": null,
-        "Remove RefMod 1": null,
-        "Remove RefMod 2": null,
-        "Remove RefMod 3": null,
-        "Remove RefMod 4": null,
-        "Remove RefMod 5": null,
-        "Remove RefMod 6": null,
-        "Remove RefMod 7": null,
-        "Remove RefMod 8": null,
-        "+ Add RefMod": null
+        "text": "# Character Replace example (RefMod identity + SAM3 masks)\n\n## Quick start\n\n1. Drop your source video into `ComfyUI/input` and point the timeline Source Video at it\n   (currently `character_replace_source_example.mp4`).\n2. `Load H3 RefMods` slot 1 = your character mod, `strength_1` 1.0, `copies_1` 1.\n   Keep the mod images cropped to the person - rooms and furniture in the reference\n   leak into the render as content.\n3. Replace is already ON: two 5-second windows, SAM3 auto-masks, render = `anchor`,\n   audio policy = `source`, lead 12, grow 1, feather 1.\n4. Use `Test mask` on a window and PICK the subject with click points. Points are far\n   more reliable than text - the `the woman` prompt in `sam_prompts` is only a fallback.\n   Copy the points to the other windows, then render.\n5. Watch the console: `FELL BACK to plain RV2V` means the mask failed for that window\n   and the render will not replace anything.\n\n## Which channel owns the outfit\n\nThe RefMod reference carries everything its images show - face, clothing, rooms. If the\noutfit should come from the reference, keep `wardrobe:` matching it. If the outfit must\ncome from the prompt, crop the mod images so they do not show a conflicting outfit.\n\n## Perf section\n\n`verbose_logging` prints the pack's own DEBUG diagnostics for a run (phase timings,\ncache decisions, SAM3 attempts, reference counts). `MINIMAX_DIRECTOR_VERBOSE=1/0`\nforces it on or off server-wide."
       },
-      "color": "#323",
-      "bgcolor": "#535"
+      "color": "#432",
+      "bgcolor": "#653"
     },
     {
-      "id": "rmapply",
-      "type": "MiniMaxH3RefModApply",
+      "id": 18,
+      "type": "MarkdownNote",
       "pos": [
-        -133.35114414429438,
-        1659
+        -150,
+        1220
       ],
       "size": [
-        340,
-        342
+        471.19406814458273,
+        90.90596735534609
       ],
       "flags": {
         "pinned": true
       },
-      "order": 7,
-      "mode": 4,
-      "inputs": [
-        {
-          "name": "conditioning",
-          "type": "MINIMAX_H3_COND,CONDITIONING",
-          "link": 75
-        },
-        {
-          "name": "mods",
-          "type": "H3_REF_MODS",
-          "link": 76
-        }
-      ],
-      "outputs": [
-        {
-          "name": "conditioning",
-          "type": "CONDITIONING",
-          "links": [
-            77
-          ]
-        },
-        {
-          "name": "curve graph",
-          "type": "IMAGE",
-          "links": []
-        }
-      ],
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Post Processing and Spectrum Apply ------------------>",
       "properties": {
-        "cnr_id": "ComfyUI-MiniMaxH3Mod",
-        "ver": "cd27d1109a0da5f0a162ab59d53c6507251d4c34",
-        "Node name for S&R": "MiniMaxH3RefModApply",
         "ue_properties": {
           "widget_ue_connectable": {},
           "version": "7.8",
@@ -1264,35 +1122,13 @@
         }
       },
       "widgets_values": [
-        false,
-        1,
-        "constant",
-        40000,
-        "fixed",
-        "linear",
-        1,
-        "(none)",
-        "shuffle",
-        1,
-        0,
-        ""
+        "To allow for post processing to work you have to either disable Spectrum apply MiniMax H3 node to the right OR enable the 2 options below in the Motion Director post processing section.\n\nPass Result Previews (extra VAE decode)\n\nAllow Refine with external attention patch"
       ],
       "widgets_values_named": {
-        "override": false,
-        "retention": 1,
-        "curve_direction": "constant",
-        "scramble_seed": 40000,
-        "fixed": "fixed",
-        "curve_shape": "linear",
-        "curve_value": 1,
-        "graph_preset": "(none)",
-        "scramble_mode": "shuffle",
-        "scramble_keep": 1,
-        "max_total_tokens": 0,
-        "save_preset_as": ""
+        "text": "To allow for post processing to work you have to either disable Spectrum apply MiniMax H3 node to the right OR enable the 2 options below in the Motion Director post processing section.\n\nPass Result Previews (extra VAE decode)\n\nAllow Refine with external attention patch"
       },
-      "color": "#323",
-      "bgcolor": "#535"
+      "color": "#322",
+      "bgcolor": "#533"
     }
   ],
   "links": [
@@ -1449,32 +1285,16 @@
       "MODEL"
     ],
     [
-      74,
+      82,
       10,
       1,
-      "rmclip",
+      16,
       0,
       "CLIP"
     ],
     [
-      75,
-      "rmclip",
-      0,
-      "rmapply",
-      0,
-      "CONDITIONING"
-    ],
-    [
-      76,
-      "rmload",
-      0,
-      "rmapply",
-      1,
-      "H3_REF_MODS"
-    ],
-    [
-      77,
-      "rmapply",
+      83,
+      16,
       0,
       "dir",
       6,
@@ -1529,18 +1349,6 @@
       ],
       "color": "#6843BFFF",
       "flags": {}
-    },
-    {
-      "id": 900,
-      "title": "RefMod (BYPASSED - Ctrl+B to enable)",
-      "bounding": [
-        -513.3511441442944,
-        1539,
-        740,
-        470
-      ],
-      "color": "#8AA",
-      "flags": {}
     }
   ],
   "definitions": {
@@ -1549,9 +1357,9 @@
         "id": "6fa07e59-e98a-44fc-83b5-423fc38d0bae",
         "version": 1,
         "state": {
-          "lastGroupId": 8,
-          "lastNodeId": 14,
-          "lastLinkId": 73,
+          "lastGroupId": 900,
+          "lastNodeId": 18,
+          "lastLinkId": 88,
           "lastRerouteId": 0
         },
         "revision": 0,
@@ -2460,6 +2268,685 @@
         "extra": {
           "pixaromaGroups": []
         }
+      },
+      {
+        "id": "12c2c789-00a6-4f9d-8dbb-7e049b276ffc",
+        "version": 1,
+        "state": {
+          "lastGroupId": 900,
+          "lastNodeId": 18,
+          "lastLinkId": 88,
+          "lastRerouteId": 0
+        },
+        "revision": 0,
+        "config": {},
+        "name": "RefMod",
+        "inputNode": {
+          "id": -10,
+          "bounding": [
+            -668,
+            1680,
+            142.31666564941406,
+            248
+          ]
+        },
+        "outputNode": {
+          "id": -20,
+          "bounding": [
+            320,
+            1680,
+            128,
+            68
+          ]
+        },
+        "inputs": [
+          {
+            "id": "ddf3c29e-02b7-46ab-81b5-b22a623ca625",
+            "name": "clip",
+            "type": "CLIP",
+            "linkIds": [
+              74
+            ],
+            "localized_name": "clip",
+            "pos": [
+              -549.6833343505859,
+              1704
+            ]
+          },
+          {
+            "id": "9468dfef-0bb3-42e1-9c81-5c14cc1140ab",
+            "name": "mod_1",
+            "type": "COMBO",
+            "linkIds": [
+              84
+            ],
+            "pos": [
+              -549.6833343505859,
+              1724
+            ]
+          },
+          {
+            "id": "e5516a4f-6b4d-4fde-825e-70fa173f0a38",
+            "name": "strength_1",
+            "type": "FLOAT",
+            "linkIds": [
+              78
+            ],
+            "pos": [
+              -549.6833343505859,
+              1744
+            ]
+          },
+          {
+            "id": "ba213b80-3f82-4762-8efa-f85d0e1377ef",
+            "name": "retention",
+            "type": "FLOAT",
+            "linkIds": [
+              79
+            ],
+            "pos": [
+              -549.6833343505859,
+              1764
+            ]
+          },
+          {
+            "id": "c0904065-c813-4cbe-8d6e-9300b2652e48",
+            "name": "scramble_seed",
+            "type": "INT",
+            "linkIds": [
+              80
+            ],
+            "pos": [
+              -549.6833343505859,
+              1784
+            ]
+          },
+          {
+            "id": "0c4f87bb-019b-4c35-80a7-55f815dc0615",
+            "name": "save_preset_as",
+            "type": "STRING",
+            "linkIds": [
+              81
+            ],
+            "pos": [
+              -549.6833343505859,
+              1804
+            ]
+          },
+          {
+            "id": "e5ed6835-a895-4e78-a3e6-0bd9f8439b57",
+            "name": "copies_1",
+            "type": "INT",
+            "linkIds": [
+              85
+            ],
+            "pos": [
+              -549.6833343505859,
+              1824
+            ]
+          },
+          {
+            "id": "07ee10c2-2aa9-4f9a-b3dc-999b32e18828",
+            "name": "components_1",
+            "type": "COMBO",
+            "linkIds": [
+              86
+            ],
+            "pos": [
+              -549.6833343505859,
+              1844
+            ]
+          },
+          {
+            "id": "2a9c8ed7-9dde-4a5b-a3db-aaa9d0b64eb4",
+            "name": "visual_strength_1",
+            "type": "FLOAT",
+            "linkIds": [
+              87
+            ],
+            "pos": [
+              -549.6833343505859,
+              1864
+            ]
+          },
+          {
+            "id": "e989876d-c671-4651-807f-6c182692c313",
+            "name": "audio_strength_1",
+            "type": "FLOAT",
+            "linkIds": [
+              88
+            ],
+            "pos": [
+              -549.6833343505859,
+              1884
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "id": "d04fdc53-8080-4d90-9eb3-1ae9b55b5342",
+            "name": "conditioning",
+            "type": "CONDITIONING",
+            "linkIds": [],
+            "localized_name": "conditioning",
+            "pos": [
+              344,
+              1704
+            ]
+          }
+        ],
+        "widgets": [],
+        "nodes": [
+          {
+            "id": "rmclip",
+            "type": "CLIPTextEncode",
+            "pos": [
+              -460,
+              1559
+            ],
+            "size": [
+              270,
+              100
+            ],
+            "flags": {
+              "collapsed": true,
+              "pinned": true
+            },
+            "order": 0,
+            "mode": 4,
+            "inputs": [
+              {
+                "localized_name": "clip",
+                "name": "clip",
+                "type": "CLIP",
+                "link": 74
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "CONDITIONING",
+                "name": "CONDITIONING",
+                "type": "CONDITIONING",
+                "links": [
+                  75
+                ]
+              }
+            ],
+            "title": "RefMod carrier (text ignored)",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.35.0",
+              "Node name for S&R": "CLIPTextEncode",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              ""
+            ],
+            "widgets_values_named": {
+              "text": ""
+            }
+          },
+          {
+            "id": "rmload",
+            "type": "MiniMaxH3RefModsLoader",
+            "pos": [
+              -460,
+              1599
+            ],
+            "size": [
+              340,
+              342
+            ],
+            "flags": {
+              "pinned": true
+            },
+            "order": 1,
+            "mode": 4,
+            "inputs": [
+              {
+                "localized_name": "mod_1",
+                "name": "mod_1",
+                "type": "COMBO",
+                "widget": {
+                  "name": "mod_1"
+                },
+                "link": 84
+              },
+              {
+                "localized_name": "strength_1",
+                "name": "strength_1",
+                "type": "FLOAT",
+                "widget": {
+                  "name": "strength_1"
+                },
+                "link": 78
+              },
+              {
+                "localized_name": "copies_1",
+                "name": "copies_1",
+                "type": "INT",
+                "widget": {
+                  "name": "copies_1"
+                },
+                "link": 85
+              },
+              {
+                "localized_name": "components_1",
+                "name": "components_1",
+                "shape": 7,
+                "type": "COMBO",
+                "widget": {
+                  "name": "components_1"
+                },
+                "link": 86
+              },
+              {
+                "localized_name": "visual_strength_1",
+                "name": "visual_strength_1",
+                "shape": 7,
+                "type": "FLOAT",
+                "widget": {
+                  "name": "visual_strength_1"
+                },
+                "link": 87
+              },
+              {
+                "localized_name": "audio_strength_1",
+                "name": "audio_strength_1",
+                "shape": 7,
+                "type": "FLOAT",
+                "widget": {
+                  "name": "audio_strength_1"
+                },
+                "link": 88
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "mods",
+                "name": "mods",
+                "type": "H3_REF_MODS",
+                "links": [
+                  76
+                ]
+              },
+              {
+                "localized_name": "prompt_hint",
+                "name": "prompt_hint",
+                "type": "STRING",
+                "links": []
+              }
+            ],
+            "properties": {
+              "cnr_id": "ComfyUI-MiniMaxH3Mod",
+              "ver": "cd27d1109a0da5f0a162ab59d53c6507251d4c34",
+              "Node name for S&R": "MiniMaxH3RefModsLoader",
+              "refmod_visible_slots": [
+                1
+              ],
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              true,
+              "people/elf_girl",
+              1,
+              2,
+              "(none)",
+              1,
+              1,
+              "(none)",
+              1,
+              1,
+              "(none)",
+              1,
+              1,
+              "(none)",
+              1,
+              1,
+              "(none)",
+              1,
+              1,
+              "(none)",
+              1,
+              1,
+              "(none)",
+              1,
+              1,
+              0,
+              "All",
+              1,
+              1,
+              "All",
+              1,
+              1,
+              "All",
+              1,
+              1,
+              "All",
+              1,
+              1,
+              "All",
+              1,
+              1,
+              "All",
+              1,
+              1,
+              "All",
+              1,
+              1,
+              "All",
+              1,
+              1,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "widgets_values_named": {
+              "show_info": true,
+              "mod_1": "people/elf_girl",
+              "strength_1": 1,
+              "copies_1": 2,
+              "mod_2": "(none)",
+              "strength_2": 1,
+              "copies_2": 1,
+              "mod_3": "(none)",
+              "strength_3": 1,
+              "copies_3": 1,
+              "mod_4": "(none)",
+              "strength_4": 1,
+              "copies_4": 1,
+              "mod_5": "(none)",
+              "strength_5": 1,
+              "copies_5": 1,
+              "mod_6": "(none)",
+              "strength_6": 1,
+              "copies_6": 1,
+              "mod_7": "(none)",
+              "strength_7": 1,
+              "copies_7": 1,
+              "mod_8": "(none)",
+              "strength_8": 1,
+              "copies_8": 1,
+              "max_total_tokens": 0,
+              "components_1": "All",
+              "visual_strength_1": 1,
+              "audio_strength_1": 1,
+              "components_2": "All",
+              "visual_strength_2": 1,
+              "audio_strength_2": 1,
+              "components_3": "All",
+              "visual_strength_3": 1,
+              "audio_strength_3": 1,
+              "components_4": "All",
+              "visual_strength_4": 1,
+              "audio_strength_4": 1,
+              "components_5": "All",
+              "visual_strength_5": 1,
+              "audio_strength_5": 1,
+              "components_6": "All",
+              "visual_strength_6": 1,
+              "audio_strength_6": 1,
+              "components_7": "All",
+              "visual_strength_7": 1,
+              "audio_strength_7": 1,
+              "components_8": "All",
+              "visual_strength_8": 1,
+              "audio_strength_8": 1,
+              "Remove RefMod 1": null,
+              "Remove RefMod 2": null,
+              "Remove RefMod 3": null,
+              "Remove RefMod 4": null,
+              "Remove RefMod 5": null,
+              "Remove RefMod 6": null,
+              "Remove RefMod 7": null,
+              "Remove RefMod 8": null,
+              "+ Add RefMod": null,
+              "Refresh RefMods": null,
+              "RefMod library": null
+            },
+            "color": "#323",
+            "bgcolor": "#535"
+          },
+          {
+            "id": "rmapply",
+            "type": "MiniMaxH3RefModApply",
+            "pos": [
+              -100,
+              1599
+            ],
+            "size": [
+              340,
+              342
+            ],
+            "flags": {
+              "pinned": true
+            },
+            "order": 2,
+            "mode": 4,
+            "inputs": [
+              {
+                "localized_name": "conditioning",
+                "name": "conditioning",
+                "type": "MINIMAX_H3_COND,CONDITIONING",
+                "link": 75
+              },
+              {
+                "localized_name": "mods",
+                "name": "mods",
+                "type": "H3_REF_MODS",
+                "link": 76
+              },
+              {
+                "localized_name": "retention",
+                "name": "retention",
+                "type": "FLOAT",
+                "widget": {
+                  "name": "retention"
+                },
+                "link": 79
+              },
+              {
+                "localized_name": "scramble_seed",
+                "name": "scramble_seed",
+                "type": "INT",
+                "widget": {
+                  "name": "scramble_seed"
+                },
+                "link": 80
+              },
+              {
+                "localized_name": "save_preset_as",
+                "name": "save_preset_as",
+                "shape": 7,
+                "type": "STRING",
+                "widget": {
+                  "name": "save_preset_as"
+                },
+                "link": 81
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "conditioning",
+                "name": "conditioning",
+                "type": "CONDITIONING",
+                "links": [
+                  77
+                ]
+              },
+              {
+                "localized_name": "curve graph",
+                "name": "curve graph",
+                "type": "IMAGE",
+                "links": []
+              }
+            ],
+            "properties": {
+              "cnr_id": "ComfyUI-MiniMaxH3Mod",
+              "ver": "cd27d1109a0da5f0a162ab59d53c6507251d4c34",
+              "Node name for S&R": "MiniMaxH3RefModApply",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              false,
+              1,
+              "constant",
+              40000,
+              "fixed",
+              "linear",
+              1,
+              "(none)",
+              "shuffle",
+              1,
+              0,
+              ""
+            ],
+            "widgets_values_named": {
+              "override": false,
+              "retention": 1,
+              "curve_direction": "constant",
+              "scramble_seed": 40000,
+              "fixed": "fixed",
+              "curve_shape": "linear",
+              "curve_value": 1,
+              "graph_preset": "(none)",
+              "scramble_mode": "shuffle",
+              "scramble_keep": 1,
+              "max_total_tokens": 0,
+              "save_preset_as": ""
+            },
+            "color": "#323",
+            "bgcolor": "#535"
+          }
+        ],
+        "groups": [
+          {
+            "id": 900,
+            "title": "RefMod (BYPASSED - Ctrl+B to enable)",
+            "bounding": [
+              -480,
+              1479,
+              740,
+              470
+            ],
+            "color": "#8AA",
+            "flags": {}
+          }
+        ],
+        "links": [
+          {
+            "id": 75,
+            "origin_id": "rmclip",
+            "origin_slot": 0,
+            "target_id": "rmapply",
+            "target_slot": 0,
+            "type": "CONDITIONING"
+          },
+          {
+            "id": 74,
+            "origin_id": -10,
+            "origin_slot": 0,
+            "target_id": "rmclip",
+            "target_slot": 0,
+            "type": "CLIP"
+          },
+          {
+            "id": 78,
+            "origin_id": -10,
+            "origin_slot": 2,
+            "target_id": "rmload",
+            "target_slot": 1,
+            "type": "FLOAT"
+          },
+          {
+            "id": 79,
+            "origin_id": -10,
+            "origin_slot": 3,
+            "target_id": "rmapply",
+            "target_slot": 2,
+            "type": "FLOAT"
+          },
+          {
+            "id": 80,
+            "origin_id": -10,
+            "origin_slot": 4,
+            "target_id": "rmapply",
+            "target_slot": 3,
+            "type": "INT"
+          },
+          {
+            "id": 81,
+            "origin_id": -10,
+            "origin_slot": 5,
+            "target_id": "rmapply",
+            "target_slot": 4,
+            "type": "STRING"
+          },
+          {
+            "id": 84,
+            "origin_id": -10,
+            "origin_slot": 1,
+            "target_id": "rmload",
+            "target_slot": 0,
+            "type": "COMBO"
+          },
+          {
+            "id": 85,
+            "origin_id": -10,
+            "origin_slot": 6,
+            "target_id": "rmload",
+            "target_slot": 2,
+            "type": "INT"
+          },
+          {
+            "id": 86,
+            "origin_id": -10,
+            "origin_slot": 7,
+            "target_id": "rmload",
+            "target_slot": 3,
+            "type": "COMBO"
+          },
+          {
+            "id": 87,
+            "origin_id": -10,
+            "origin_slot": 8,
+            "target_id": "rmload",
+            "target_slot": 4,
+            "type": "FLOAT"
+          },
+          {
+            "id": 88,
+            "origin_id": -10,
+            "origin_slot": 9,
+            "target_id": "rmload",
+            "target_slot": 5,
+            "type": "FLOAT"
+          }
+        ],
+        "extra": {
+          "pixaromaGroups": [],
+          "ue_links": []
+        }
       }
     ]
   },
@@ -2470,8 +2957,8 @@
     "ds": {
       "scale": 0.7756261950287007,
       "offset": [
-        364.91210317834555,
-        -100.33113026542483
+        897.973515133161,
+        -641.600266165707
       ]
     },
     "frontendVersion": "1.51.10",
