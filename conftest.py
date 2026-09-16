@@ -38,6 +38,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parent
 
 # 1) Keep CWD-relative Path("...") loads in the tests pinned to the repo root.
@@ -82,3 +84,32 @@ if _existing_nodes is None or not any(
     _stub.VAEDecode = object  # replaced per-test by monkeypatch
     _stub.VAEEncode = object
     sys.modules["nodes"] = _stub
+
+
+# 4) Contain stub leakage between tests. Many tests install fake modules into
+#    sys.modules (director.core_sampling, comfy_extras, comfy.nested_tensor, ...)
+#    and never remove them, so a later test that imports the REAL module (e.g.
+#    the GPU upscaler smoke) gets the fake and fails with ImportError /
+#    ModuleNotFoundError. Only fakes (created via types.ModuleType(), i.e. no
+#    __spec__) are reverted — real modules must never be deleted: torch
+#    registers TORCH_LIBRARY namespaces exactly once per process, and
+#    re-importing a deleted real module raises "Only a single TORCH_LIBRARY can
+#    be used to register the namespace".
+def _is_stub(module):
+    return isinstance(module, types.ModuleType) and getattr(module, "__spec__", None) is None
+
+
+@pytest.fixture(autouse=True)
+def _contain_module_leaks():
+    before = dict(sys.modules)
+    yield
+    current = sys.modules
+    # Restore real modules a test replaced with a stub.
+    for name, module in before.items():
+        cur = current.get(name)
+        if cur is not module and _is_stub(cur):
+            current[name] = module
+    # Remove stub modules a test added.
+    for name in set(current) - set(before):
+        if _is_stub(current[name]):
+            del current[name]
