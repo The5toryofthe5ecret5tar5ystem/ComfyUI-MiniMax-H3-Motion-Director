@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.8.0-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.8.2-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.8.0**
+> Current version: **v1.8.2**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,18 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.8.2 — Character Replace that chains, and a masked pass that actually replaces
+
+**Adjacent windows now chain.** Replace windows are independent re-renders, so both windows at a boundary are guessing at the same source frame, and the regenerated subject visibly popped when two guesses met. A window can now open from the **previous window's last rendered frame**, injected as an extra `<Picture>` reference with a prompt line naming it, so the subject starts in the pose the last window ended on instead of a fresh one. It is on by default, a no-op on the first window, and switchable per window (a **cont** checkbox) for deliberately gapped windows. Cache-reused windows record their tail too, so a resumed run keeps chaining.
+
+**Cover the whole clip in one click.** A long clip no longer needs windows added by hand: **Cover entire clip** fills the source with contiguous windows at the length you set (frames or seconds), the last window taking the remainder (a sub-second tail folds into the previous one) and the first window's replace settings copied to all of them. Export each window on its own and one bad window can be re-rendered without touching its neighbours, which is the long-form Character Replace workflow.
+
+**The masked (inpaint) path actually replaces the subject now.** A 97-frame inpaint window reported "masked replace ready" with a 0.71-mean noise mask attached, yet came back frame-for-frame identical to the source (mean |diff| 8/255, against 51+/255 for the same window in anchor mode). ComfyUI starts masked sampling from `latent_image + noise`, so the encoded source left inside the regenerate region is a strong hint: the denoiser refines the original performer instead of inventing the replacement. The regenerate region is now erased before the latent reaches the sampler, so it starts from pure noise there; the keep region still carries the source, so the background stays pixel-exact. A mask that does not line up with the latent is ignored rather than mis-aligned.
+
+**SeedVR2 works on a live install.** ComfyUI imports custom-node packages at startup but does not keep `custom_nodes` on `sys.path` when a node later executes, so the lazy import raised `ModuleNotFoundError` and SeedVR2 quietly downgraded to the first pass. The directory is now added back through `folder_paths` before the import.
+
+**Plus:** Clear VRAM no longer unloads twice per boundary, and keeps the DiT resident for a one-segment selection from a long timeline; refine failures name the model holding VRAM; the external-patch skip is visible in the panel instead of only appearing at render time; the Segment preview plays the window's own source audio in source/keep modes instead of coming up silent; and result audio streams from a Blob URL instead of a `data:` URL that crackled on every seek.
 
 ### v1.8.0 — VRAM that actually frees, plus a longer-clip refine
 

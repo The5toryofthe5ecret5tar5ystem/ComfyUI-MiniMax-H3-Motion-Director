@@ -3,6 +3,127 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## v1.8.2 — 2026-09-16
+
+Seamless long-form Character Replace, a masked-replace fix that makes the inpaint
+path actually replace the subject instead of returning the source, and audio fixes
+across the Segment and Results views.
+
+### Added
+
+- **Character Replace continuity anchor.** Adjacent replace windows are independent
+  re-renders, so both windows try to match the same source frame at their shared
+  boundary — and being two different guesses, the regenerated subject popped
+  ("teleported") whenever windows met. A window can now condition on the previous
+  window's **last rendered frame**, injected as an extra `<Picture>` reference plus
+  a prompt line naming it, so it opens from the prior output's pose instead of a
+  fresh one. On by default (`replace.continuity`), a no-op on the first window, and
+  a per-window **cont** checkbox turns it off for deliberately gapped windows.
+  Fresh renders and cache-reused windows both record their tail, so a resumed run
+  keeps chaining.
+- **"Cover entire clip" auto-windowing.** Long clips no longer need windows added by
+  hand: one button fills the whole source with contiguous windows at the chosen
+  length (frames or seconds), the last window taking the remainder (a sub-second
+  tail is folded into the previous window so it cannot become a degenerate stub),
+  and the first window's replace settings are copied to every generated window.
+  Together with per-window export this is the long-form ("infinite") Character
+  Replace workflow: set the length once, cover the clip, export each window on its
+  own so a single bad window can be re-rendered without touching its neighbours.
+
+### Fixed
+
+- **Masked (inpaint) replace returned the source unchanged.** A 97-frame inpaint
+  window reported "masked replace ready" with a 0.71-mean video noise mask attached
+  to the sampler, yet came back frame-for-frame identical to the source (mean |diff|
+  8/255, against 51+/255 for the same window in anchor mode). ComfyUI starts masked
+  sampling from `latent_image + noise`, so the encoded source left *inside* the
+  regenerate region is a strong hint — the denoiser refines what it is shown and
+  reconstructs the original performer instead of inventing the replacement. The
+  regenerate region is now erased before the latent reaches the sampler, so sampling
+  starts from pure noise there, while the keep region still carries the source and
+  the noise mask still blends it back every step (the background stays pixel-exact).
+  A mask whose shape does not line up with the latent is ignored rather than risking
+  a misaligned erase, and the audio stream is untouched.
+- **SeedVR2 upscaling silently fell back to the first pass.** ComfyUI imports
+  custom-node packages at startup but does not keep the `custom_nodes` directory on
+  `sys.path` when a node later executes, so the lazy import raised
+  `ModuleNotFoundError: No module named 'seedvr2_videoupscaler'` and the failure was
+  downgraded to "keeping first-pass result". The directory is now added back through
+  `folder_paths` before the import.
+- **Global Refine failures did not name the model holding VRAM.** The refine-failure
+  path deliberately keeps models loaded, which skipped the anchored-model scan
+  inside the VRAM cleanup — precisely when it matters, since a model ComfyUI can no
+  longer unload is a likely cause of the OOM. The scan now runs on failure and the
+  warning names the count, with the referrer dump (naming the custom node holding
+  the module) in the log.
+- **Clear VRAM unloaded the model at the wrong time, twice per boundary.** The
+  segment-end cleanup keyed off the timeline's segment count rather than the
+  segments actually rendered, so a one-segment selection from a long timeline
+  dropped the DiT even though the post-loop refine passes wanted it resident; it now
+  matches the pre-sampling call. The loop-top cleanup was also removed outright: the
+  segment-end cleanup already unloads before the next segment, so it was a second
+  unload plus `gc` plus `empty_cache` on every single segment boundary.
+- **The external-attention-patch skip was invisible.** Global Refine is skipped for
+  H3-SLA / Spectrum-patched models unless you opt in, but the panel said nothing
+  about it — the only evidence was a render-time warning. A note next to the toggle
+  now explains the skip (and that the reason is reported at render time) whenever
+  the toggle is off.
+- **The Segment audio preview was silent in source/keep modes.** Audio is only
+  decoded in `generate` mode, so the Segment view had nothing to play even though
+  the exported window does keep its original track. It now falls back to the
+  window's own source audio — exactly what the export uses. Muted windows stay
+  silent, and generated audio still wins whenever it has samples.
+- **Result audio crackled and clicked when seeking.** The player pointed at a
+  `data:` URL, which has to be re-parsed and re-seeked out of a giant attribute
+  string, so the drift helper's seeks produced audible artifacts. Playback now uses
+  a streamed, seekable Blob URL that is revoked on every swap so a long run does not
+  pin every track in memory; an empty or header-only payload clears the source and
+  disables the volume control instead of pointing at a broken URL.
+- **The bundled faceswap example workflow shipped `latent_continuation_enabled:
+  null`** in all three widget mirrors. ComfyUI coerces `bool(None)` without raising,
+  which is why it loaded, but the frontend re-injects the `None` on load. It now
+  ships `false`, matching the node default and the other shipped examples.
+
+### Tests
+
+- **Upscaler + Global Refine routing matrix.** Sweeps all five `upscale_method`
+  values (lanczos, upscale model, RTX VSR, SeedVR2, H3 learned latent) across
+  second sampling on/off, tiled refine, temporal split, and the external-patch /
+  `skip_fl2v` / `force_skip` / disabled guards. 25 CPU-only tests; this is the
+  canary that would have caught both upscaler regressions at dispatch time.
+- **Real-upscaler GPU smoke.** Runs each upscaler once on a tiny input and asserts
+  the output shape — the "does it actually produce frames" layer on top of the
+  offline matrix. Every GPU case skips cleanly without CUDA or the model files, so
+  the file is safe to leave in the normal suite.
+- **Regression for the upscaler logger `NameError`** that broke upscaling: forces
+  the non-empty VRAM report the CUDA branch logs, which the existing CUDA tests
+  never produced.
+- **Multi-segment + postprocess ordering contract.** Pins the per-segment sequence
+  and both clear-VRAM sites, including that the DiT is *not* cleared between
+  first-pass sampling and Global Refine.
+- **Stub-module leak containment.** Stub-style tests install fake `director.*` /
+  `comfy.*` modules into `sys.modules` and never remove them, so a later test that
+  imported the real module got the fake. Modules are now snapshotted per test and
+  reverted, with real modules deliberately left alone so torch's one-time
+  `TORCH_LIBRARY` namespace registration is not re-triggered.
+- **Masked-replace erase cases** (split region, all-keep, nested stream, mismatched
+  mask, audio untouched) and a source contract pinning the Character Replace
+  continuity wiring.
+
+## v1.8.1 — 2026-09-15
+
+Hotfix for the upscaler regression that stopped Global Refine from upscaling.
+
+### Fixed
+
+- **Global Refine silently kept the first pass.** A `log.warning` had been added to
+  the learned-latent upscaler, but the module has no logger, so every CUDA upscale
+  raised `NameError: log is not defined` — and the Global Refine catch-all swallowed
+  it into "keeping first-pass result", which read as "upscaling just stopped
+  working". The logger is now defined, Global Refine logs the full traceback when it
+  fails, and a CUDA OOM re-raises as a hard error instead of quietly downgrading to
+  the first pass.
+
 ## v1.8.0 — 2026-09-15
 
 Refine longer clips by splitting them in time, a new video upscaler, and a
