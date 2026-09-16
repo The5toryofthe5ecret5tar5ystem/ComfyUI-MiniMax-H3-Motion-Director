@@ -88,6 +88,7 @@ def upscale_h3_av_latent(
     model_name: str,
     precision: str = "fp16",
     device: str = "cuda",
+    cache_model: bool = False,
     on_progress: Callable[[float], None] | None = None,
 ) -> dict:
     """Upscale H3 video latent natively while preserving Director AV/mask state."""
@@ -121,6 +122,7 @@ def upscale_h3_av_latent(
             target_w=target_w,
             precision=str(precision),
             device=str(device),
+            cache_model=bool(cache_model),
             on_progress=on_progress,
         )
         actual_h, actual_w = int(upscaled.shape[-2]), int(upscaled.shape[-1])

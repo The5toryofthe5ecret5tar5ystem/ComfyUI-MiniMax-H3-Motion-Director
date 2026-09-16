@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = Object.freeze({
         seed_mode: "inherit", seed_offset: 1, skip_fl2v: false,
         upscale_method: "lanczos", upscale_model: "",
         latent_upscale_model: "", latent_upscale_precision: "fp16", latent_upscale_device: "cuda",
+        latent_upscale_cache_model: false,
         vsr_quality: "high",
         resolution_mode: "follow_director", aspect: "16:9", megapixels: 1,
         width: 1376, height: 768,
@@ -72,6 +73,7 @@ const POST_TEXT = {
         runtime_detected: "Runtime detected (validated when generation starts)",
         missing_no_downgrade: "Not installed (stage will fail without downgrade)",
         lbh_note: "Director scans compatible MiniMax H3 learned-latent checkpoints from models/latent_upscale_models automatically. Select a checkpoint below; its 2D/3D architecture is detected from the weights. No separate LBH custom node is required.",
+        lbh_cache_note: "Keeps the upscaler loaded on the GPU between segments so it is not reloaded every time. It holds its VRAM for the rest of the session - leave this off unless you have headroom.",
         seedvr2_note: "SeedVR2 is a temporal-aware video upscaler. It runs on decoded frames (pixel space) and loads its own DiT + VAE model - first use downloads ~6 GB. Much crisper than latent upscalers, but slower and heavier.",
         temporal_note: "Split the upscaled video into overlapping time chunks and re-sample one chunk at a time, so sequence length no longer bounds VRAM. Chunk length and overlap snap to H3's 17-frame grid.",
         audio_title: "Audio Room",
@@ -98,6 +100,7 @@ const POST_TEXT = {
         runtime_detected: "已检测到运行库（生成时验证）",
         missing_no_downgrade: "未安装（此阶段会失败，不会自动降级）",
         lbh_note: "Director 会自动扫描 models/latent_upscale_models 中兼容的 MiniMax H3 Learned Latent checkpoint。只需选择模型，2D/3D 架构会直接从权重自动识别；无需另装 LBH 自定义节点。",
+        lbh_cache_note: "让放大模型在片段之间常驻显存，避免每次重新加载。代价是该模型会在本次会话中一直占用显存，显存不宽裕时请保持关闭。",
         seedvr2_note: "SeedVR2 是时序感知的视频放大模型，在解码后的像素空间运行，会加载自己的 DiT + VAE 模型（首次使用约下载 6 GB）。比潜变量放大更锐利，但更慢、更占资源。",
         temporal_note: "将放大后的视频切成有重叠的时间块，逐块二次采样，使序列长度不再限制显存。块长与重叠会自动对齐 H3 的 17 帧网格。",
         audio_title: "音频空间",
@@ -127,6 +130,7 @@ const POST_LABELS = {
     "global_refine.latent_upscale_model": ["H3 Latent Model", "H3 Latent 模型"],
     "global_refine.latent_upscale_precision": ["Precision", "精度"],
     "global_refine.latent_upscale_device": ["Device", "设备"],
+    "global_refine.latent_upscale_cache_model": ["Keep upscaler resident (VRAM)", "常驻放大模型（显存）"],
     "global_refine.vsr_quality": ["VSR Quality", "VSR 质量"],
     "global_refine.resolution_mode": ["Resolution", "分辨率模式"],
     "global_refine.aspect": ["Aspect", "画幅比"],
@@ -254,6 +258,7 @@ export function normalizePostprocessConfig(raw) {
     delete global.latent_upscale_variant;
     global.latent_upscale_precision = inChoice(global.latent_upscale_precision, ["fp16", "bf16", "fp32"], "fp16");
     global.latent_upscale_device = inChoice(global.latent_upscale_device, ["cuda", "cpu"], "cuda");
+    global.latent_upscale_cache_model = global.latent_upscale_cache_model === true;
     global.vsr_quality = inChoice(global.vsr_quality, ["low", "medium", "high", "ultra"], "high");
     global.resolution_mode = inChoice(global.resolution_mode, ["follow_director", "aspect_megapixels", "custom"], "follow_director");
     global.rtx_deblur_enabled = !!global.rtx_deblur_enabled;
@@ -553,6 +558,8 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
               ${conditional("learned_latent", field("H3 Latent Model", "global_refine.latent_upscale_model", "select", '<option value="">—</option>'))}
               ${conditional("learned_latent", field("Precision", "global_refine.latent_upscale_precision", "select", options([["fp16","FP16"],["bf16","BF16"],["fp32","FP32"]])))}
               ${conditional("learned_latent", field("Device", "global_refine.latent_upscale_device", "select", options([["cuda","CUDA"],["cpu","CPU"]])))}
+              ${conditional("learned_latent", field("Keep upscaler resident (VRAM)", "global_refine.latent_upscale_cache_model", "checkbox"))}
+              <p class="mmx-post-note mmx-post-wide" data-conditional="learned_latent" data-post-text="lbh_cache_note"></p>
               <p class="mmx-post-note mmx-post-wide" data-conditional="learned_latent" data-post-text="lbh_note"></p>
               ${conditional("vsr_quality", field("VSR Quality", "global_refine.vsr_quality", "select", options([["low","Low"],["medium","Medium"],["high","High"],["ultra","Ultra"]])))}
               <div class="mmx-post-capability mmx-post-wide" data-conditional="vsr_status" data-capability="nvidia_rtx_vsr"></div>

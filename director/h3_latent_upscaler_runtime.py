@@ -11,7 +11,7 @@ import gc
 import logging
 import os
 import re
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 import torch
 import torch.nn as nn
@@ -491,6 +491,82 @@ def _stats(device: torch.device, dtype: torch.dtype) -> tuple[torch.Tensor, torc
     return mean, std
 
 
+# Optional resident upscaler (opt-in, `latent_upscale_cache_model`).
+#
+# The upscale stage runs after the H3 DiT is unloaded, so a non-cached call is a
+# full load -> free cycle on top of the DiT's own unload/reload. Keeping the
+# built model on the device removes that churn, at the cost of holding its VRAM
+# for the rest of the session - so it is opt-in and bounded to a single entry.
+_RESIDENT: dict[str, Any] = {"key": None, "model": None, "variant": None}
+
+
+def _resident_key(path: str, dtype: torch.dtype, device: torch.device) -> tuple[str, str, str]:
+    return (os.path.abspath(path), str(dtype), str(device))
+
+
+def _release_resident_model() -> bool:
+    """Drop the resident upscaler, freeing its device memory. True if one was held."""
+    model = _RESIDENT.pop("model", None)
+    _RESIDENT.pop("key", None)
+    _RESIDENT.pop("variant", None)
+    if model is None:
+        return False
+    del model
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return True
+
+
+def clear_resident_model() -> bool:
+    """Public release for the resident upscaler (tests, or to reclaim VRAM)."""
+    return _release_resident_model()
+
+
+def has_resident_model() -> bool:
+    """True when an upscaler model is being held on the device."""
+    return _RESIDENT.get("model") is not None
+
+
+def _resident_model(
+    path: str, dtype: torch.dtype, device: torch.device
+) -> tuple[nn.Module, str] | None:
+    if _RESIDENT.get("model") is None:
+        return None
+    if _RESIDENT.get("key") != _resident_key(path, dtype, device):
+        return None
+    return _RESIDENT["model"], str(_RESIDENT.get("variant") or "")
+
+
+def _store_resident_model(
+    path: str, dtype: torch.dtype, device: torch.device, model: nn.Module, variant: str
+) -> None:
+    _RESIDENT["key"] = _resident_key(path, dtype, device)
+    _RESIDENT["model"] = model
+    _RESIDENT["variant"] = variant
+
+
+def _uniform_scale_2d(source_h: int, source_w: int, target_h: int, target_w: int) -> float:
+    """One uniform scale that integer latent dimensions can round to both H and W.
+
+    Accept only targets for which a single scale produces both dimensions; that
+    allows normal grid snapping without permitting a real aspect-ratio change.
+    """
+    lower = max(
+        (target_h - 0.5) / float(source_h),
+        (target_w - 0.5) / float(source_w),
+    )
+    upper = min(
+        (target_h + 0.5) / float(source_h),
+        (target_w + 0.5) / float(source_w),
+    )
+    if lower > upper + 1e-12:
+        raise ValueError(
+            "2D + Temporal learned latent upscale uses one uniform scale; use a Full 3D checkpoint for aspect-ratio changes."
+        )
+    return (lower + upper) * 0.5
+
+
 def run_h3_latent_upscaler(
     video: torch.Tensor,
     *,
@@ -500,6 +576,7 @@ def run_h3_latent_upscaler(
     target_w: int,
     precision: str,
     device: str,
+    cache_model: bool = False,
     on_progress: Callable[[float], None] | None = None,
 ) -> torch.Tensor:
     if not isinstance(video, torch.Tensor) or video.ndim not in {4, 5}:
@@ -521,43 +598,44 @@ def run_h3_latent_upscaler(
     # The checkpoint layout is the architecture source of truth. Older saved
     # Director configs may still contain an independent 2d/3d UI value; that
     # value must never override the actual state_dict layout.
-    path = _checkpoint_path(model_name)
-    state = _load_checkpoint(path)
-    selected = detect_checkpoint_variant(state)
-    if on_progress is not None: on_progress(0.10)
-
-    uniform_scale = None
-    if selected == "2d":
-        # Integer latent dimensions independently round a common uniform scale.
-        # Accept only targets for which one such scale can produce both H and W;
-        # this allows normal grid snapping without permitting real AR changes.
-        lower = max(
-            (target_h - 0.5) / float(source_h),
-            (target_w - 0.5) / float(source_w),
-        )
-        upper = min(
-            (target_h + 0.5) / float(source_h),
-            (target_w + 0.5) / float(source_w),
-        )
-        if lower > upper + 1e-12:
-            raise ValueError(
-                "2D + Temporal learned latent upscale uses one uniform scale; use a Full 3D checkpoint for aspect-ratio changes."
-            )
-        uniform_scale = (lower + upper) * 0.5
-
-    model = build_model_for_checkpoint(state)
-    missing, unexpected = model.load_state_dict(state, strict=False)
-    if missing:
-        raise RuntimeError("H3 learned latent checkpoint is missing required weights: " + ", ".join(missing[:8]))
-    invalid_unexpected = [key for key in unexpected if not any(token in key for token in (".q.", ".k.", ".v.", ".proj_out."))]
-    if invalid_unexpected:
-        raise RuntimeError("H3 learned latent checkpoint has unsupported weights: " + ", ".join(invalid_unexpected[:8]))
-    if on_progress is not None: on_progress(0.20)
-
     dev = _device(device)
     dtype = _dtype(precision)
     original_dtype = source.dtype
-    model = model.to(device=dev, dtype=dtype).eval().requires_grad_(False)
+    path = _checkpoint_path(model_name)
+
+    keep_resident = False
+    resident = _resident_model(path, dtype, dev) if cache_model else None
+    if resident is not None:
+        model, selected = resident
+        if on_progress is not None: on_progress(0.20)
+    else:
+        # Toggle off, different checkpoint, or a different precision/device: hand
+        # the device memory back before building the replacement, so a stale and
+        # a fresh upscaler are never on the device at the same time.
+        _release_resident_model()
+        state = _load_checkpoint(path)
+        selected = detect_checkpoint_variant(state)
+        if on_progress is not None: on_progress(0.10)
+
+        model = build_model_for_checkpoint(state)
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        if missing:
+            raise RuntimeError("H3 learned latent checkpoint is missing required weights: " + ", ".join(missing[:8]))
+        invalid_unexpected = [key for key in unexpected if not any(token in key for token in (".q.", ".k.", ".v.", ".proj_out."))]
+        if invalid_unexpected:
+            raise RuntimeError("H3 learned latent checkpoint has unsupported weights: " + ", ".join(invalid_unexpected[:8]))
+        model = model.to(device=dev, dtype=dtype).eval().requires_grad_(False)
+        if cache_model:
+            _store_resident_model(path, dtype, dev, model, selected)
+            keep_resident = True
+        if on_progress is not None: on_progress(0.20)
+
+    uniform_scale = (
+        _uniform_scale_2d(source_h, source_w, target_h, target_w)
+        if selected == "2d"
+        else None
+    )
+
     x = source.to(device=dev, dtype=dtype, copy=True)
     mean, std = _stats(dev, dtype)
     if on_progress is not None: on_progress(0.25)
@@ -579,8 +657,10 @@ def run_h3_latent_upscaler(
         # for the blocks back: empty_cache() only returns blocks that are already
         # unused, and a tensor that is unreachable but not yet collected still
         # holds its memory. That is the same trap cleanup_segment_vram hit, so
-        # collect first, then empty.
-        del model
+        # collect first, then empty. A model kept resident on purpose is left
+        # alone: the cache owns it, and dropping the local name would not free it.
+        if not keep_resident:
+            del model
         if dev.type == "cuda":
             del x
             del mean, std
@@ -593,7 +673,9 @@ def run_h3_latent_upscaler(
 __all__ = [
     "build_model_for_checkpoint",
     "clear_checkpoint_cache",
+    "clear_resident_model",
     "detect_checkpoint_variant",
+    "has_resident_model",
     "list_h3_latent_models",
     "run_h3_latent_upscaler",
 ]

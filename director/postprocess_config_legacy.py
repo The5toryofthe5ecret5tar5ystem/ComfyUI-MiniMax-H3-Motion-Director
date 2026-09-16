@@ -39,6 +39,7 @@ DEFAULT_POSTPROCESS_CONFIG: dict[str, Any] = {
         "latent_upscale_model": "",
         "latent_upscale_precision": "fp16",
         "latent_upscale_device": "cuda",
+        "latent_upscale_cache_model": False,
         "vsr_quality": "high",
         "resolution_mode": "follow_director",
         "aspect": "16:9",
@@ -272,6 +273,9 @@ def normalize_postprocess_config(raw: Any) -> dict[str, Any]:
     )
     g["latent_upscale_device"] = _choice(
         g_raw.get("latent_upscale_device"), {"cuda", "cpu"}, "cuda"
+    )
+    g["latent_upscale_cache_model"] = _bool(
+        g_raw.get("latent_upscale_cache_model"), False
     )
     g["vsr_quality"] = _choice(
         g_raw.get("vsr_quality"), {"low", "medium", "high", "ultra"}, "high"
