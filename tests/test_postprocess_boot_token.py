@@ -10,7 +10,7 @@ Bump ``EXPECTED_BOOT_TOKEN`` whenever ``minimax_postprocess_ui.mjs`` changes.
 
 from pathlib import Path
 
-EXPECTED_BOOT_TOKEN = "postprocess_output_v10"
+EXPECTED_BOOT_TOKEN = "postprocess_output_v11"
 
 
 def test_postprocess_module_boot_token_is_current():

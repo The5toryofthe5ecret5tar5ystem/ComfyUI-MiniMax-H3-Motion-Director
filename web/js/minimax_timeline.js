@@ -13,7 +13,7 @@ import {
     faceRefineSummary,
     globalRefineSummary,
     mountPostprocessUI,
-} from "./minimax_postprocess_ui.mjs?boot=postprocess_output_v10";
+} from "./minimax_postprocess_ui.mjs?boot=postprocess_output_v11";
 import { mountOutputUI } from "./minimax_output_ui.mjs?boot=live_results_v2";
 import {
     compareTimelineMirrors,
