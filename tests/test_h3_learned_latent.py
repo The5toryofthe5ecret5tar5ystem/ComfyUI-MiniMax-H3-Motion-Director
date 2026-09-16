@@ -181,3 +181,42 @@ def test_native_runtime_error_is_not_replaced_by_pixel_fallback(monkeypatch):
         assert "checkpoint missing" in str(exc)
     else:
         raise AssertionError("expected checkpoint failure")
+
+
+def test_cuda_vram_reports_do_not_nameerror(monkeypatch):
+    """Regression: `log` was referenced but never defined in this module.
+
+    The CUDA branch of ``upscale_h3_av_latent`` logs every VRAM-cleanup report.
+    Before the fix, any non-empty report made the loop raise
+    ``NameError: name 'log' is not defined``, which the Global Refine fallback
+    swallowed into "keeping first-pass result" - upscaling silently stopped.
+    The existing CUDA tests only ever produced an *empty* report list, so the
+    line never ran under test.
+    """
+    install_runtime()
+    mod = reload_mod()
+    monkeypatch.setattr(
+        mod,
+        "cleanup_segment_vram",
+        lambda **kwargs: {
+            "reports": ["dummy vram report"],
+            "failed": [],
+            "steps": [],
+            "anchored": 0,
+        },
+    )
+    monkeypatch.setattr(
+        mod._runtime,
+        "run_h3_latent_upscaler",
+        lambda source, **kwargs: torch.nn.functional.interpolate(
+            source,
+            size=(source.shape[-3], kwargs["target_h"], kwargs["target_w"]),
+            mode="trilinear",
+            align_corners=False,
+        ),
+    )
+    out = mod.upscale_h3_av_latent(
+        make_latent()[0], width=128, height=64, model_name="x.safetensors",
+        precision="fp16", device="cuda",
+    )
+    assert out["samples"] is not None
