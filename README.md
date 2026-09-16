@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.8.2-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.8.3-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.8.2**
+> Current version: **v1.8.3**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,31 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.8.3 — An upscaler that stops reloading, and UI changes that arrive
+
+**The learned-latent upscaler stops re-reading its own checkpoint.** Every call
+re-read the file from disk and redid the float8 → fp16 conversion from scratch.
+The last two decoded state dicts are now cached in CPU RAM, keyed on path, size
+and mtime, so swapping the file still invalidates them.
+
+**And its VRAM is actually returned.** Its cleanup dropped the model and then
+called `empty_cache()` while two device tensors were still live, so the memory was
+never released — `empty_cache()` only frees blocks that are already unused. Every
+device reference is now dropped and collected first, the same fix the segment
+cleanup needed.
+
+**Optional: keep the upscaler resident.** The upscale stage runs after the H3 DiT
+is unloaded, so an uncached call is a full load → free cycle stacked on the DiT's
+own unload and reload. `latent_upscale_cache_model` (Global Refine → Upscale)
+skips that churn for multi-segment runs, at the cost of holding its VRAM for the
+rest of the session while sharing the card with the reloaded DiT. Off by default,
+with the trade-off written beside the checkbox.
+
+**The v1.8.2 UI actually appears now.** Two modules changed in v1.8.2 without
+their `?boot=` cache token being bumped, so browsers kept running the cached
+copies — the new controls were in the file on disk, served by ComfyUI the whole
+time, and nothing ever asked for them. Both tokens are bumped.
 
 ### v1.8.2 — Character Replace that chains, and a masked pass that actually replaces
 

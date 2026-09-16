@@ -3,6 +3,66 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## v1.8.3 — 2026-09-16
+
+The learned-latent upscaler stops re-reading and re-converting its checkpoint on
+every call and finally gives its VRAM back, and the v1.8.2 UI changes are made to
+reach the browser at all.
+
+### Added
+
+- **Keep the learned-latent upscaler resident (opt-in, off by default).**
+  `latent_upscale_cache_model` keeps the built upscaler on the device instead of
+  freeing it, so a multi-segment run stops paying a load per call. The upscale
+  stage runs after the H3 DiT is unloaded, so an uncached call is a full
+  load → free cycle stacked on the DiT's own unload and reload; a resident
+  upscaler trades that churn for VRAM held for the rest of the session, sharing
+  the card with the reloaded DiT. That trade-off is why it ships off, and the note
+  beside the checkbox says so (en + zh). The cache is a single entry keyed on
+  `(checkpoint path, dtype, device)`, so a precision or device change rebuilds; a
+  stale model is released **before** its replacement is built, so the two are
+  never resident together; and clearing the flag releases it.
+  `clear_resident_model()` / `has_resident_model()` are exposed for explicit
+  reclaim. It changes speed, not frames — the first-pass cache is unaffected.
+
+### Fixed
+
+- **The upscaler re-read and re-converted its checkpoint on every call.** Each
+  call re-read the file from disk and ran the float8 → fp16 conversion again. The
+  last two decoded state dicts are now kept in CPU RAM, keyed on the path plus its
+  size and mtime so that replacing the file on disk invalidates the entry. The
+  decoded dict is read-only for every caller (`build_model` reads shapes,
+  `load_state_dict` copies), so it is handed out without copying, and
+  `clear_checkpoint_cache()` is available for file swaps.
+- **The upscaler's VRAM was never actually returned.** Its `finally` block
+  dropped the model and the input, then called `empty_cache()` while `mean` and
+  `std` were still live device tensors. `empty_cache()` only returns blocks that
+  are already unused, and unreachable-but-uncollected tensors keep holding their
+  memory — the same trap the segment VRAM cleanup hit. Every device reference is
+  now dropped and collected before emptying.
+- **The v1.8.2 UI changes never reached the browser.** ComfyUI caches frontend
+  modules by URL, so a changed module is only re-served when the `?boot=` token on
+  its import changes. Two modules changed in v1.8.2 without their token being
+  bumped — `minimax_postprocess_ui.mjs` (the external-patch note and the
+  resident-upscaler toggle) and `minimax_timeline.js` (Cover entire clip and the
+  `cont` checkbox) — so browsers kept running the cached copies: the controls were
+  in the file on disk and served by ComfyUI the whole time, and nothing ever asked
+  for them. Both tokens are bumped and the two guard tests were updated in
+  lockstep. Worth stating plainly: those guards assert the token *string*, so they
+  stay green while a token is stale — they only catch the reverse mistake (bumping
+  a token and forgetting the test). Nothing detects that a module changed on its
+  own.
+
+### Tests
+
+- **Checkpoint cache.** Covers the hit, invalidation when the file changes on
+  disk, the two-entry bound, the explicit clear, and that building a model does
+  not mutate the cached dict.
+- **Resident model.** Covers the cache key, the bound and the release path, the
+  config parse and its default, that the option does not invalidate the first-pass
+  cache, and a source contract for the `keep_resident` wiring through the call
+  chain.
+
 ## v1.8.2 — 2026-09-16
 
 Seamless long-form Character Replace, a masked-replace fix that makes the inpaint
