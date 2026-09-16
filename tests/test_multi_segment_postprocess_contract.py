@@ -55,12 +55,18 @@ def test_presampling_clear_uses_run_segment_count_and_precedes_sampling():
     assert pre_at < _sample_at(source)
 
 
-def test_segment_end_clear_uses_timeline_count_and_follows_decode():
+def test_segment_end_clear_uses_run_segment_count_and_follows_decode():
     source = _source()
     refine_at = _refine_at(source)
     decode_at = source.index("_decode_av_latent(", refine_at)
-    end_at = source.index("unload_models=timeline_seg_total > 1")
+    end_at = source.index("unload_models=seg_total > 1", decode_at)
     assert decode_at < end_at
+
+
+def test_no_redundant_loop_top_cleanup_between_segments():
+    """The loop-top cleanup doubled the segment-end unload for every segment."""
+    source = _source()
+    assert "clear_vram_between_segments and selected_results" not in source
 
 
 def test_face_refine_runs_after_assembly():

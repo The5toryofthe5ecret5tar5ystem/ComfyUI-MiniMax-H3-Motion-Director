@@ -1893,12 +1893,15 @@ def execute_director_plan_core(
             except Exception as exc:
                 log.debug("Segment audio preview skipped: %s", exc)
         if clear_vram_between_segments:
-            # Last cleanup of the segment. Keep the model loaded when this is the
-            # only segment: Global Refine / Face Refine run next and would force
-            # an immediate reload (which can itself OOM where staying loaded was
-            # fine). With >1 segment the reload is unavoidable anyway.
+            # Last cleanup of the segment. Keep the model loaded when this run
+            # renders a single segment: Global Refine / Face Refine run next and
+            # would force an immediate reload (which can itself OOM where staying
+            # loaded was fine). With >1 rendered segment the reload is unavoidable
+            # anyway. Key off seg_total (segments actually rendered this run), not
+            # the timeline size: a 1-segment selection from a long timeline must
+            # still keep the DiT resident for the post-loop refine passes.
             _vram = cleanup_segment_vram(
-                enabled=True, unload_models=timeline_seg_total > 1
+                enabled=True, unload_models=seg_total > 1
             )
             _record_vram_report(_vram)
         reports.append(
@@ -2125,8 +2128,6 @@ def execute_director_plan_core(
                 and _reuse_cached_segment(seg)
             ):
                 continue
-            if clear_vram_between_segments and selected_results:
-                _record_vram_report(cleanup_segment_vram(enabled=True))
             _segment_started = time.perf_counter()
             chunk, audio_dict = _run_one_segment(seg, progress_index=progress_pos[seg.index])
             segment_stage_timings.setdefault(int(seg.timeline_index), {})["total"] = time.perf_counter() - _segment_started

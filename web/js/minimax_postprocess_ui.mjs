@@ -82,6 +82,7 @@ const POST_TEXT = {
         audio_sox_note: "Requires SoX on PATH. Leave the path empty to auto-detect.",
         audio_final_only: "Applied once to the finished track. Segment caches stay valid.",
         export_comparison_note: "Enabling adds one extra VAE decode per segment and keeps a full-resolution raw copy in RAM for the whole run.",
+        external_patch_note: "When the model chain carries an external H3 attention/diffusion patch (e.g. H3-SLA or Spectrum), Global Refine is skipped and the first pass is kept — the reason is reported at render time. Enable this to attempt refine anyway (A/B only; may crash).",
         reuse_first_pass_note: "Render the base video once, then reuse its cached first pass on later runs so you can iterate on postprocess (Global Refine / Face Refine / Audio Room) without re-rendering. Overhead: one extra latent cache file per segment (disk) and it's invalidated if you change seed, prompt, refs, or resolution.",
     },
     zh: {
@@ -107,6 +108,7 @@ const POST_TEXT = {
         audio_sox_note: "需要 PATH 中存在 SoX。路径留空表示自动检测。",
         audio_final_only: "仅在成品音轨上处理一次，不会使片段缓存失效。",
         export_comparison_note: "开启后每个片段会额外解码一次 VAE，并在整个运行期间保留一份全分辨率原始副本（占用内存）。",
+        external_patch_note: "当模型链带有外部 H3 注意力/扩散补丁（如 H3-SLA 或 Spectrum）时，会跳过全局精修并保留首轮结果——跳过原因会在渲染时报告。开启此项可强制尝试精修（仅用于 A/B，可能崩溃）。",
         reuse_first_pass_note: "先渲染一次基础版本，之后复用其缓存的首轮结果，即可在不重新渲染的情况下反复调整后处理（全局精修 / 人脸精修 / 音频空间）。代价：每个片段额外写入一份潜变量缓存（占用磁盘）；修改 seed、提示词、参考图或分辨率会使缓存失效。",
     },
 };
@@ -530,6 +532,7 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
             ${field("Pass Result Previews (extra VAE decode)", "global_refine.result_previews_enabled", "checkbox")}
             ${field("Skip FL2V", "global_refine.skip_fl2v", "checkbox")}
             ${field("Allow Refine with external attention patch", "global_refine.allow_refine_on_external_patch", "checkbox")}
+            <p class="mmx-post-note mmx-post-wide" data-conditional="external_patch" data-post-text="external_patch_note"></p>
             ${field("Export raw vs processed (extra VAE decode)", "global_refine.export_comparison", "checkbox")}
             <p class="mmx-post-note mmx-post-wide" data-post-text="export_comparison_note"></p>
             ${field("Tiled refine (VRAM-bound)", "global_refine.tiled_refine", "checkbox")}
@@ -724,6 +727,7 @@ export function mountPostprocessUI(container, store, { fetchApi, directorSize = 
         setConditional("seed_offset", !visible.seedOffset);
         setConditional("tiled", !visible.tiled);
         setConditional("temporal", !visible.temporal);
+        setConditional("external_patch", !!config.global_refine?.allow_refine_on_external_patch);
         setConditional("upscale_model", !visible.upscaleModel);
         setConditional("learned_latent", !visible.learnedLatent);
         setConditional("vsr_quality", !visible.vsr);
