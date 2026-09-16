@@ -148,6 +148,10 @@ import {
     syncR2vCommonToggleForTask,
 } from "./minimax_r2v_common_ui.mjs?boot=postprocess_output_v5";
 import {
+    carrySegmentContent,
+    contentSourceForWindow,
+} from "./minimax_replace_layout_core.mjs?boot=director_ui_recovery_v12";
+import {
     commitRunSelectionMutation as commitRunSelectionMutationNow,
     ensureRunSelectionSerialized,
 } from "./minimax_run_selection.mjs";
@@ -180,6 +184,7 @@ import {
     migrateLegacySamplingControlNode,
     migrateLegacySamplingControlWorkflow,
     repairDirectorGroupWidgetWorkflow,
+    repairDirectorWidgetTailWorkflow,
     seedControlModeFromWidgets,
 } from "./minimax_sampling_ui.js";
 import {
@@ -3185,15 +3190,27 @@ function installReplaceWindowsMode(ed) {
         const segs = ed.timeline && ed.timeline.segments;
         const plan = longFormPlan();
         if (!segs || !plan) return;
-        const firstCfg = segs.length ? replaceConfigFromSeg(segs[0]) : null;
+        // This action re-cuts the window layout, and laying out is all it may do.
+        // The list is rebuilt from the plain new-window factory, so without the
+        // carry below every window comes back blank and the clip loses the prompt
+        // and the references the user had just set up for it.
+        const previous = segs.slice();
         const wantCont = !!contMaster.checked;
         segs.length = 0;
-        for (const w of plan.windows) {
+        plan.windows.forEach((w, index) => {
             const seg = newWindowSeg(w.start, w.length);
-            const base = firstCfg || replaceConfigFromSeg(seg);
+            const source = contentSourceForWindow(previous, index, plan.windows.length);
+            carrySegmentContent(seg, source);
+            // Same window count means the same windows re-laid-out, so each keeps
+            // its own mask recipe. A different cut has no positional mapping and
+            // collapses to the first window's recipe, which is what this did.
+            const base = replaceConfigFromSeg(source || seg);
             ensureReplaceConfigOnSeg(seg, { ...base, enabled: true, continuity: wantCont });
             segs.push(seg);
-        }
+        });
+        // The prompt box reads segments[selectedIndex]; a shorter cut must not
+        // leave it pointing past the end of the new list.
+        ed.selectedIndex = clamp(Number(ed.selectedIndex) || 0, 0, Math.max(0, segs.length - 1));
         if (ed.timeline?.output) ed.timeline.output.exportMode = "segments";
         try {
             if (typeof ed.onOutputField === "function") ed.onOutputField("exportMode", "segments");
@@ -15416,6 +15433,10 @@ app.registerExtension({
     async beforeConfigureGraph(graphData) {
         migrateLegacySamplingControlWorkflow(graphData);
         repairDirectorGroupWidgetWorkflow(graphData);
+        // A save writes null into widgets the workflow predates, and null in a
+        // numeric slot makes the whole workflow unqueueable. Repair on load so a
+        // stale file heals itself instead of needing a hand-patched commit.
+        repairDirectorWidgetTailWorkflow(graphData);
     },
     async setup() {
         const flushDirectors = () => {

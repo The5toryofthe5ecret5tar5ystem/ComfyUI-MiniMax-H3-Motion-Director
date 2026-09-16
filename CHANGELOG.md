@@ -7,7 +7,11 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 The long-form Character Replace workflow was four settings spread across three
 parts of the UI, and the one button that covered a whole clip looked identical to
-the two that add a single window. It is now one named action.
+the two that add a single window. It is now one named action - and it no longer
+deletes the prompt it was supposed to be applied to.
+
+The Director also repairs its own widget tail when a workflow loads, so a file
+saved before a widget existed heals itself instead of arriving unqueueable.
 
 ### Changed
 
@@ -32,6 +36,56 @@ the two that add a single window. It is now one named action.
   which made it look broken.
 - **The replace panel is localised.** Its strings were hardcoded English in a UI
   that is otherwise translated, so there was nothing to search for in Chinese.
+
+### Fixed
+
+- **Covering a clip no longer deletes its prompt.** The action rebuilds
+  `timeline.segments` to lay the clip out in equal windows, and it built every
+  window with the plain new-window factory, which starts blank. So the prompt you
+  had just written for the clip was gone the moment you covered it - and since the
+  prompt box reads the selected window, the box emptied in front of you. The
+  character references beside the prompt went with it, which is worse: a replace
+  render that silently loses its refs has nothing left to hold the identity it was
+  replacing. Only the layout is rebuilt now. A window's position (`start`,
+  `length`) is the layout and is always replaced; its prompt, negative prompt,
+  task type, pictures/audio/video refs, generated source image and context link
+  are content and are carried across, each window getting its own copy so one
+  window's edits cannot rewrite its siblings.
+  Re-cutting to the same number of windows is the same windows laid out again, so
+  each keeps what it had - including its own mask recipe, which previously
+  collapsed to window 1's. Any other count is a different cut with no positional
+  mapping left, and the clip collapses to a single recipe taken from the first
+  window, which is what it already did. A shorter cut also re-clamps
+  `selectedIndex`, since the prompt box reads `segments[selectedIndex]` and a
+  stale index there looks exactly like a deleted prompt.
+  Pinned by `web/js/tests/minimax_replace_longform_content.test.mjs`, which also
+  fails if a field added to the new-window factory later is not added to the carry
+  list - otherwise this exact bug returns with the next content field.
+
+- **A workflow saved before a widget was declared now loads instead of failing to
+  queue.** ComfyUI writes `null` into every widget a file predates, because it has
+  no saved value to restore them from, and the type coercion happens on the way in:
+  `int(None)` and `float(None)` raise, while `str(None)` and `bool(None)` do not.
+  So a file from before a numeric widget existed dies with
+  `Failed to convert an input value to a FLOAT value: audio_refine_denoise, None`
+  and the whole workflow is unqueueable — including the five example workflows in
+  this repo, which had to be hand-patched one at a time.
+  `repairDirectorWidgetTailWorkflow` now does that on load, before the graph is
+  configured, so the bug stops coming back with every save.
+  It is anchored on the `postprocess_config` value rather than counted back from
+  the end of the array: a file saved before a widget existed is simply *shorter*,
+  and counting backwards would line the table up against the wrong slots and
+  overwrite live values with defaults. Only two tail shapes are recognised — the
+  current one and the pre-`verbose_logging` one — so an unfamiliar file is left
+  alone rather than guessed at. Slots are only touched when the value is missing,
+  null, or of the wrong type, and the loose `*_ui` mirrors are filled only where
+  they already carry the key and hold null, so a value the user set is never
+  rewritten. A stray section header sitting in a boolean slot is replaced too.
+  Guarded at both ends: the per-case behaviour is covered by
+  `web/js/tests/minimax_director_widget_tail.test.mjs`, and
+  `tests/test_director_widget_tail_parity.py` fails if the frontend table drifts
+  from the node's declaration in `nodes/director.py` — a repair that writes into
+  the wrong slot would be worse than the null it was fixing.
 
 ## v1.8.3 — 2026-09-16
 

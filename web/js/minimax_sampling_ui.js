@@ -166,6 +166,110 @@ export function repairDirectorGroupWidgetWorkflow(graphData) {
     return repaired;
 }
 
+// Declaration tail of MiniMaxH3MotionDirector, in order: [name, kind, default].
+// KEEP IN STEP with TAIL_AFTER_POSTPROCESS / LEGACY_TAIL_AFTER_POSTPROCESS in
+// tests/test_example_workflow_widgets.py - tests/test_director_widget_tail_parity.py
+// fails if the two drift.
+//
+// ComfyUI coerces each slot by declaration type, so int(None) / float(None) raise
+// while str(None) / bool(None) do not. That is why a null in a numeric slot makes
+// the workflow unqueueable:
+//
+//     Failed to convert an input value to a FLOAT value: audio_refine_denoise, None
+//
+// This is recurring, not a one-off: saving a workflow that predates a widget makes
+// the frontend append the new slots with null, because it has no saved value to
+// restore them from. verbose_logging was inserted mid-tail that way, and one file
+// was seen with the `bd_grp_advanced` section header written into the boolean slot
+// it belongs to.
+const DIRECTOR_WIDGET_TAIL = [
+    ["bd_grp_audio_refine", "str", "Audio Refine"],
+    ["audio_refine_enabled", "bool", false],
+    ["audio_refine_steps", "int", 6],
+    ["audio_refine_denoise", "float", 0.5],
+    ["latent_continuation_enabled", "bool", false],
+    ["verbose_logging", "bool", false],
+    ["minimax_motion_director_ui", "str", ""],
+];
+
+// Files saved before verbose_logging was declared end one slot earlier.
+const LEGACY_DIRECTOR_WIDGET_TAIL = DIRECTOR_WIDGET_TAIL.filter(
+    ([name]) => name !== "verbose_logging",
+);
+
+function tailValueIsValid(kind, value) {
+    switch (kind) {
+        case "int":
+            return typeof value === "number" && Number.isInteger(value);
+        case "float":
+            return typeof value === "number" && Number.isFinite(value);
+        case "bool":
+            return typeof value === "boolean";
+        default:
+            return typeof value === "string";
+    }
+}
+
+/** Index of the postprocess_config widget: the anchor the tail hangs off. */
+function directorTailAnchor(values) {
+    return values.findIndex((value) => typeof value === "string"
+        && value.startsWith('{"version":')
+        && value.includes('"global_refine"'));
+}
+
+/**
+ * Replace null / wrongly-typed values in the Director's declaration tail.
+ *
+ * Anchored on postprocess_config rather than measured from the end of the array:
+ * a file saved before a widget existed is simply shorter, and counting backwards
+ * would line the table up against the wrong slots and overwrite live values.
+ */
+function repairDirectorWidgetTail(node) {
+    const values = node?.widgets_values;
+    if (!Array.isArray(values)) return 0;
+    const anchor = directorTailAnchor(values);
+    if (anchor < 0) return 0;
+
+    const tail = values.slice(anchor + 1);
+    // Only the two shapes the node has actually shipped. Anything else is
+    // unfamiliar and is left for the guard test to report rather than guessed at.
+    let spec = null;
+    if (tail.length >= DIRECTOR_WIDGET_TAIL.length) spec = DIRECTOR_WIDGET_TAIL;
+    else if (tail.length === LEGACY_DIRECTOR_WIDGET_TAIL.length) spec = LEGACY_DIRECTOR_WIDGET_TAIL;
+    if (!spec) return 0;
+
+    const mirrors = [node.widgets_values_named, node?.properties?.mmx_director_widget_state]
+        .filter((mirror) => mirror && typeof mirror === "object");
+
+    let repaired = 0;
+    spec.forEach(([name, kind, fallback], offset) => {
+        const index = anchor + 1 + offset;
+        if (!tailValueIsValid(kind, values[index])) {
+            values[index] = fallback;
+            repaired += 1;
+        }
+        for (const mirror of mirrors) {
+            // Mirrors are loosely typed (some files store '6' / 'false'), so only
+            // fill a genuine gap; never rewrite a value the user set.
+            if (Object.prototype.hasOwnProperty.call(mirror, name) && mirror[name] == null) {
+                mirror[name] = fallback;
+                repaired += 1;
+            }
+        }
+    });
+    return repaired;
+}
+
+export function repairDirectorWidgetTailWorkflow(graphData) {
+    if (!graphData || !Array.isArray(graphData.nodes)) return 0;
+    let repaired = 0;
+    for (const node of graphData.nodes) {
+        if (!isDirectorWorkflowNode(node)) continue;
+        repaired += repairDirectorWidgetTail(node);
+    }
+    return repaired;
+}
+
 export function migrateLegacySamplingControlNode(node) {
     if (!node || node.type !== "MiniMaxH3MotionDirector" || !Array.isArray(node.inputs)) {
         return false;
