@@ -7,6 +7,8 @@ not import or require any third-party ComfyUI custom node package.
 
 from __future__ import annotations
 
+import gc
+import logging
 import os
 import re
 from typing import Callable, Iterable
@@ -14,6 +16,10 @@ from typing import Callable, Iterable
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+log = logging.getLogger(
+    "ComfyUI-MiniMax-H3-Motion-Director.director.h3_latent_upscaler_runtime"
+)
 
 _MODEL_FOLDER = "latent_upscale_models"
 _GROUPS = 32
@@ -398,7 +404,45 @@ def list_h3_latent_models() -> list[str]:
     return sorted(names)
 
 
+# Decoded checkpoints are immutable on disk and expensive to rebuild: a full
+# safetensors read plus a per-tensor float8 -> fp16 conversion, on every upscale
+# call. Keep the last couple of decoded state dicts in CPU RAM. The cache key
+# carries the file size and mtime, so replacing a checkpoint on disk invalidates
+# it. The decoded dict is treated as read-only by every caller (build_model
+# reads shapes, load_state_dict copies), so it is handed out without copying.
+_STATE_CACHE: dict[tuple[str, int, int], dict[str, torch.Tensor]] = {}
+_STATE_CACHE_LIMIT = 2
+
+
+def _state_cache_key(path: str) -> tuple[str, int, int]:
+    try:
+        info = os.stat(path)
+    except OSError:
+        return (os.path.abspath(path), 0, 0)
+    return (os.path.abspath(path), int(info.st_size), int(info.st_mtime_ns))
+
+
+def _store_checkpoint_state(path: str, state: dict[str, torch.Tensor]) -> None:
+    key = _state_cache_key(path)
+    _STATE_CACHE.pop(key, None)  # re-insert so the newest entry is last
+    _STATE_CACHE[key] = state
+    while len(_STATE_CACHE) > _STATE_CACHE_LIMIT:
+        _STATE_CACHE.pop(next(iter(_STATE_CACHE)))
+
+
+def clear_checkpoint_cache() -> None:
+    """Drop decoded checkpoints held in CPU RAM (tests, or after swapping a file)."""
+    _STATE_CACHE.clear()
+
+
 def _load_checkpoint(path: str) -> dict[str, torch.Tensor]:
+    cached = _STATE_CACHE.get(_state_cache_key(path))
+    if cached is not None:
+        log.debug(
+            "H3 learned latent checkpoint: decoded cache hit for %s",
+            os.path.basename(path),
+        )
+        return cached
     if path.lower().endswith(".safetensors"):
         from safetensors.torch import load_file
         raw = load_file(path, device="cpu")
@@ -417,7 +461,9 @@ def _load_checkpoint(path: str) -> dict[str, torch.Tensor]:
     float8 = getattr(torch, "float8_e4m3fn", None)
     if float8 is not None:
         state = {key: (value.to(torch.float16) if value.dtype == float8 else value) for key, value in state.items()}
-    return _strip_upscaler_prefix(state)
+    state = _strip_upscaler_prefix(state)
+    _store_checkpoint_state(path, state)
+    return state
 
 
 def _dtype(name: str) -> torch.dtype:
@@ -529,9 +575,16 @@ def run_h3_latent_upscaler(
             out = out.to(device="cpu", dtype=original_dtype)
             if on_progress is not None: on_progress(0.98)
     finally:
+        # Drop every device reference this call made before asking the allocator
+        # for the blocks back: empty_cache() only returns blocks that are already
+        # unused, and a tensor that is unreachable but not yet collected still
+        # holds its memory. That is the same trap cleanup_segment_vram hit, so
+        # collect first, then empty.
         del model
         if dev.type == "cuda":
             del x
+            del mean, std
+            gc.collect()
             torch.cuda.empty_cache()
     if on_progress is not None: on_progress(1.0)
     return out.squeeze(2) if was_4d else out
@@ -539,6 +592,7 @@ def run_h3_latent_upscaler(
 
 __all__ = [
     "build_model_for_checkpoint",
+    "clear_checkpoint_cache",
     "detect_checkpoint_variant",
     "list_h3_latent_models",
     "run_h3_latent_upscaler",
