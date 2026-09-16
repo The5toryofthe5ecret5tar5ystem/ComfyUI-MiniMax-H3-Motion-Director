@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Long-form replace — UI mockup</title>
+<style>
+  :root {
+    /* Palette lifted from minimax_timeline.js */
+    --page:#141617;
+    --panel:#16211a;
+    --panel-border:#2f4f3a;
+    --row:#101a12;
+    --row-border:#27452f;
+    --accent:#4fff8f;
+    --title:#8fe3b0;
+    --help:#7fa08b;
+    --label:#9fd9b4;
+    --text:#bcd6c4;
+    --muted:#888;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:22px 26px 60px;
+    background:var(--page); color:#d8d8d8;
+    font:13px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  h1 { font-size:19px; margin:0 0 4px; color:#eaeaea; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:22px; }
+  h2 {
+    font-size:12px; letter-spacing:.09em; text-transform:uppercase;
+    margin:30px 0 10px; color:#9a9a9a; font-weight:600;
+  }
+  .tag {
+    display:inline-block; font-size:10px; letter-spacing:.06em; padding:2px 7px;
+    border-radius:3px; margin-right:8px; vertical-align:2px; font-weight:700;
+  }
+  .tag.today { background:#3a2020; color:#e88; border:1px solid #5a2a2a; }
+  .tag.prop  { background:#163a25; color:var(--accent); border:1px solid #2f6f48; }
+  .caption { color:var(--muted); font-size:11.5px; margin:0 0 9px; }
+  .caption b { color:#c9c9c9; font-weight:600; }
+  .caption .bad { color:#e08a8a; }
+  .caption .good { color:var(--accent); }
+
+  /* ---- facsimile of the node body ---- */
+  .node {
+    background:#1b1d1e; border:1px solid #3a3a3a; border-radius:7px;
+    padding:9px 11px; margin-bottom:6px;
+  }
+  .toolbar {
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+  }
+  .bd-btn {
+    padding:3px 9px; font-size:10px; border-radius:4px; cursor:default;
+    background:#232627; border:1px solid #454545; color:#e0e0e0;
+    font-family:inherit;
+  }
+  .bd-btn.on { border-color:var(--accent); color:var(--accent); }
+  .spacer { flex:1; }
+  .out-strip {
+    display:flex; align-items:center; gap:7px; margin-top:7px;
+    font-size:10px; color:#bdbdbd;
+  }
+  .select {
+    background:#232627; border:1px solid #454545; border-radius:4px;
+    color:#e0e0e0; font-size:10px; padding:2px 6px; font-family:inherit;
+  }
+  .select.hot { border-color:var(--accent); color:var(--accent); }
+
+  /* ---- the replace panel ---- */
+  .panel {
+    margin-top:8px; padding:8px 10px; background:var(--panel);
+    border:1px solid var(--panel-border); border-radius:6px;
+    font-size:10px; color:var(--text);
+  }
+  .phead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+  .ptitle { color:var(--title); font-weight:700; font-size:10px; }
+  .phelp  { color:var(--help); }
+  .badge {
+    font-size:9.5px; padding:1px 6px; border-radius:9px;
+    background:#1e3a29; border:1px solid #2f6f48; color:var(--accent);
+  }
+  .lbl { color:var(--label); }
+  .num {
+    background:#141d16; border:1px solid #3a5544; border-radius:3px;
+    color:#dff5e6; font-size:10px; width:48px; padding:2px 4px;
+    font-family:inherit; text-align:center;
+  }
+  .divider { width:1px; height:15px; background:#2f4f3a; margin:0 2px; }
+
+  /* ---- the proposed primary action ---- */
+  .primary {
+    padding:4px 12px; font-size:11px; font-weight:700; border-radius:4px;
+    background:#1f4a30; border:1px solid var(--accent); color:#eafff2;
+    font-family:inherit; cursor:default;
+  }
+  .primary.disabled {
+    background:#22282a; border-color:#3d4642; color:#6d7873;
+  }
+  .primary.small { font-size:10px; font-weight:600; padding:3px 10px; }
+  .preview {
+    margin-top:6px; padding:5px 8px; border-radius:5px;
+    background:#101a12; border:1px dashed #2f6f48; color:#a8d9bd; font-size:10px;
+  }
+  .preview b { color:var(--accent); }
+  .preview.warn { border-style:solid; border-color:#4a3a20; color:#c9ab7a; }
+  .preview.warn b { color:#e0b070; }
+
+  /* ---- hint bar for Replace: OFF ---- */
+  .hint {
+    display:flex; align-items:center; gap:9px; margin-top:8px; padding:6px 10px;
+    background:#182a1f; border:1px solid #2f6f48; border-radius:6px;
+    font-size:10.5px; color:#a8d9bd;
+  }
+  .hint b { color:var(--accent); }
+  .hint .primary { margin-left:auto; }
+
+  /* ---- window rows ---- */
+  .rows { display:flex; flex-direction:column; gap:4px; margin-top:7px; }
+  .row {
+    display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+    padding:4px 6px; background:var(--row); border:1px solid var(--row-border);
+    border-radius:5px;
+  }
+  .row .w { color:#9fd9b4; font-weight:600; }
+  .row .ck { display:flex; align-items:center; gap:3px; color:#9fd9b4; }
+  .row .ck input { accent-color:#4fff8f; width:11px; height:11px; margin:0; }
+  .row .fl { display:flex; align-items:center; gap:3px; color:var(--help); }
+  .mrow { color:#7fa08b; padding-left:2px; }
+
+  .note {
+    margin-top:9px; padding:7px 10px; background:#1a1f1c;
+    border-left:3px solid #2f6f48; border-radius:0 5px 5px 0;
+    font-size:11px; color:#a9bcb0;
+  }
+  .note b { color:#cfe9d8; }
+</style>
+</head>
+<body>
+
+<h1>Long-form Character Replace — UI mockup</h1>
+<div class="sub">Same palette and 10&nbsp;px type scale as the live panel. Non-functional facsimile; nothing here is wired up.</div>
+
+<!-- ================= 1. TODAY: replace off ================= -->
+<h2><span class="tag today">today</span>Replace OFF &mdash; the feature does not exist on screen</h2>
+<p class="caption">A long source is loaded, but <b>nothing</b> indicates long-form replace is available. The only entry point is a bare toggle that advertises nothing.</p>
+<div class="node">
+  <div class="toolbar">
+    <button class="bd-btn">r/v2v &mdash; source video + references</button>
+    <button class="bd-btn">Upload source</button>
+    <button class="bd-btn">Segment mode</button>
+    <button class="bd-btn">Replace: OFF</button>
+    <span class="spacer"></span>
+    <span style="font-size:10px;color:#8a8a8a">Start 0.00 &nbsp; End 6:50.00 &nbsp; 0.00s</span>
+  </div>
+</div>
+
+<!-- ================= 2. PROPOSED: replace off ================= -->
+<h2><span class="tag prop">proposed</span>Replace OFF &mdash; a way in, for free</h2>
+<p class="caption">A slim bar appears only when a source is loaded and is longer than one window. One click turns replace on, covers the clip, and sets export mode.</p>
+<div class="node">
+  <div class="toolbar">
+    <button class="bd-btn">r/v2v &mdash; source video + references</button>
+    <button class="bd-btn">Upload source</button>
+    <button class="bd-btn">Segment mode</button>
+    <button class="bd-btn">Replace: OFF</button>
+    <span class="spacer"></span>
+    <span style="font-size:10px;color:#8a8a8a">Start 0.00 &nbsp; End 6:50.00 &nbsp; 0.00s</span>
+  </div>
+  <div class="hint">
+    <span>6:50 source &nbsp;·&nbsp; this clip needs <b>27</b> replace windows</span>
+    <button class="primary small">Long-form Character Replace &rarr;</button>
+  </div>
+</div>
+
+<!-- ================= 3. TODAY: replace on ================= -->
+<h2><span class="tag today">today</span>Replace ON &mdash; the whole feature is one small grey button</h2>
+<p class="caption">Seven controls in a 10&nbsp;px row. <span class="bad">&ldquo;Cover entire clip&rdquo; has the same weight as &ldquo;+&nbsp;Add after&rdquo;</span>, and sits seventh. Nothing states the outcome, and all strings are English-only.</p>
+<div class="node">
+  <div class="toolbar">
+    <button class="bd-btn">r/v2v &mdash; source video + references</button>
+    <button class="bd-btn">Upload source</button>
+    <button class="bd-btn on">Replace: ON</button>
+  </div>
+  <div class="panel">
+    <div class="phead">
+      <b class="ptitle">Replace windows</b>
+      <span class="phelp">masked, background kept, gaps allowed. Lengths auto-snap to H3-valid (17k+5) on run. lead = frames rendered before start (pose runway, 0 = off). Add buttons use the 'len' field (default 5s, max 20s).</span>
+      <button class="bd-btn">f</button>
+      <span class="lbl">len</span>
+      <input class="num" value="5">
+      <button class="bd-btn">s</button>
+      <button class="bd-btn">+ Add after</button>
+      <button class="bd-btn">+ Add at playhead</button>
+      <button class="bd-btn">Cover entire clip</button>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="w">W1</span><label class="ck"><input type="checkbox">enabled</label><span class="fl">Start <input class="num" value="0"></span><span class="fl">End <input class="num" value="362"></span><label class="ck"><input type="checkbox" checked>cont</label></div>
+      <div class="row"><span class="w">W2</span><label class="ck"><input type="checkbox">enabled</label><span class="fl">Start <input class="num" value="362"></span><span class="fl">End <input class="num" value="724"></span><label class="ck"><input type="checkbox" checked>cont</label></div>
+      <div class="mrow">&hellip; 25 more windows</div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 4. PROPOSED: replace on ================= -->
+<h2><span class="tag prop">proposed</span>Replace ON &mdash; one named action, outcome stated</h2>
+<p class="caption">The action is <span class="good">first, accent-coloured and named after the goal</span>. It states what it will produce before you click, and does all four steps. The small utilities move behind a divider.</p>
+<div class="node">
+  <div class="toolbar">
+    <button class="bd-btn">r/v2v &mdash; source video + references</button>
+    <button class="bd-btn">Upload source</button>
+    <button class="bd-btn on">Replace: ON</button>
+    <button class="bd-btn on">Long-form</button>
+  </div>
+  <div class="panel">
+    <div class="phead">
+      <b class="ptitle">Replace windows</b>
+      <span class="badge">27 windows</span>
+      <span class="badge">covers 100%</span>
+      <span class="spacer"></span>
+      <span class="phelp">masked · background kept</span>
+    </div>
+
+    <div class="phead" style="margin-bottom:4px">
+      <button class="primary">Long-form replace &mdash; cover whole clip</button>
+      <span class="lbl">len</span>
+      <input class="num" value="362">
+      <button class="bd-btn">f</button>
+      <button class="bd-btn">s</button>
+      <span class="lbl">cont</span>
+      <label class="ck"><input type="checkbox" checked></label>
+      <span class="divider"></span>
+      <button class="bd-btn">+ Add after</button>
+      <button class="bd-btn">+ Add at playhead</button>
+    </div>
+
+    <div class="preview">
+      Will create <b>27 windows &times; 15.08 s</b> &nbsp;·&nbsp; covers <b>6:50</b> &nbsp;·&nbsp; continuity <b>on</b> &nbsp;·&nbsp; export mode set to <b>by&nbsp;segment</b>
+    </div>
+
+    <div class="rows">
+      <div class="row"><span class="w">W1</span><label class="ck"><input type="checkbox" checked>enabled</label><span class="fl">0 &rarr; 362</span><label class="ck"><input type="checkbox" checked>cont</label><span class="mrow">first window &mdash; no anchor</span></div>
+      <div class="row"><span class="w">W2</span><label class="ck"><input type="checkbox" checked>enabled</label><span class="fl">362 &rarr; 724</span><label class="ck"><input type="checkbox" checked>cont</label><span class="mrow">anchors to W1 tail</span></div>
+      <div class="mrow">&hellip; 25 more windows</div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 5. disabled state ================= -->
+<h2><span class="tag prop">proposed</span>No source loaded &mdash; say so, instead of doing nothing</h2>
+<p class="caption">Today <code>coverEntireClip()</code> returns silently when the source is empty, so the button looks broken. <span class="good">Disable it and explain.</span></p>
+<div class="node">
+  <div class="toolbar">
+    <button class="bd-btn">r/v2v &mdash; source video + references</button>
+    <button class="bd-btn on">Replace: ON</button>
+  </div>
+  <div class="panel">
+    <div class="phead">
+      <b class="ptitle">Replace windows</b>
+      <span class="badge" style="background:#2a2a1e;border-color:#6f6a2f;color:#d9cf8f">0 windows</span>
+      <span class="spacer"></span>
+    </div>
+    <div class="phead" style="margin-bottom:4px">
+      <button class="primary disabled">Long-form replace &mdash; cover whole clip</button>
+      <span class="lbl">len</span>
+      <input class="num" value="362" disabled>
+      <span class="divider"></span>
+      <button class="bd-btn">+ Add after</button>
+      <button class="bd-btn">+ Add at playhead</button>
+    </div>
+    <div class="preview warn">
+      <b>Load a source video first</b> &mdash; long-form replace needs a clip to cover.
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>What changed, in one line:</b> the capability is unchanged &mdash; this is the same
+  <code>coverEntireClip()</code> logic, promoted. It gains a name, an accent, first position, an
+  outcome preview, a window-count badge, a disabled state that explains itself, and i18n keys.
+  The one behavioural addition is that it also flips <i>Export mode</i> to <i>by segment</i> and
+  turns <i>cont</i> on for every window it creates, so the four-step recipe stops being four steps.
+</div>
+
+</body>
+</html>

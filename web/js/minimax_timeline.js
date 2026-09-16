@@ -2690,6 +2690,59 @@ function mkSmallButton(label, danger) {
     return b;
 }
 
+/**
+ * Accent-styled action button. mkSmallButton has no visual hierarchy, so a panel
+ * with one whole-scope action and several narrow utilities renders flat - use this
+ * for the one action that owns the panel's purpose.
+ */
+function mkPrimaryButton(label) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.className = "bd-btn";
+    b.style.cssText = "padding:4px 12px;font-size:11px;font-weight:700;border-radius:4px;"
+        + "background:#1f4a30;border:1px solid #4fff8f;color:#eafff2;";
+    return b;
+}
+
+/** Small state pill, for readouts like "27 windows" / "covers 100%". */
+function mkBadge(text) {
+    const s = document.createElement("span");
+    s.textContent = text;
+    s.style.cssText = "font-size:9.5px;padding:1px 6px;border-radius:9px;white-space:nowrap;"
+        + "background:#1e3a29;border:1px solid #2f6f48;color:#4fff8f;";
+    return s;
+}
+
+/** Badge in its "empty / needs attention" state. */
+function setBadgeMuted(badge, muted) {
+    badge.style.background = muted ? "#2a2a1e" : "#1e3a29";
+    badge.style.borderColor = muted ? "#6f6a2f" : "#2f6f48";
+    badge.style.color = muted ? "#d9cf8f" : "#4fff8f";
+}
+
+function mkSpacer() {
+    const s = document.createElement("span");
+    s.style.flex = "1";
+    return s;
+}
+
+/** Visual break between the panel's primary action and its narrow utilities. */
+function mkDivider() {
+    const d = document.createElement("span");
+    d.style.cssText = "width:1px;height:15px;background:#2f4f3a;margin:0 2px;";
+    return d;
+}
+
+/** "12:34" / "0:07" from a frame count. */
+function formatDuration(frames, fps) {
+    const rate = Number(fps) > 0 ? Number(fps) : 24;
+    const total = Math.max(0, Number(frames) || 0) / rate;
+    const mins = Math.floor(total / 60);
+    const secs = Math.floor(total % 60);
+    return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
 /** Numeric Start/End for the selected segment in the tiled video timeline. */
 function installSegmentBoundsBar(ed) {
     const bar = document.createElement("div");
@@ -2813,7 +2866,7 @@ function installReplaceWindowsMode(ed) {
     toggle.style.marginLeft = "6px";
     toggle.className = "bd-btn";
     const setToggleLabel = () => {
-        toggle.textContent = ed.timeline?.replaceMode ? "Replace: ON" : "Replace: OFF";
+        toggle.textContent = t(ed.timeline?.replaceMode ? "replace.toggleOn" : "replace.toggleOff");
         toggle.style.borderColor = ed.timeline?.replaceMode ? "#4fff8f" : "#111";
         toggle.style.color = ed.timeline?.replaceMode ? "#4fff8f" : "#e0e0e0";
     };
@@ -2823,43 +2876,95 @@ function installReplaceWindowsMode(ed) {
     host.style.cssText =
         "display:none;margin:0 0 6px;padding:8px 10px;background:#16211a;border:1px solid #2f4f3a;border-radius:6px;"
         + "font-size:10px;color:#bcd6c4;box-sizing:border-box;";
+    // --- header: title, state readouts, the row-bounds unit, help ---
     const header = document.createElement("div");
     header.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;";
     const hTitle = document.createElement("b");
-    hTitle.textContent = "Replace windows";
+    hTitle.dataset.i18n = "replace.title";
+    hTitle.textContent = t("replace.title");
     hTitle.style.color = "#8fe3b0";
+    const countBadge = mkBadge(t("replace.badge.windows", { n: 0 }));
+    const coverBadge = mkBadge(t("replace.badge.covered", { n: 0 }));
     const hSub = document.createElement("span");
+    hSub.dataset.i18n = "replace.help";
     hSub.style.color = "#7fa08b";
-    hSub.textContent = "masked, background kept, gaps allowed. Lengths auto-snap to H3-valid (17k+5) on run. lead = frames rendered before start (pose runway, 0 = off). Add buttons use the 'len' field (default 5s, max 20s).";
+    hSub.textContent = t("replace.help");
     const unit = makeUnitToggle("f", () => renderRows());
+    unit.title = t("replace.rowUnitTitle");
+    header.append(hTitle, countBadge, coverBadge, mkSpacer(), unit, hSub);
+
+    // --- action row: the whole-clip action leads, its inputs follow, then the
+    // narrow per-window utilities sit behind a divider ---
+    const actionRow = document.createElement("div");
+    actionRow.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;";
+    const longBtn = mkPrimaryButton(t("replace.longForm"));
+    longBtn.dataset.a = "longform-replace";
+    longBtn.title = t("replace.longFormTitle");
     const lenLbl = document.createElement("span");
-    lenLbl.textContent = "len";
+    lenLbl.dataset.i18n = "replace.len";
+    lenLbl.textContent = t("replace.len");
     lenLbl.style.color = "#9fd9b4";
     const addLenInput = numField("5", 48);
-    addLenInput.title = "Frames or seconds each + Add button uses for the new window's length (default 5s, clamped to 20s max).";
+    addLenInput.title = t("replace.lenTitle");
     addLenInput.style.background = "#141d16";
-    const addLenUnit = makeUnitToggle("s", () => { /* no rerender needed */ });
-    const addAfterBtn = mkSmallButton("+ Add after");
-    addAfterBtn.title = "Add a window directly after the previous window's end, using the len above.";
-    const addAtBtn = mkSmallButton("+ Add at playhead");
-    addAtBtn.title = "Add a window starting at the current playhead position in the source player above, using the len above.";
-    const coverBtn = mkSmallButton("Cover entire clip");
-    coverBtn.title = "Replace the window list with contiguous windows covering the whole source clip, each of the len above (last window is the remainder). Copies the first window's replace settings to every window.";
-    const clearHelp = document.createElement("span");
-    clearHelp.style.color = "#7fa08b";
-    header.append(hTitle, hSub, unit, lenLbl, addLenInput, addLenUnit, addAfterBtn, addAtBtn, coverBtn);
-    host.append(header);
+    const addLenUnit = makeUnitToggle("s", () => refreshLongForm());
+    const contLbl = document.createElement("span");
+    contLbl.dataset.i18n = "replace.cont";
+    contLbl.textContent = t("replace.cont");
+    contLbl.style.color = "#9fd9b4";
+    contLbl.title = t("replace.contTitle");
+    const contMaster = document.createElement("input");
+    contMaster.type = "checkbox";
+    contMaster.checked = true;
+    contMaster.title = t("replace.contTitle");
+    contMaster.style.cssText = "accent-color:#4fff8f;width:11px;height:11px;margin:0;";
+    const addAfterBtn = mkSmallButton(t("replace.addAfter"));
+    addAfterBtn.dataset.i18n = "replace.addAfter";
+    addAfterBtn.title = t("replace.addAfterTitle");
+    const addAtBtn = mkSmallButton(t("replace.addAtPlayhead"));
+    addAtBtn.dataset.i18n = "replace.addAtPlayhead";
+    addAtBtn.title = t("replace.addAtPlayheadTitle");
+    actionRow.append(
+        longBtn, lenLbl, addLenInput, addLenUnit, contLbl, contMaster,
+        mkDivider(), addAfterBtn, addAtBtn,
+    );
+
+    // What the primary action will produce, stated before it runs.
+    const preview = document.createElement("div");
+    preview.dataset.r = "replace-preview";
+    preview.style.cssText = "margin-bottom:6px;padding:5px 8px;border-radius:5px;font-size:10px;"
+        + "background:#101a12;border:1px dashed #2f6f48;color:#a8d9bd;";
+    const feedback = document.createElement("div");
+    feedback.dataset.r = "replace-feedback";
+    feedback.style.cssText = "display:none;margin-bottom:6px;font-size:10px;color:#4fff8f;";
+
+    // Entry point shown while Replace is OFF, so the capability is discoverable
+    // without already knowing which toggle reveals it.
+    const hintBar = document.createElement("div");
+    hintBar.dataset.r = "replace-longform-hint";
+    hintBar.style.cssText = "display:none;align-items:center;gap:9px;margin:0 0 6px;padding:6px 10px;"
+        + "background:#182a1f;border:1px solid #2f6f48;border-radius:6px;font-size:10.5px;color:#a8d9bd;"
+        + "box-sizing:border-box;";
+    const hintText = document.createElement("span");
+    const hintBtn = mkPrimaryButton(t("replace.hintCta"));
+    hintBtn.style.cssText += "margin-left:auto;font-size:10px;font-weight:600;padding:3px 10px;";
+    hintBtn.title = t("replace.longFormTitle");
+    hintBar.append(hintText, hintBtn);
+
+    host.append(header, actionRow, preview, feedback);
 
     const rowsEl = document.createElement("div");
     rowsEl.style.cssText = "display:flex;flex-direction:column;gap:4px;";
     host.append(rowsEl);
     // Show the source player ABOVE the replace windows so the user can scrub
     // to the frames/seconds they want. mainBody order is: stage, controls,
-    // (host here), split-edit-bar, viewport, output. In normal mode the host
-    // is hidden so this placement is inert.
+    // (hint here, host here), split-edit-bar, viewport, output. In normal mode
+    // both are hidden so this placement is inert.
     if (ed.viewport && ed.mainBody) {
+        ed.mainBody.insertBefore(hintBar, ed.viewport);
         ed.mainBody.insertBefore(host, ed.viewport);
     } else {
+        ed.root.insertBefore(hintBar, ed.mainBody);
         ed.root.insertBefore(host, ed.mainBody);
     }
 
@@ -2872,6 +2977,9 @@ function installReplaceWindowsMode(ed) {
         });
     }
     setToggleLabel();
+    // applyLocale() re-runs applyI18nDom(root) for the [data-i18n] strings; the
+    // toggle label, badges and preview are stateful, so re-render those too.
+    ed._refreshReplacePanel = () => { setToggleLabel(); refreshLongForm(); };
 
     const cfgFields = new Map(); // row root -> {segId, inputs}
 
@@ -2985,14 +3093,12 @@ function installReplaceWindowsMode(ed) {
         }
     });
 
-    function coverEntireClip() {
-        const segs = ed.timeline && ed.timeline.segments;
-        if (!segs) return;
+    /** The window layout the primary action would produce, or null when impossible. */
+    function longFormPlan() {
         const total = directorTotalFrames(ed);
-        if (!Number.isFinite(total) || total <= 0) return;
         const fps = directorFps(ed) || 24;
         const len = addLengthFrames();
-        const firstCfg = segs.length ? replaceConfigFromSeg(segs[0]) : null;
+        if (!Number.isFinite(total) || total <= 0) return null;
         const windows = [];
         let start = 0;
         while (start < total) {
@@ -3010,21 +3116,108 @@ function installReplaceWindowsMode(ed) {
             windows.push({ start, length: len });
             start += len;
         }
-        if (!windows.length) return;
-        segs.length = 0;
-        for (const w of windows) {
-            const seg = newWindowSeg(w.start, w.length);
-            if (firstCfg) ensureReplaceConfigOnSeg(seg, firstCfg);
-            segs.push(seg);
-        }
-        commitLight();
-        renderRows();
+        return windows.length ? { total, fps, len, windows } : null;
     }
 
-    coverBtn.addEventListener("click", (e) => {
+    /** Frames covered by the current window list. */
+    function coveredFrames() {
+        const segs = (ed.timeline && ed.timeline.segments) || [];
+        const total = directorTotalFrames(ed);
+        return segs.reduce((sum, s) => {
+            const st = Math.max(0, parseInt(s.start, 10) || 0);
+            const ln = Math.max(0, parseInt(s.length ?? s.frameCount, 10) || 0);
+            return sum + Math.min(Math.max(0, total - st), ln);
+        }, 0);
+    }
+
+    /**
+     * Keep the badges, the outcome preview, the primary button's enabled state and
+     * the Replace-OFF entry point in sync with the timeline. This is also what
+     * re-localises the dynamic strings, so a locale change must call it.
+     */
+    function refreshLongForm() {
+        const segs = (ed.timeline && ed.timeline.segments) || [];
+        const total = directorTotalFrames(ed);
+        const plan = longFormPlan();
+
+        countBadge.textContent = t("replace.badge.windows", { n: segs.length });
+        setBadgeMuted(countBadge, segs.length === 0);
+        const pct = total > 0 ? Math.round((coveredFrames() / total) * 100) : 0;
+        coverBadge.textContent = t("replace.badge.covered", { n: pct });
+        setBadgeMuted(coverBadge, pct < 100);
+
+        longBtn.disabled = !plan;
+        longBtn.style.cursor = plan ? "pointer" : "not-allowed";
+        if (!plan) {
+            preview.style.borderStyle = "solid";
+            preview.style.borderColor = "#4a3a20";
+            preview.style.color = "#c9ab7a";
+            preview.textContent = t("replace.noSource");
+        } else {
+            preview.style.borderStyle = "dashed";
+            preview.style.borderColor = "#2f6f48";
+            preview.style.color = "#a8d9bd";
+            preview.textContent = t("replace.preview", {
+                n: plan.windows.length,
+                len: (plan.len / plan.fps).toFixed(2),
+                time: formatDuration(plan.total, plan.fps),
+                cont: contMaster.checked ? t("replace.previewOn") : t("replace.previewOff"),
+            });
+        }
+
+        const showHint = directorIsVideoMode(ed) && !ed.timeline?.replaceMode && !!plan;
+        hintBar.style.display = showHint ? "flex" : "none";
+        if (showHint && plan) {
+            hintText.textContent = t("replace.hint", {
+                time: formatDuration(plan.total, plan.fps),
+                n: plan.windows.length,
+            });
+        }
+    }
+
+    /**
+     * Long-form replace: cover the whole clip in equal windows, turn replace and
+     * continuity on for all of them, and export by segment so a single bad window
+     * can be re-rendered without touching its neighbours. Those four steps used to
+     * live in three separate parts of the UI with nothing tying them together.
+     */
+    function applyLongForm() {
+        const segs = ed.timeline && ed.timeline.segments;
+        const plan = longFormPlan();
+        if (!segs || !plan) return;
+        const firstCfg = segs.length ? replaceConfigFromSeg(segs[0]) : null;
+        const wantCont = !!contMaster.checked;
+        segs.length = 0;
+        for (const w of plan.windows) {
+            const seg = newWindowSeg(w.start, w.length);
+            const base = firstCfg || replaceConfigFromSeg(seg);
+            ensureReplaceConfigOnSeg(seg, { ...base, enabled: true, continuity: wantCont });
+            segs.push(seg);
+        }
+        if (ed.timeline?.output) ed.timeline.output.exportMode = "segments";
+        try {
+            if (typeof ed.onOutputField === "function") ed.onOutputField("exportMode", "segments");
+            if (ed.outExportMode) ed.outExportMode.value = "segments";
+        } catch (_err) { /* the output strip may not be mounted yet */ }
+        commitLight();
+        renderRows();
+        refreshLongForm();
+        feedback.textContent = t("replace.done", {
+            n: plan.windows.length,
+            time: formatDuration(plan.total, plan.fps),
+        });
+        feedback.style.display = "";
+        setTimeout(() => { feedback.style.display = "none"; }, 6000);
+    }
+
+    longBtn.addEventListener("click", (e) => { stopDomEvent(e); applyLongForm(); });
+    hintBtn.addEventListener("click", (e) => {
         stopDomEvent(e);
-        coverEntireClip();
+        setReplaceMode(true);
+        applyLongForm();
     });
+    addLenInput.addEventListener("input", () => refreshLongForm());
+    contMaster.addEventListener("change", () => refreshLongForm());
 
     function makeRow(seg) {
         const row = document.createElement("div");
@@ -3699,10 +3892,11 @@ function installReplaceWindowsMode(ed) {
         const list = segs ? [...segs] : [];
         cfgFields.clear();
         rowsEl.innerHTML = "";
+        refreshLongForm();
         if (!list.length) {
             const empty = document.createElement("div");
             empty.style.color = "#7fa08b";
-            empty.textContent = "No windows. Click '+ Add window'. Windows only render the frames they cover; gaps are skipped.";
+            empty.textContent = t("replace.empty");
             rowsEl.append(empty);
             return;
         }
@@ -3758,6 +3952,7 @@ function installReplaceWindowsMode(ed) {
             setToggleLabel();
         }
         host.style.display = rep ? "" : "none";
+        refreshLongForm();
         // Keep the source video player (stage + playback bar) visible as a
         // scrubber; hide only the split editor and canvas timeline.
         if (ed.mainBody) {
@@ -8914,6 +9109,7 @@ class MiniMaxH3MotionDirectorEditor {
         this.populateTaskSelect(this.globalTask, this.taskTypeWidget?.value || this.globalTask?.value);
         this.refreshAspectSelectLabels();
         // Re-apply dynamic UI strings that overwrite data-i18n nodes.
+        this._refreshReplacePanel?.();
         this.updateVideoNameLabel?.();
         this.updateRunSelectUI?.();
         this.updateOutputPreview?.();

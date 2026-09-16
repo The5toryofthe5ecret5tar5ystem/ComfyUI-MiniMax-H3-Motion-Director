@@ -289,7 +289,9 @@ Character Replace needs the RV2V family of inputs, so set the node up as you wou
 1. Give the Director a **Source Video** (this is the footage whose performer you replace).
 2. Add the replacement character in **Common References**: **Picture 1 = face** (headshot) and **Picture 2 = character sheet** (front/side/back) - see sections 7 and 11.
 3. Set **Replace: ON** on the timeline (the toggle appears when a source video is loaded).
-4. **Add windows** with the `+ Add after` / `+ Add at playhead` buttons (default 5 s each, up to 20 s; lengths auto-snap to the H3 frame grid). Rows may overlap or be out of order - list order is render/output order.
+4. **Fill the windows**, either way:
+   - **Long-form - the whole clip in one click:** set **len**, then press **Long-form replace - cover whole clip**. It cuts the source into equal windows, enables replace and continuity on every one of them, and switches **Export mode** to *by segment* so a single bad window can be re-rendered alone. The preview line above the button states what it will produce before you commit. Alternatively, press the **Long-form Character Replace** bar that appears while Replace is OFF.
+   - **By hand:** `+ Add after` / `+ Add at playhead` (default 5 s each, up to 20 s; lengths auto-snap to the H3 frame grid). Rows may overlap or be out of order - list order is render/output order.
 5. On each window row choose:
    - **kind = sam3** (auto mask from a text prompt - no mask files needed) or **frames** (pre-made per-frame mask PNGs).
    - **render = anchor** (recommended: full re-render, subject drawn as a photographic negative in the motion reference - strongest identity) or **inpaint** (pixel-exact background, but identity is weaker on this stack).

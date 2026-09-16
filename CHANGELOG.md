@@ -3,6 +3,36 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## Unreleased
+
+The long-form Character Replace workflow was four settings spread across three
+parts of the UI, and the one button that covered a whole clip looked identical to
+the two that add a single window. It is now one named action.
+
+### Changed
+
+- **`Cover entire clip` is now `Long-form replace - cover whole clip`**, styled
+  and placed as the panel's primary action instead of the seventh control in a
+  10 px row. It does the whole recipe in one click: cut the source into equal
+  windows at the chosen length, enable replace and continuity on every window,
+  and set Export mode to *by segment* so a single bad window can be re-rendered
+  without touching its neighbours. The outcome is stated before it runs
+  (`Will create 27 windows x 15.08 s . covers 6:50 . continuity: on . export mode
+  set to by segment`), and the window utilities (`+ Add after`,
+  `+ Add at playhead`) moved behind a divider.
+- **The panel now reads its own state**: `27 windows` and `covers 100%` badges in
+  the header, and per-row hints (`first window - no anchor`,
+  `anchors to W1 tail`) that explain what `cont` does.
+- **A way in while Replace is OFF.** A slim bar appears when a source is loaded
+  and is longer than one window: `6:50 source . this clip needs 27 replace
+  windows` plus a one-click entry that turns Replace on and covers the clip. The
+  only entry point used to be a toggle that advertised nothing.
+- **No source loaded now says so.** With an empty timeline the button is disabled
+  and the panel reads `Load a source video first` rather than returning silently,
+  which made it look broken.
+- **The replace panel is localised.** Its strings were hardcoded English in a UI
+  that is otherwise translated, so there was nothing to search for in Chinese.
+
 ## v1.8.3 — 2026-09-16
 
 The learned-latent upscaler stops re-reading and re-converting its checkpoint on
