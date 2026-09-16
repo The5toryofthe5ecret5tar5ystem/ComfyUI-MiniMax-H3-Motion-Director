@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -976,8 +977,23 @@ def apply_global_refine(
             pass_seeds=pass_seeds,
             timings=timings,
         )
+    except torch.OutOfMemoryError as exc:
+        # A CUDA OOM in the refine/upscale pass must surface as a hard error,
+        # not be downgraded to "kept the first-pass result": silently keeping
+        # the un-upscaled output is exactly how a pinned/leaked model goes
+        # unnoticed, and the first-pass path already treats OOM the same way.
+        raise RuntimeError(
+            "Motion Director ran out of VRAM during Global Refine/upscale. "
+            "Reduce the upscale target or chunk size, enable temporal_split, "
+            "or keep clear_vram_between_segments enabled. If VRAM stays pinned "
+            "after this error, check the log for the anchored-model report."
+        ) from exc
     except Exception as exc:
-        log.warning("Global Refine failed; keeping first-pass result: %s", exc)
+        log.warning(
+            "Global Refine failed; keeping first-pass result: %s\n%s",
+            exc,
+            traceback.format_exc(),
+        )
         timings["total"] = time.perf_counter() - stage_started
         return GlobalRefineOutcome(
             samples=samples,

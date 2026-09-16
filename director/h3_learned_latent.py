@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
 
 import torch
@@ -9,6 +10,8 @@ import torch
 from . import h3_latent_upscaler_runtime as _runtime
 from .h3_noise_mask import remap_h3_noise_mask, with_noise_mask
 from .vram_cleanup import cleanup_segment_vram
+
+log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director.learned_latent")
 
 VAE_DOWNSAMPLE = 16
 
