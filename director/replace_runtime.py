@@ -236,6 +236,59 @@ def encode_source_video(vae, source_frames: torch.Tensor) -> dict:
     return _encode_video(vae, source_frames)
 
 
+def nested_video_mask(mask: Any) -> torch.Tensor | None:
+    """Video stream of a nested noise mask, or the mask itself when flat."""
+    if mask is None:
+        return None
+    if getattr(mask, "is_nested", False):
+        try:
+            parts = list(mask.unbind())
+        except Exception:  # pragma: no cover - defensive
+            return None
+        mask = parts[0] if parts else None
+    return mask if torch.is_tensor(mask) else None
+
+
+def erase_source_in_regenerate_region(
+    video_latent: torch.Tensor,
+    mask: Any,
+) -> torch.Tensor:
+    """Zero the source pixels inside the regenerate region of a video latent.
+
+    ComfyUI starts masked sampling from ``latent_image + noise``
+    (``model_sampling.noise_scaling`` with ``max_denoise``), so leaving the
+    original performer inside the regenerate region is a strong hint: the
+    denoiser refines what it is shown and reconstructs *her* instead of
+    inventing the replacement. Field bug (2026-09-15): a 97-frame window with a
+    0.71-mean video noise mask came back frame-for-frame identical to the source
+    (mean |diff| 8/255) because of exactly that.
+
+    Zeroing the regenerate region makes the sampler start from pure noise there;
+    the keep region still carries the source and the noise mask still blends it
+    back every step, so the background stays exact while the subject region is
+    free to be replaced.
+
+    ``mask`` uses the pack convention 1 = regenerate / 0 = keep. A mask whose
+    shape does not line up with the latent is ignored (the latent is returned
+    unchanged) rather than risking a misaligned erase.
+    """
+    low = nested_video_mask(mask)
+    if low is None or not torch.is_tensor(video_latent) or video_latent.ndim != 5:
+        return video_latent
+    if low.ndim == 3:  # [T, h, w]
+        low = low.unsqueeze(0).unsqueeze(0)
+    elif low.ndim == 4:  # [1, T, h, w]
+        low = low.unsqueeze(0)
+    if low.ndim != 5:
+        return video_latent
+    if tuple(low.shape[-2:]) != tuple(video_latent.shape[-2:]):
+        return video_latent
+    if int(low.shape[2]) != int(video_latent.shape[2]):
+        return video_latent
+    keep = (1.0 - low).to(dtype=video_latent.dtype, device=video_latent.device)
+    return video_latent * keep
+
+
 def assemble_masked_replace_latent(
     template_latent: dict,
     *,
@@ -248,15 +301,18 @@ def assemble_masked_replace_latent(
 
     ``template_latent`` is the conditioning latent from the H3 path (its audio
     stream is reused so stream length/shape stay valid); its video stream is
-    replaced with the VAE-encoded source window. ``mask`` is the nested noise
-    mask from :func:`build_replace_noise_mask`.
+    replaced with the VAE-encoded source window, with the regenerate region
+    erased so the sampler invents the replacement there instead of reconstructing
+    the source performer (:func:`erase_source_in_regenerate_region`). ``mask`` is
+    the nested noise mask from :func:`build_replace_noise_mask`.
     """
     out = dict(template_latent)
     try:
         import comfy.nested_tensor
     except Exception as exc:  # pragma: no cover
         raise ValueError(f"comfy.nested_tensor unavailable: {exc}") from exc
-    out["samples"] = comfy.nested_tensor.NestedTensor((video_latent, audio_latent))
+    masked_video = erase_source_in_regenerate_region(video_latent, mask)
+    out["samples"] = comfy.nested_tensor.NestedTensor((masked_video, audio_latent))
     out["noise_mask"] = mask
     return out
 
