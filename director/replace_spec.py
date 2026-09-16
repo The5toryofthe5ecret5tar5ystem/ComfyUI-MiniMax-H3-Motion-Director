@@ -99,6 +99,11 @@ class ReplaceSpec:
     lead: int = DEFAULT_REPLACE_LEAD_FRAMES    # pre-roll runway frames (0 = off)
     sam_prompts: list[str] = field(default_factory=list)  # Phase 2 (stored only)
     note: str = ""
+    # Seamless chaining: when True (default) a window conditions on the previous
+    # window's last rendered frame as an extra <Picture> anchor, so the
+    # regenerated subject opens from the prior output's pose instead of a fresh
+    # guess. No-op on the first window or when no previous window has rendered.
+    continuity: bool = True
     # Optional geometry subject seeding (SAM3) for kind == "sam3". pick_box is
     # a single normalized box [xmin, ymin, width, height] in 0..1 on the frame
     # at pick_frame (index into the mask window; -1 = true window start after
@@ -123,6 +128,7 @@ class ReplaceSpec:
             "enabled": bool(self.enabled),
             "audio_policy": self.audio_policy,
             "lead": max(0, int(self.lead or 0)),
+            "continuity": bool(self.continuity),
             "mask": self.mask.to_json(),
             "sam_prompts": [str(p) for p in (self.sam_prompts or [])],
             "pick": pick_obj or None,
@@ -195,11 +201,18 @@ class ReplaceSpec:
                 pick_frame = max(-1, int(pick_raw.get("frame", pick_raw.get("frameIndex", -1)) or -1))
             except (TypeError, ValueError):
                 pick_frame = -1
+        continuity_raw = raw.get("continuity", True)
+        continuity = (
+            continuity_raw
+            if isinstance(continuity_raw, bool)
+            else str(continuity_raw).strip().lower() not in ("false", "0", "no", "off")
+        )
         return ReplaceSpec(
             enabled=bool(raw.get("enabled")),
             audio_policy=policy,
             mask=ReplaceMaskSpec.from_json(raw.get("mask")),
             lead=lead,
+            continuity=continuity,
             sam_prompts=prompts,
             note=str(raw.get("note") or ""),
             pick_box=pick_box,

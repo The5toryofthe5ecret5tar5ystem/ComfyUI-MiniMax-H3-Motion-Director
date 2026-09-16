@@ -167,3 +167,23 @@ def test_pick_box_parse_clamps_and_roundtrips():
         assert s.pick_box is None
     # No pick block -> None.
     assert parse_replace_spec({"replace": {"enabled": True, "mask": {"kind": "sam3"}}}).pick_box is None
+
+
+def test_continuity_defaults_true():
+    # Seamless chaining is the default: a window conditions on the previous
+    # window's last rendered frame unless it explicitly opts out.
+    assert ReplaceSpec().continuity is True
+    spec = parse_replace_spec({"replace": {"enabled": True}})
+    assert spec.continuity is True
+
+
+def test_continuity_false_parses_and_roundtrips():
+    for raw in (False, "false", "0", "no", "off"):
+        spec = parse_replace_spec({"replace": {"enabled": True, "continuity": raw}})
+        assert spec.continuity is False, raw
+    spec = parse_replace_spec({"replace": {"enabled": True, "continuity": False}})
+    assert spec.to_json()["continuity"] is False
+    assert ReplaceSpec.from_json(spec.to_json()).continuity is False
+    # Truthy non-bool values are accepted as True.
+    assert parse_replace_spec({"replace": {"enabled": True, "continuity": "yes"}}).continuity is True
+

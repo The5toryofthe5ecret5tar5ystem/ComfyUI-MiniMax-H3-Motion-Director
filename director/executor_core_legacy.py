@@ -717,6 +717,7 @@ def execute_director_plan_core(
     reference_diagnostics: dict[int, str] = {}
     warning_messages: list[str] = []
     global_refine_outcomes: dict[int, Any] = {}
+    replace_output_tails: dict[int, torch.Tensor] = {}
     segment_stage_timings: dict[int, dict[str, float]] = {}
     vram_reports: list[str] = []
 
@@ -729,6 +730,15 @@ def execute_director_plan_core(
         """
         for message in (summary or {}).get("reports") or []:
             vram_reports.append(str(message))
+
+    def _is_replace_segment(seg) -> bool:
+        """True for a segment that renders a Character Replace window."""
+        spec = getattr(seg, "replace", None)
+        return bool(
+            spec is not None
+            and getattr(spec, "enabled", False)
+            and getattr(seg, "task_key", None) in {"v2v", "rv2v"}
+        )
 
 
     def _run_one_segment(seg, *, progress_index: int) -> tuple[torch.Tensor, dict[str, Any] | None]:
@@ -792,6 +802,7 @@ def execute_director_plan_core(
         replace_fallback_reason = ""
         replace_lead = 0
         replace_render_anchor = False
+        replace_continuity_frame = None
         if replace_active:
             replace_decode_audio = replace_policy == "generate"
             # Masked render strategy: 'anchor' (default) = CGlide-style full
@@ -829,6 +840,14 @@ def execute_director_plan_core(
                 str(getattr(getattr(replace_spec, "mask", None), "grow", 0) or 0),
                 str(getattr(getattr(replace_spec, "mask", None), "feather", 0.0) or 0.0),
             )
+            if getattr(replace_spec, "continuity", True):
+                prev_slots = [slot for slot in replace_output_tails if slot < timeline_slot]
+                if prev_slots:
+                    replace_continuity_frame = replace_output_tails[max(prev_slots)]
+                    reports.append(
+                        f"Segment {timeline_slot + 1}: continuity anchor from Segment "
+                        f"{max(prev_slots) + 1} (previous window's last rendered frame)."
+                    )
         if not context_link.explicit:
             warning_messages.append(f"S{timeline_slot + 1}: legacy workflow fallback is being used")
         if context_link.requested_audio and not apply_audio_context and not replace_active:
@@ -1232,6 +1251,29 @@ def execute_director_plan_core(
         )
         if ref_videos:
             ref_videos = {name: fit_canvas(frames, ctx_w, ctx_h) for name, frames in ref_videos.items()}
+        if replace_active and replace_continuity_frame is not None:
+            ref_images = dict(ref_images or {})
+            next_idx = 0
+            if ref_images:
+                parsed = []
+                for key in ref_images:
+                    try:
+                        parsed.append(int(key.rsplit("_", 1)[1]))
+                    except (ValueError, IndexError):
+                        pass
+                if parsed:
+                    next_idx = max(parsed) + 1
+            anchor = fit_canvas(replace_continuity_frame, ctx_w, ctx_h)
+            ref_images[f"ref_image_{next_idx}"] = anchor[:1] if anchor.ndim == 4 else anchor
+            positive_prompt = (
+                positive_prompt
+                + f"\n\n<Picture {next_idx + 1}> is the continuity anchor: the final frame "
+                "of the previous segment. Open this segment matching that frame's subject "
+                "pose, position, framing and lighting exactly, then follow this segment's own motion."
+            )
+            reports.append(
+                f"Segment {timeline_slot + 1}: continuity anchor injected as <Picture {next_idx + 1}>."
+            )
         reference_diagnostics[timeline_slot] = format_effective_references(
             timeline_slot, ref_images=ref_images, ref_videos=ref_videos,
             ref_audios=ref_audios, ref_video_audios=ref_video_audios,
@@ -2100,6 +2142,8 @@ def execute_director_plan_core(
         result = (cached, cached_audio)
         completed_outputs[int(seg.index)] = cached
         selected_results[int(seg.index)] = result
+        if _is_replace_segment(seg):
+            replace_output_tails[int(seg.timeline_index)] = cached[-1:].clone()
         if plan.export_mode == "all":
             all_export_results[int(seg.index)] = result
         reports.append(
@@ -2134,6 +2178,8 @@ def execute_director_plan_core(
             result = (chunk, audio_dict or {})
             nominal_generated_frames[int(seg.index)] = chunk
             selected_results[int(seg.index)] = result
+            if _is_replace_segment(seg):
+                replace_output_tails[int(seg.timeline_index)] = chunk[-1:].clone()
             if plan.export_mode == "all":
                 all_export_results[int(seg.index)] = result
             continue

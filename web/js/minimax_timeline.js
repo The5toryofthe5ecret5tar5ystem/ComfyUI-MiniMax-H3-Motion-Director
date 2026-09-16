@@ -2502,6 +2502,7 @@ function replaceConfigFromSeg(seg) {
         sam_prompt: String(prompts.find((p) => String(p).trim()) || ""),
         grow: Number.isFinite(Number(m.grow)) ? Math.max(0, Math.round(Number(m.grow))) : 1,
         feather: Number.isFinite(Number(m.feather)) ? Math.max(0, Number(m.feather)) : 1.0,
+        continuity: r.continuity !== false,
         note: String(r.note || ""),
         pick: (r.pick && typeof r.pick === "object") ? r.pick : null,
     };
@@ -2524,6 +2525,7 @@ function ensureReplaceConfigOnSeg(seg, cfg) {
             render: String(c.render || "anchor") === "inpaint" ? "inpaint" : "anchor",
         },
         sam_prompts: kind === "sam3" && prompt ? [prompt] : [],
+        continuity: c.continuity !== false,
         note: String(c.note || ""),
         pick: c.pick || null,
     };
@@ -2841,9 +2843,11 @@ function installReplaceWindowsMode(ed) {
     addAfterBtn.title = "Add a window directly after the previous window's end, using the len above.";
     const addAtBtn = mkSmallButton("+ Add at playhead");
     addAtBtn.title = "Add a window starting at the current playhead position in the source player above, using the len above.";
+    const coverBtn = mkSmallButton("Cover entire clip");
+    coverBtn.title = "Replace the window list with contiguous windows covering the whole source clip, each of the len above (last window is the remainder). Copies the first window's replace settings to every window.";
     const clearHelp = document.createElement("span");
     clearHelp.style.color = "#7fa08b";
-    header.append(hTitle, hSub, unit, lenLbl, addLenInput, addLenUnit, addAfterBtn, addAtBtn);
+    header.append(hTitle, hSub, unit, lenLbl, addLenInput, addLenUnit, addAfterBtn, addAtBtn, coverBtn);
     host.append(header);
 
     const rowsEl = document.createElement("div");
@@ -2981,6 +2985,47 @@ function installReplaceWindowsMode(ed) {
         }
     });
 
+    function coverEntireClip() {
+        const segs = ed.timeline && ed.timeline.segments;
+        if (!segs) return;
+        const total = directorTotalFrames(ed);
+        if (!Number.isFinite(total) || total <= 0) return;
+        const fps = directorFps(ed) || 24;
+        const len = addLengthFrames();
+        const firstCfg = segs.length ? replaceConfigFromSeg(segs[0]) : null;
+        const windows = [];
+        let start = 0;
+        while (start < total) {
+            const remaining = total - start;
+            if (remaining < len) {
+                // A sub-second sliver at the tail is folded into the previous
+                // window instead of becoming a degenerate unmasked stub.
+                if (windows.length && remaining < Math.max(1, Math.round(fps))) {
+                    windows[windows.length - 1].length += remaining;
+                } else {
+                    windows.push({ start, length: remaining });
+                }
+                break;
+            }
+            windows.push({ start, length: len });
+            start += len;
+        }
+        if (!windows.length) return;
+        segs.length = 0;
+        for (const w of windows) {
+            const seg = newWindowSeg(w.start, w.length);
+            if (firstCfg) ensureReplaceConfigOnSeg(seg, firstCfg);
+            segs.push(seg);
+        }
+        commitLight();
+        renderRows();
+    }
+
+    coverBtn.addEventListener("click", (e) => {
+        stopDomEvent(e);
+        coverEntireClip();
+    });
+
     function makeRow(seg) {
         const row = document.createElement("div");
         row.style.cssText = "display:flex;flex-direction:column;gap:3px;padding:4px 6px;background:#101a12;border:1px solid #27452f;border-radius:5px;";
@@ -3075,6 +3120,14 @@ function installReplaceWindowsMode(ed) {
         const audLbl = document.createElement("span");
         audLbl.textContent = "audio";
         line2.append(audLbl, policy);
+        const contLbl = document.createElement("span");
+        contLbl.textContent = "cont";
+        contLbl.title = "Chain continuity: open this window from the previous window's last rendered frame (seamless). Off for gapped windows.";
+        const contInput = document.createElement("input");
+        contInput.type = "checkbox";
+        contInput.checked = cfg.continuity !== false;
+        contInput.title = contLbl.title;
+        line2.append(contLbl, contInput);
         const testBtn = mkSmallButton("Test mask");
         testBtn.title = "Run SAM3 on this window now and show the subject mask on the Mask check card (no video render). Uses the current SAM3 prompt, lead and window range.";
         const pickBtn = mkSmallButton("Pick subject");
@@ -3093,7 +3146,7 @@ function installReplaceWindowsMode(ed) {
         line2.append(pickBtn, testBtn, testStatus);
         line1.append(handle, enabled, label, gotoBtn, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
         row.append(line1, line2, pickArea, testImg);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost } });
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, contInput, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost } });
         return row;
     }
 
@@ -3121,6 +3174,7 @@ function installReplaceWindowsMode(ed) {
         if (active !== inp.featherInput) inp.featherInput.value = String(cfg.feather);
         if (active !== inp.leadInput) inp.leadInput.value = String(cfg.lead);
         if (active !== inp.policy) inp.policy.value = cfg.audio_policy;
+        inp.contInput.checked = cfg.continuity !== false;
         if (inp.testBtn) inp.testBtn.style.display = sam3Kind ? "" : "none";
         if (inp.pickBtn) inp.pickBtn.style.display = sam3Kind ? "" : "none";
         inp.enabled.checked = cfg.enabled;
@@ -3215,6 +3269,14 @@ function installReplaceWindowsMode(ed) {
             if (!seg) return;
             const cfg = replaceConfigFromSeg(seg);
             cfg.audio_policy = REPLACE_AUDIO_POLICIES.includes(inp.policy.value) ? inp.policy.value : "source";
+            ensureReplaceConfigOnSeg(seg, cfg);
+            commitLight();
+        });
+        inp.contInput.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            const cfg = replaceConfigFromSeg(seg);
+            cfg.continuity = !!inp.contInput.checked;
             ensureReplaceConfigOnSeg(seg, cfg);
             commitLight();
         });
