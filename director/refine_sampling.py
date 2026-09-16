@@ -260,6 +260,34 @@ def _upscale_rtx_vsr_exact(
         context.__exit__(None, None, None)
 
 
+def _ensure_custom_nodes_importable() -> str:
+    """Return the ComfyUI custom_nodes path, adding it to sys.path if needed.
+
+    ComfyUI imports each custom-node package at startup, but it does not
+    guarantee the ``custom_nodes`` directory stays on ``sys.path`` when a node
+    later executes, so a lazy ``import <sibling pack>`` can raise
+    ``ModuleNotFoundError`` even though the pack loaded fine at startup.
+    Best-effort: never raises.
+    """
+    import os
+    import sys
+
+    try:
+        import folder_paths
+    except Exception:  # pragma: no cover - outside ComfyUI there is no folder_paths
+        return ""
+    base = getattr(folder_paths, "base_path", None)
+    if not base:
+        try:
+            base = os.path.dirname(os.path.dirname(os.path.abspath(folder_paths.__file__)))
+        except Exception:  # pragma: no cover - defensive
+            return ""
+    custom_nodes = os.path.join(str(base), "custom_nodes")
+    if custom_nodes and custom_nodes not in sys.path:
+        sys.path.insert(0, custom_nodes)
+    return custom_nodes
+
+
 def _upscale_seedvr2_exact(
     images: torch.Tensor,
     width: int,
@@ -275,6 +303,7 @@ def _upscale_seedvr2_exact(
     the caller resizes to the exact target afterwards.
     """
     try:
+        _ensure_custom_nodes_importable()
         from seedvr2_videoupscaler.src.interfaces.video_upscaler import SeedVR2VideoUpscaler
     except Exception as exc:  # noqa: BLE001 - missing install or broken import
         raise ImportError(

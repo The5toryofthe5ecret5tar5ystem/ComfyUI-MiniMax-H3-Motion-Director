@@ -151,3 +151,28 @@ def test_refine_generic_error_falls_back_with_details(monkeypatch):
     assert "NameError" in outcome.error
     assert "log" in outcome.error
     assert outcome.samples == source
+
+
+def test_seedvr2_import_path_ensures_custom_nodes(monkeypatch, tmp_path):
+    """Regression: SeedVR2 lazy-import failed at runtime because ComfyUI does
+    not keep custom_nodes on sys.path after startup."""
+    _install_stubs()
+    mod = _load_module()
+    fake = types.ModuleType("folder_paths")
+    fake.base_path = str(tmp_path)
+    monkeypatch.setitem(sys.modules, "folder_paths", fake)
+    expected = str(tmp_path / "custom_nodes")
+    assert mod._ensure_custom_nodes_importable() == expected
+    assert expected in sys.path
+
+
+def test_seedvr2_import_path_is_idempotent(monkeypatch, tmp_path):
+    _install_stubs()
+    mod = _load_module()
+    fake = types.ModuleType("folder_paths")
+    fake.base_path = str(tmp_path)
+    monkeypatch.setitem(sys.modules, "folder_paths", fake)
+    mod._ensure_custom_nodes_importable()
+    before = list(sys.path)
+    mod._ensure_custom_nodes_importable()
+    assert sys.path == before
