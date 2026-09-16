@@ -603,6 +603,12 @@
           "link": 26
         },
         {
+          "name": "refmod_conditioning",
+          "shape": 7,
+          "type": "CONDITIONING",
+          "link": 77
+        },
+        {
           "name": "director_inputs",
           "shape": 7,
           "type": "MMX_MOTION_DIR_INPUTS",
@@ -980,6 +986,313 @@
       },
       "color": "#372363FF",
       "bgcolor": "#482E82FF"
+    },
+    {
+      "id": "rmclip",
+      "type": "CLIPTextEncode",
+      "pos": [
+        -493.3511441442944,
+        1619
+      ],
+      "size": [
+        270,
+        100
+      ],
+      "flags": {
+        "collapsed": true,
+        "pinned": true
+      },
+      "order": 5,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 74
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            75
+          ]
+        }
+      ],
+      "title": "RefMod carrier (text ignored)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "CLIPTextEncode",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        ""
+      ],
+      "widgets_values_named": {
+        "text": ""
+      }
+    },
+    {
+      "id": "rmload",
+      "type": "MiniMaxH3RefModsLoader",
+      "pos": [
+        -493.3511441442944,
+        1659
+      ],
+      "size": [
+        340,
+        342
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 2,
+      "mode": 4,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mods",
+          "type": "H3_REF_MODS",
+          "links": [
+            76
+          ]
+        },
+        {
+          "name": "prompt_hint",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-MiniMaxH3Mod",
+        "ver": "cd27d1109a0da5f0a162ab59d53c6507251d4c34",
+        "Node name for S&R": "MiniMaxH3RefModsLoader",
+        "refmod_visible_slots": [
+          1
+        ],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        true,
+        "people/elf_girl",
+        1,
+        2,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        "(none)",
+        1,
+        1,
+        0,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        "All",
+        1,
+        1,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "widgets_values_named": {
+        "show_info": true,
+        "mod_1": "people/elf_girl",
+        "strength_1": 1,
+        "copies_1": 2,
+        "mod_2": "(none)",
+        "strength_2": 1,
+        "copies_2": 1,
+        "mod_3": "(none)",
+        "strength_3": 1,
+        "copies_3": 1,
+        "mod_4": "(none)",
+        "strength_4": 1,
+        "copies_4": 1,
+        "mod_5": "(none)",
+        "strength_5": 1,
+        "copies_5": 1,
+        "mod_6": "(none)",
+        "strength_6": 1,
+        "copies_6": 1,
+        "mod_7": "(none)",
+        "strength_7": 1,
+        "copies_7": 1,
+        "mod_8": "(none)",
+        "strength_8": 1,
+        "copies_8": 1,
+        "max_total_tokens": 0,
+        "components_1": "All",
+        "visual_strength_1": 1,
+        "audio_strength_1": 1,
+        "components_2": "All",
+        "visual_strength_2": 1,
+        "audio_strength_2": 1,
+        "components_3": "All",
+        "visual_strength_3": 1,
+        "audio_strength_3": 1,
+        "components_4": "All",
+        "visual_strength_4": 1,
+        "audio_strength_4": 1,
+        "components_5": "All",
+        "visual_strength_5": 1,
+        "audio_strength_5": 1,
+        "components_6": "All",
+        "visual_strength_6": 1,
+        "audio_strength_6": 1,
+        "components_7": "All",
+        "visual_strength_7": 1,
+        "audio_strength_7": 1,
+        "components_8": "All",
+        "visual_strength_8": 1,
+        "audio_strength_8": 1,
+        "Refresh RefMods": null,
+        "RefMod library": null,
+        "Remove RefMod 1": null,
+        "Remove RefMod 2": null,
+        "Remove RefMod 3": null,
+        "Remove RefMod 4": null,
+        "Remove RefMod 5": null,
+        "Remove RefMod 6": null,
+        "Remove RefMod 7": null,
+        "Remove RefMod 8": null,
+        "+ Add RefMod": null
+      },
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": "rmapply",
+      "type": "MiniMaxH3RefModApply",
+      "pos": [
+        -133.35114414429438,
+        1659
+      ],
+      "size": [
+        340,
+        342
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 7,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "conditioning",
+          "type": "MINIMAX_H3_COND,CONDITIONING",
+          "link": 75
+        },
+        {
+          "name": "mods",
+          "type": "H3_REF_MODS",
+          "link": 76
+        }
+      ],
+      "outputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "links": [
+            77
+          ]
+        },
+        {
+          "name": "curve graph",
+          "type": "IMAGE",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-MiniMaxH3Mod",
+        "ver": "cd27d1109a0da5f0a162ab59d53c6507251d4c34",
+        "Node name for S&R": "MiniMaxH3RefModApply",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        false,
+        1,
+        "constant",
+        40000,
+        "fixed",
+        "linear",
+        1,
+        "(none)",
+        "shuffle",
+        1,
+        0,
+        ""
+      ],
+      "widgets_values_named": {
+        "override": false,
+        "retention": 1,
+        "curve_direction": "constant",
+        "scramble_seed": 40000,
+        "fixed": "fixed",
+        "curve_shape": "linear",
+        "curve_value": 1,
+        "graph_preset": "(none)",
+        "scramble_mode": "shuffle",
+        "scramble_keep": 1,
+        "max_total_tokens": 0,
+        "save_preset_as": ""
+      },
+      "color": "#323",
+      "bgcolor": "#535"
     }
   ],
   "links": [
@@ -1134,6 +1447,38 @@
       3,
       2,
       "MODEL"
+    ],
+    [
+      74,
+      10,
+      1,
+      "rmclip",
+      0,
+      "CLIP"
+    ],
+    [
+      75,
+      "rmclip",
+      0,
+      "rmapply",
+      0,
+      "CONDITIONING"
+    ],
+    [
+      76,
+      "rmload",
+      0,
+      "rmapply",
+      1,
+      "H3_REF_MODS"
+    ],
+    [
+      77,
+      "rmapply",
+      0,
+      "dir",
+      6,
+      "CONDITIONING"
     ]
   ],
   "groups": [
@@ -1183,6 +1528,18 @@
         320
       ],
       "color": "#6843BFFF",
+      "flags": {}
+    },
+    {
+      "id": 900,
+      "title": "RefMod (BYPASSED - Ctrl+B to enable)",
+      "bounding": [
+        -513.3511441442944,
+        1539,
+        740,
+        470
+      ],
+      "color": "#8AA",
       "flags": {}
     }
   ],

@@ -1,5 +1,61 @@
 # Example Workflows — MiniMax H3 Motion Director
 
+## The RefMod chain ships in every example
+
+Every workflow here carries the same three-node RefMod group, so an example can be
+switched to a mod-carried character without rebuilding it:
+
+```
+CLIP Text Encode ──conditioning──┐
+                                 ├─ Apply H3 RefMod ──conditioning──▶ Director.refmod_conditioning
+Load H3 RefMods ─────mods────────┘
+```
+
+`Apply H3 RefMod` appends each mod's stored reference latent to that
+conditioning's `minimax_refs`. The Director harvests the payload and appends it to
+**every** segment's conditioning. The `CLIP Text Encode` is a stub — the Director
+builds its own conditioning per segment, so that node's text is discarded; it
+exists only to satisfy a required input on `Apply H3 RefMod`.
+
+| Example | RefMod |
+|---|---|
+| `ref2va + RefMod 1x4s` | **enabled** — `people/elf_girl` |
+| `character replace (RefMod + SAM3) 2x5s` | **enabled** — `people/elf_girl` |
+| `character replace (Faceswap Test without masking)` | **enabled** — `people/flaffy02` |
+| `ref2va 3x7s` | bypassed — picture references carry the character |
+| `t2v 5x7s - elf vs giant orc` | bypassed — the example is defined as pure prompt |
+| `character replace 3x7s - elf vs giant orc` | bypassed — uploaded references carry the character |
+
+**Enable a bypassed group with `Ctrl+B`** across its three nodes. The group is
+titled `RefMod (BYPASSED - Ctrl+B to enable)` so the state of a file is obvious at
+a glance, and the enabled groups keep the original
+`RefMod (optional - delete to disable)` title. While bypassed the chain
+contributes nothing: the run report may print
+
+```
+RefMod: refmod_conditioning is connected but supplied no reference blocks
+```
+
+That line means it harvested no payload, which is the intent — the render matches
+the example as written. Delete the group to remove the input from the graph
+entirely.
+
+### Where the mods live
+
+RefMod reads from a `refmods` model folder, **not** from this directory:
+
+```
+ComfyUI/models/refmods/people/elf_girl.safetensors
+```
+
+`example_workflows/refmods/people/elf_girl.safetensors` is a convenience copy —
+place it under `models/refmods/` so the relative name `people/elf_girl` resolves,
+or point `Load H3 RefMods → mod_1` at a mod of your own. The Faceswap example
+points at `people/flaffy02`, which is **not** bundled here: it needs that mod on
+disk or a re-point before it will run.
+
+---
+
 ## `Minimax h3 Director - ref2va example workflow 3x7s.json`
 
 A ready-to-run **ref2va (Reference to Video)** example: one continuous golden-hour
@@ -26,6 +82,12 @@ ambience.
 Requires the node pack plus the MiniMax H3 models/VAEs and the H3 REF2VA model
 referenced by the workflow's model subgraph (swap the loader files to the paths
 on your machine if needed).
+
+**The RefMod group ships bypassed here.** This example's character comes from the
+two picture references above, so the mod chain is present but inactive. `Ctrl+B`
+on its three nodes switches identity from the pictures to
+`people/elf_girl` — see
+[The RefMod chain ships in every example](#the-refmod-chain-ships-in-every-example).
 
 ### Default models & downloads
 
@@ -176,7 +238,8 @@ is low.
 1. Install [ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod) and
    restart ComfyUI.
 2. Pick your mod in **Load H3 RefMods → `mod_1`**. The workflow ships pointing at
-   `vanellope_example`, the sample mod bundled with the RefMod pack — swap it for your own.
+   `people/elf_girl`, the copy bundled here — see
+   [Where the mods live](#where-the-mods-live). Swap it for your own.
 3. Rewrite `Scene:` / `Style:` / `Audio:` and the shot description for your own scene, and
    keep the `subject_definitions:` block, `Identity lock:` included.
 4. **Generate** — one 4 s shot, no chaining, so a full identity check is quick.
@@ -253,6 +316,13 @@ table below; this file references the `beta5` hybrid build of the REF2VA path an
 the FL2VA turbo 4-step path for T2V). Top-level **Power Lora Loader** is empty —
 add your own LoRA if you want one.
 
+**The RefMod group ships bypassed here**, below the graph and inactive, so this
+example stays what it says it is: pure prompt, no references. Press `Ctrl+B` on
+its three nodes to turn it on — worth doing if the elf's face drifts across the
+five segments, which is what a chain of free generations does with a character
+described only in text. See
+[The RefMod chain ships in every example](#the-refmod-chain-ships-in-every-example).
+
 ---
 
 ## `Minimax h3 Director - character replace example workflow 3x7s - elf vs giant orc.json`
@@ -280,6 +350,11 @@ elf woman replaces the lead in a condensed version of the giant-orc fight:
 
 Identical model subgraph, VAE and audio-refine setup to the t2v example; top-level
 **Power Lora Loader** is empty — add your own LoRA if you want one.
+
+**The RefMod group ships bypassed here.** The replaced performer is carried by the
+uploaded references in step 2, so the mod chain is present but inactive. `Ctrl+B`
+on its three nodes hands identity to `people/elf_girl` instead — see
+[The RefMod chain ships in every example](#the-refmod-chain-ships-in-every-example).
 
 ---
 
