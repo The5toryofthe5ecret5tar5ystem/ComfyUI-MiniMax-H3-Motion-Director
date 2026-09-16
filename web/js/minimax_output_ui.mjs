@@ -517,6 +517,35 @@ function dataUrl(b64, mediaType = "image/jpeg") {
     return `data:${mediaType};base64,${b64 || ""}`;
 }
 
+function base64Bytes(b64) {
+    const clean =
+        String(b64 || "")
+            .replace(/^data:[^,]*,/, "")
+            .replace(/\s+/g, "");
+
+    if (!clean) {
+        return null;
+    }
+
+    try {
+        const binary =
+            atob(clean);
+
+        const bytes =
+            new Uint8Array(
+                binary.length,
+            );
+
+        for (let i = 0; i < binary.length; i += 1) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+
+        return bytes;
+    } catch {
+        return null;
+    }
+}
+
 function optionMarkup(values) {
     return values
         .map(
@@ -1203,6 +1232,10 @@ export function mountOutputUI(
 
     // Currently loaded audio source key: "" (none) | "seg:<n>" | "combined".
     let appliedAudioKey = "";
+
+    // Object URL backing the audio element; revoked on every swap so long runs
+    // do not pin every track in memory.
+    let audioUrl = "";
 
     const playButton =
         resultsRoot.querySelector("[data-result-play]");
@@ -3012,11 +3045,48 @@ export function mountOutputUI(
             return;
         }
 
-        audio.src =
-            dataUrl(
-                source.b64,
-                source.type,
+        // Result audio arrives as base64 WAV. A data: URL has to be parsed and
+        // re-seeked out of a giant attribute string, which crackles and clicks
+        // when the drift helper seeks; a Blob URL is seekable and streamed.
+        const bytes =
+            base64Bytes(source.b64);
+
+        if (
+            !bytes
+            || bytes.length <= 44
+        ) {
+            appliedAudioKey = "";
+            audio.removeAttribute(
+                "src",
             );
+            audio.load?.();
+
+            volume.disabled =
+                true;
+
+            return;
+        }
+
+        if (audioUrl) {
+            URL.revokeObjectURL(
+                audioUrl,
+            );
+        }
+
+        audioUrl =
+            URL.createObjectURL(
+                new Blob(
+                    [bytes],
+                    {
+                        type:
+                            source.type
+                            || "audio/wav",
+                    },
+                ),
+            );
+
+        audio.src =
+            audioUrl;
 
         audio.volume =
             Number(
