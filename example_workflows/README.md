@@ -21,7 +21,7 @@ exists only to satisfy a required input on `Apply H3 RefMod`.
 |---|---|
 | `ref2va + RefMod 1x4s` | **enabled** — `people/elf_girl` |
 | `character replace (RefMod + SAM3) 2x5s` | **enabled** — `people/elf_girl` |
-| `character replace (Faceswap Test without masking)` | **enabled** — `people/flaffy02` |
+| `character replace (Faceswap Test without masking)` | **enabled** — `people/flaffy02` drives a **full-character** replace, not a face-only swap |
 | `ref2va 3x7s` | bypassed — picture references carry the character |
 | `t2v 5x7s - elf vs giant orc` | bypassed — the example is defined as pure prompt |
 | `character replace 3x7s - elf vs giant orc` | bypassed — uploaded references carry the character |
