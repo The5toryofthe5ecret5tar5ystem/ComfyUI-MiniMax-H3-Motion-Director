@@ -161,7 +161,7 @@ from .segment_continuity import (
     is_continuity_active,
     resolve_prev_segment_output,
 )
-from .vram_cleanup import cleanup_segment_vram
+from .vram_cleanup import cleanup_segment_vram, report_anchored_models
 from .replace_engine import align_replace_window_to_sample, resolve_segment_audio_policy
 from .replace_runtime import (
     assemble_masked_replace_latent,
@@ -1649,6 +1649,12 @@ def execute_director_plan_core(
             _record_vram_report(
                 cleanup_segment_vram(enabled=True, unload_models=False)
             )
+            anchored = report_anchored_models()
+            if anchored:
+                warning_messages.append(
+                    f"S{timeline_slot + 1}: {anchored} anchored model(s) holding VRAM "
+                    "after Global Refine failure — referrer scan in log."
+                )
             warning_messages.append(
                 f"S{timeline_slot + 1}: Global Refine FAILED; fallback FIRST_PASS_RESULT — {global_outcome.error}"
             )
