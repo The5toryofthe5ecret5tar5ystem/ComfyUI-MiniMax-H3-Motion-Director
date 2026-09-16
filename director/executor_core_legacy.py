@@ -1925,11 +1925,21 @@ def execute_director_plan_core(
                 )
             except Exception as exc:
                 log.debug("Segment video preview skipped: %s", exc)
-        if audio_has_samples(audio_dict):
+        # Results -> Segment needs a playable track for this window. Audio is
+        # only decoded for `generate` mode, so in source/keep modes audio_dict
+        # holds nothing and the Segment view used to come up silent even though
+        # the exported window does keep its original track. Fall back to the
+        # window's own source audio, which is exactly what the export uses.
+        preview_audio = audio_dict
+        if not audio_has_samples(preview_audio) and audio_mode != AUDIO_MODE_MUTE:
+            preview_audio = _extract_window_source_audio(
+                plan, seg, float(plan.frame_rate or 24.0)
+            )
+        if audio_has_samples(preview_audio):
             try:
                 report_director_audio_preview(
                     node_id,
-                    [audio_dict],
+                    [preview_audio],
                     segment_index=ui_idx,
                 )
             except Exception as exc:

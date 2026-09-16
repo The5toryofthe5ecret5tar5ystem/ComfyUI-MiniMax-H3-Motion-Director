@@ -88,3 +88,20 @@ def test_executor_emits_per_segment_audio_preview():
     assert "report_director_audio_preview(" in text
     assert "segment_index=ui_idx" in text
     assert 'log.debug("Segment audio preview skipped: %s", exc)' in text
+
+
+def test_segment_preview_falls_back_to_window_source_audio():
+    """Source/keep audio modes decode no segment audio, so the Segment view used
+    to come up silent: the preview must fall back to the window's own track."""
+
+    source = "director/executor_core_legacy.py"
+    text = open(source, encoding="utf-8").read()
+    start = text.index("preview_audio = audio_dict")
+    block = text[start : start + 900]
+    assert "_extract_window_source_audio(" in block, "no source-audio fallback"
+    assert "AUDIO_MODE_MUTE" in block, "muted windows must stay silent"
+    assert "report_director_audio_preview(" in block
+    # The generated path must still win when it has samples.
+    assert text.index("preview_audio = audio_dict") < text.index(
+        "report_director_audio_preview("
+    )
