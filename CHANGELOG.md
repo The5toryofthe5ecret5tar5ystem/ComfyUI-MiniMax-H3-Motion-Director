@@ -7,6 +7,16 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Added
 
+- **Generated rows: a Character Replace chain can leave the footage.** Every row in a
+  replace job used to be a masked window over the source video, so a chain could only
+  ever cover what the footage covered. A row can now be a **generated segment**
+  (`"kind": "generate"`) - no source range, rendered from its own prompt and references
+  by one of H3's source-free tasks - in the middle or past the end of the source. The
+  rows still run and export in table order, continuity still arrives from the previous
+  segment's Motion Context, and a row that asks for a task that reads source pixels is
+  rendered source-free with a warning instead of silently failing. Rows without a kind
+  behave exactly as before, and a leftover replace window on a generated row is ignored
+  loudly rather than reactivating the masked path.
 - **Story to segments.** A multi-segment project is a story spread over N renders, and
   every segment prompt had to be written by hand. The enhancer panel now takes the whole
   story in a few sentences, a segment count and a seconds-per-segment value, and splits

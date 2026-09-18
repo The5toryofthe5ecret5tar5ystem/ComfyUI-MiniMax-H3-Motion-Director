@@ -22,6 +22,8 @@ from typing import Any
 
 import folder_paths
 
+from ..lib.segment_kind import is_generated_segment
+
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director")
 
 # Mirror the keys the frontend sends for resume_preview (same widget set).
@@ -143,6 +145,15 @@ def _static_checks(timeline: dict, task_key: str, issues: list) -> None:
             _issue(issues, "warning", "h3_grid",
                    f"Frame count {frames} is off the H3 grid (needs 17k+5).", i)
         replace = seg.get("replace") or {}
+        if is_generated_segment(seg):
+            # A generated row renders without source pixels, and the plan drops any
+            # window block on it - so validating the mask it still points at would
+            # block a run over a mask that is never loaded. Say it once instead.
+            if isinstance(replace, dict) and replace.get("enabled"):
+                _issue(issues, "warning", "replace_ignored_generated_row",
+                       "This row is a generated segment but still carries a Character "
+                       "Replace window; the row kind wins and the window is ignored.", i)
+            continue
         if isinstance(replace, dict) and replace.get("enabled"):
             # Replace windows only run on the video timeline; on any other mode
             # the block is silently dropped, so say so instead.

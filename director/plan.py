@@ -47,6 +47,14 @@ from .replace_engine import snap_window_length
 from .replace_spec import ReplaceSpec, parse_replace_spec
 from .context_links import ContextLink, parse_context_link
 
+from ..lib.generation_source_policy import SOURCE_FREE_GENERATION_TASKS
+from ..lib.segment_kind import (
+    GENERATED_SEGMENT_TASK,
+    SEGMENT_KIND_GENERATE,
+    SEGMENT_KIND_REPLACE,
+    segment_kind,
+)
+
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director")
 
 MIN_SEGMENT_FRAMES = 4
@@ -120,10 +128,19 @@ class SegmentPlan:
     # opt out. Declared last: the field list is long and other builders construct
     # this dataclass by keyword.
     refmod_enabled: bool = True
+    # Timeline row kind: "replace" (a masked window over the source video) or
+    # "generate" (a source-free segment rendered from its prompt and references).
+    # Declared beside refmod_enabled for the same construction-order reason.
+    kind: str = SEGMENT_KIND_REPLACE
 
     @property
     def frame_count(self) -> int:
         return max(0, self.end_frame - self.start_frame)
+
+    @property
+    def is_generated(self) -> bool:
+        """True when this segment renders without consuming source pixels."""
+        return self.kind == SEGMENT_KIND_GENERATE
 
     @property
     def timeline_index(self) -> int:
@@ -561,6 +578,20 @@ def _segment_ranges_from_timeline(timeline: dict, total: int) -> list[tuple[int,
                 end = int(raw["end"])
             else:
                 end = start + int(raw.get("length", 0))
+            if segment_kind(raw) == SEGMENT_KIND_GENERATE:
+                # A generated row has no source window: its range is simply the
+                # number of frames it renders, so the source total must not clip
+                # it and the editor's list order stays the run/export order.
+                length = max(0, end - start)
+                if length <= 0:
+                    log.warning(
+                        "Generated row without a length was skipped; give it a length "
+                        "in H3 frames (17k+5) so it can render."
+                    )
+                    continue
+                begin = max(0, start)
+                ranges.append((begin, begin + snap_window_length(length), raw))
+                continue
             start = max(0, min(start, total))
             end = max(start, min(end, total))
             if end - start >= MIN_SEGMENT_FRAMES or not ranges:
@@ -608,6 +639,11 @@ def _clip_segment_ranges(
         return ranges
     clipped: list[tuple[int, int, dict]] = []
     for start, end, data in ranges:
+        if segment_kind(data) == SEGMENT_KIND_GENERATE:
+            # Clipping follows the source export window; a generated row has no
+            # source range, so trimming it here would silently delete its frames.
+            clipped.append((start, end, data))
+            continue
         if start >= export_total:
             break
         end = min(end, export_total)
@@ -837,8 +873,19 @@ def build_director_plan(
     segments: list[SegmentPlan] = []
     continuous_ref = _continuous_reference_enabled(timeline, edit_mode, resolve_task_key(task_type))
 
+    generated_rows_warned_global = False
     for idx, (start, end, seg_data) in enumerate(segment_ranges):
-        if edit_mode == "global":
+        row_kind = segment_kind(seg_data)
+        generated_row = row_kind == SEGMENT_KIND_GENERATE
+        if generated_row and edit_mode == "global" and not generated_rows_warned_global:
+            # A global timeline owns one prompt/task for every row, which a
+            # generated row cannot use - it is a segment, not a window.
+            log.warning(
+                "Timeline is in global edit mode but carries generated rows: those rows "
+                "render with their own prompt, task and references."
+            )
+            generated_rows_warned_global = True
+        if edit_mode == "global" and not generated_row:
             seg_prompt = prompt
             seg_task = task_type
             seg_refs = list(global_refs)
@@ -848,7 +895,28 @@ def build_director_plan(
         else:
             use_global = False
             seg_prompt = (seg_data.get("prompt") or "").strip() or prompt
-            seg_task = seg_data.get("taskType") or seg_data.get("task_type") or task_type
+            row_task = seg_data.get("taskType") or seg_data.get("task_type") or ""
+            if generated_row:
+                # A generated row consumes no source pixels, so it has to run one
+                # of H3's source-free tasks; anything else would ask the executor
+                # for a source window this row does not have.
+                row_task = row_task or GENERATED_SEGMENT_TASK
+                if resolve_task_key(row_task) not in SOURCE_FREE_GENERATION_TASKS:
+                    log.warning(
+                        "Segment %d is a generated row but asks for task %r, which reads "
+                        "source frames; rendering it as %s instead.",
+                        idx + 1,
+                        row_task,
+                        GENERATED_SEGMENT_TASK,
+                    )
+                    row_task = GENERATED_SEGMENT_TASK
+                if not (seg_data.get("prompt") or "").strip():
+                    log.warning(
+                        "Segment %d is a generated row with an empty prompt: it will render "
+                        "from its references alone.",
+                        idx + 1,
+                    )
+            seg_task = row_task or task_type
             # Segment mode: only this segment's refs — never inherit global.refs / refAudios.
             seg_refs = _load_refs(seg_data.get("refs") or [])
             seg_ref_audios = _load_ref_audios(
@@ -900,6 +968,17 @@ def build_director_plan(
         # window, the motion reference and the sampling length all line up
         # (the masked latent needs every stream at the same frame count).
         replace_spec_for_seg = parse_replace_spec(seg_data)
+        if generated_row:
+            # The row kind wins. A row switched from window to generated in the UI
+            # can leave a replace block behind, and reactivating the masked path
+            # would need source frames this row does not have.
+            if replace_spec_for_seg.enabled:
+                log.warning(
+                    "Segment %d is a generated row and also carries a replace window; the "
+                    "row kind wins and the window spec is ignored.",
+                    idx + 1,
+                )
+            replace_spec_for_seg = ReplaceSpec()
         if (
             replace_spec_for_seg.enabled
             and seg_task_key in {"v2v", "rv2v"}
@@ -926,6 +1005,7 @@ def build_director_plan(
                 replace=replace_spec_for_seg,
                 reference_tags=reference_tags,
                 refmod_enabled=parse_refmod_enabled(seg_data),
+                kind=row_kind,
             )
         )
 
@@ -998,6 +1078,16 @@ def prepare_segment_clip(clip: torch.Tensor, target_frames: int) -> tuple[torch.
 
 
 # i2v/fl2v use keyframes; v2v uses source clip as <Video 1>; r2v uses ref_images.
+def _summary_segment_line(seg, *, include_prompts: bool) -> str:
+    """One plan-summary line; generated rows are labelled, windows are unchanged."""
+    kind = " — generated" if getattr(seg, "is_generated", False) else ""
+    prompt = (
+        f" — {seg.prompt[:60]}{'…' if len(seg.prompt) > 60 else ''}" if include_prompts else ""
+    )
+    return (
+        f"  #{seg.index + 1} [{seg.start_frame}:{seg.end_frame}] "
+        f"{seg.frame_count}f — {seg.task_key}{kind}{prompt}"
+    )
 CONTEXT_REFERENCE_EXCLUDED_KEYS = frozenset({"i2v", "fl2v", "t2v", "v2v"})
 
 
@@ -1083,15 +1173,9 @@ def plan_summary(plan: DirectorPlan, *, include_prompts: bool = True) -> str:
         ]
         for seg in plan.segments:
             if not include_prompts:
-                lines.append(
-                    f"  #{seg.index + 1} [{seg.start_frame}:{seg.end_frame}] "
-                    f"{seg.frame_count}f — {seg.task_key}"
-                )
+                lines.append(_summary_segment_line(seg, include_prompts=False))
                 continue
-            lines.append(
-                f"  #{seg.index + 1} [{seg.start_frame}:{seg.end_frame}] "
-                f"{seg.frame_count}f — {seg.task_key} — {seg.prompt[:60]}{'…' if len(seg.prompt) > 60 else ''}"
-            )
+            lines.append(_summary_segment_line(seg, include_prompts=True))
         return "\n".join(lines)
 
     mode_label = (
@@ -1130,13 +1214,7 @@ def plan_summary(plan: DirectorPlan, *, include_prompts: bool = True) -> str:
     lines.append(f"Global task: {get_task_prompt_spec(plan.global_task_type).label}")
     for seg in plan.segments:
         if not include_prompts:
-            lines.append(
-                f"  #{seg.index + 1} [{seg.start_frame}:{seg.end_frame}] "
-                f"{seg.frame_count}f — {seg.task_key}"
-            )
+            lines.append(_summary_segment_line(seg, include_prompts=False))
             continue
-        lines.append(
-            f"  #{seg.index + 1} [{seg.start_frame}:{seg.end_frame}] "
-            f"{seg.frame_count}f — {seg.task_key} — {seg.prompt[:60]}{'…' if len(seg.prompt) > 60 else ''}"
-        )
+        lines.append(_summary_segment_line(seg, include_prompts=True))
     return "\n".join(lines)

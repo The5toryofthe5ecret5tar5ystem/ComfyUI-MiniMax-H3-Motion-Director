@@ -121,6 +121,10 @@ def segment_identity(seg, plan) -> dict[str, Any]:
         "negative": str(getattr(seg, "negative_prompt", "")),
         "task": str(seg.task_key),
         "task_type": str(getattr(seg, "task_type", "")),
+        # Row kind: switching a row between a masked window and a generated
+        # segment changes what it renders, so a cached tail from the other kind
+        # must not be reused as its Motion Context.
+        "kind": str(getattr(seg, "kind", "") or ""),
         "use_global": bool(getattr(seg, "use_global", False)),
         "reference_video": _json_identity(dict(getattr(seg, "reference_video_meta", None) or {})),
         "reference_video_start": int(getattr(seg, "reference_video_start_frame", 0)),

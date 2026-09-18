@@ -815,3 +815,51 @@ What it does not do: it plans, it does not render - you still queue the segments
 (Selective Run is the cheap way to try one). It also does not see your source video; the
 split is a text task, and `Build from images` is what grounds each segment's prose in
 its own frames.
+
+---
+
+## 25. Extending past the footage (generated rows)
+
+A Character Replace chain does not have to end where the source video ends. Any row in
+the replace list can be a **generated row** instead of a replace window: it has no source
+range at all and renders from its own prompt and references, which is what lets a chain
+continue past the last frame of the footage - or break away from it in the middle.
+
+Rows without a kind are replace windows, so every project written before this existed
+loads unchanged. To hand-author a generated row, add `"kind": "generate"` and give it a
+length instead of a source window:
+
+```json
+{
+  "kind": "generate",
+  "length": 243,
+  "prompt": "Continue directly from the previous segment's final frame...",
+  "taskType": "r2v",
+  "refs": []
+}
+```
+
+What happens on run:
+
+- It renders with one of H3's **source-free tasks** (`r2v`, or `t2v` for no character
+  references). A row that asks for `v2v`/`rv2v` - tasks that read source pixels - is
+  rendered as `r2v` instead, with a warning: it has no source window to give them.
+- Its length is snapped to H3's frame grid (17k+5) exactly like a window's, and it is
+  **never clipped** by the source's frame total - that is the whole point of it.
+- The rows run and export in the order the table shows them, so a chain can be
+  `window, window, generated, window`.
+- **Continuity comes from the previous segment's frames** (Motion Context), not from the
+  footage. That carries the room, light, wardrobe and grade across the join, but not the
+  pose: a replace window after a generated row still starts from its own source frame, so
+  finish the generated part on a pose close to the next window's opening one.
+- **Audio** follows the row order. In **source audio** mode each window keeps its own
+  track and a generated row takes the source audio at its insertion point - past the end
+  of the footage there is none, so those frames are silent. Switch the project to
+  **generate** audio if you want the model to produce sound there.
+- If a generated row still carries an old Character Replace window (a row switched to
+  generated in the table), the row kind wins, the window block is ignored, and both the
+  plan and the pre-run **Validate** say so instead of silently rendering the window.
+
+Not there yet: the row-kind selector in the Replace windows table. Until it lands, rows
+can be authored in the saved project JSON (or by asking the enhancer to write the
+prompts, which is the same text either way).
