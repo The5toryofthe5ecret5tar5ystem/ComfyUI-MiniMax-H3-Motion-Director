@@ -23,7 +23,11 @@ Notable changes in this fork. Older releases are tagged in git and published on 
   window-only controls hide themselves on one (it is labelled **G**, not **W**), the
   coverage badge counts windows only with a separate `n generated` badge for the added
   frames, and **Long-form replace** keeps generated rows and puts them back in place
-  instead of deleting them with the old layout. A generated row also chooses how it
+  instead of deleting them with the old layout. A generated row is presented as part of
+  its job: the panel keeps the job's layout instead of falling back to the unthemed
+  default one its own `r2v` task selects, its control line reads controls-then-`cont`-
+  then-kind like a window's, and the **Replace ON** readout (and the master switch)
+  count windows only rather than reporting `1/2` with one window. A generated row also chooses how it
   joins the segment in front of it: **r2v** (default) continues from it as context with
   its last rendered frame as a `<Picture>` anchor, **i2v** locks that frame as the row's
   literal frame 0, and the `cont` switch turns the join off entirely. Neither task reads

@@ -3281,6 +3281,9 @@ function installReplaceWindowsMode(ed) {
         const segs = (ed.timeline && ed.timeline.segments) || [];
         const want = !!enableAll.checked;
         for (const seg of segs) {
+            // Windows only. A generated row has no window to mask, and flipping its
+            // leftover recipe back on would only earn a run-time warning.
+            if (isGeneratedRow(seg)) continue;
             const cfg = replaceConfigFromSeg(seg);
             cfg.enabled = want;
             ensureReplaceConfigOnSeg(seg, cfg);
@@ -3476,10 +3479,6 @@ function installReplaceWindowsMode(ed) {
         const rowKindSel = selectField(["window", "generate"], isGeneratedRow(seg) ? "generate" : "window", 86);
         rowKindSel.dataset.a = "replace-row-kind";
         rowKindSel.title = t("replace.kindTitle");
-        const genNote = document.createElement("span");
-        genNote.dataset.r = "replace-generated-note";
-        genNote.style.cssText = "display:none;color:#c9ab7a;";
-        genNote.textContent = t("replace.generatedNote");
         // Everything that only exists for a masked window lives in one wrapper, so
         // a generated row hides the lot in a single toggle instead of leaving a
         // row of controls that look active and do nothing.
@@ -3521,7 +3520,7 @@ function installReplaceWindowsMode(ed) {
         const policy = selectField(REPLACE_AUDIO_POLICIES, cfg.audio_policy, 78);
         const line2 = document.createElement("div");
         line2.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;opacity:.95;";
-        line2.append(winOnly);
+        line2.append(winOnly, genOnly);
         winOnly.append(kindSel, renderSel, dirWrap, promptWrap);
         const growLbl = document.createElement("span");
         growLbl.textContent = "grow";
@@ -3572,13 +3571,15 @@ function installReplaceWindowsMode(ed) {
         testImg.style.cssText = "display:none;max-width:100%;border-radius:4px;";
         testImg.alt = "Window mask test";
         winOnly.append(pickBtn, testBtn, testStatus);
-        // The kind selector stays outside both wrappers: it is what decides which
-        // of them shows. A generated row gets the task choice and its note.
-        line2.append(rowKindSel, genOnly);
-        genOnly.append(taskSel, genNote);
+        // The kind selector sits last, exactly where a window row has it, and the
+        // generated row's own control (the task) sits where the mask controls
+        // would - so both kinds read controls, cont, kind. Its explanation lives
+        // in the row tooltip instead of a sentence in the control line.
+        genOnly.append(taskSel);
+        line2.append(rowKindSel);
         line1.append(handle, enabled, label, gotoBtn, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
         row.append(line1, line2, pickArea, testImg);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, contInput, refmodInput, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost, rowKindSel, genNote, winOnly, genOnly, taskSel } });
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, contInput, refmodInput, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost, rowKindSel, winOnly, genOnly, taskSel } });
         return row;
     }
 
@@ -3618,7 +3619,6 @@ function installReplaceWindowsMode(ed) {
             inp.rowKindSel.value = generated ? "generate" : "window";
         }
         if (inp.winOnly) inp.winOnly.style.display = generated ? "none" : "contents";
-        if (inp.genNote) inp.genNote.style.display = generated ? "" : "none";
         if (inp.genOnly) inp.genOnly.style.display = generated ? "inline-flex" : "none";
         if (inp.taskSel && active !== inp.taskSel) {
             inp.taskSel.value = String(seg.taskType || "").trim().toLowerCase() === "i2v" ? "i2v" : "r2v";
@@ -4224,7 +4224,11 @@ function installReplaceWindowsMode(ed) {
                 });
             }
             row.dataset.replaceRow = String(seg.id);
-            row.title = t("replace.rowSelectTitle");
+            // A generated row's explanation lives here rather than in the control
+            // line, which keeps the rows visually alike.
+            row.title = isGeneratedRow(seg)
+                ? `${t("replace.rowSelectTitle")} - ${t("replace.generatedNote")}`
+                : t("replace.rowSelectTitle");
             row.addEventListener("click", (ev) => {
                 // Clicks on the row's own controls stay theirs; everything else is
                 // "show me this window".
@@ -8160,11 +8164,26 @@ class MiniMaxH3MotionDirectorEditor {
         return key === "v2v" || key === "mv2v";
     }
 
-    syncRv2vRefLayoutClasses({ hideTimeline = false, seg = null } = {}) {
-        const globalKey = this.getTaskKey();
-        const segKey = resolveTaskKey(
+    /**
+     * Which task's panel a segment is presented as.
+     *
+     * A generated row runs a source-free task (r2v/i2v) that exists only so the
+     * chain can leave the footage - it is still a row of this job. Keying its panel
+     * off that task dropped it into the unthemed default panel (the full 9-slot
+     * grid under "Segment refs (Picture 1-9)", different labels and layout) while
+     * every window around it used the job's compact replace style. The row kind
+     * decides what renders; the job decides how it is presented.
+     */
+    panelTaskKeyForSegment(seg, globalKey = this.getTaskKey()) {
+        if (seg && isGeneratedRow(seg)) return globalKey;
+        return resolveTaskKey(
             seg?.taskType || this.timeline.global?.taskType || this.globalTask?.value || globalKey,
         );
+    }
+
+    syncRv2vRefLayoutClasses({ hideTimeline = false, seg = null } = {}) {
+        const globalKey = this.getTaskKey();
+        const segKey = this.panelTaskKeyForSegment(seg, globalKey);
         const globalRefStyle = !hideTimeline && this.usesRv2vRefStyle(globalKey);
         const segRefStyle = !hideTimeline && this.usesRv2vRefStyle(segKey);
         const globalV2vStyle = !hideTimeline && this.usesV2vPromptStyle(globalKey);
@@ -8225,9 +8244,7 @@ class MiniMaxH3MotionDirectorEditor {
             this.globalPanelTitle.setAttribute("data-i18n", titleKey);
         }
 
-        const segKey = resolveTaskKey(
-            seg?.taskType || this.timeline.global?.taskType || this.globalTask?.value || globalKey,
-        );
+        const segKey = this.panelTaskKeyForSegment(seg, globalKey);
         const showSegRefs = !hideTimeline && taskUsesReferenceImages(segKey);
         const showSegRefAudios = !hideTimeline && taskUsesReferenceAudios(segKey);
         const showSegRefVideo = !hideTimeline && taskUsesReferenceVideo(segKey);
@@ -9505,7 +9522,9 @@ class MiniMaxH3MotionDirectorEditor {
             this.renderRefSlots?.(this.timeline.global?.refs, this.globalRefsBox, true);
         } else if (!this.isGlobalMode?.()) {
             const seg = this.timeline?.segments?.[this.selectedIndex];
-            if (seg && taskUsesReferenceImages(resolveTaskKey(seg.taskType || this.getTaskKey()))) {
+            // Same key as the section's visibility above, so the slots cannot be
+            // shown by one rule and left unrendered by another.
+            if (seg && taskUsesReferenceImages(this.panelTaskKeyForSegment(seg))) {
                 this.renderRefSlots?.(seg.refs, this.segRefsBox, false);
             }
         }

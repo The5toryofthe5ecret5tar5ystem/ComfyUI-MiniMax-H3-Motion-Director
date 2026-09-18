@@ -4,6 +4,7 @@ import {
     coverageFrames,
     generatedFrames,
     reinsertGeneratedRows,
+    replaceEnabledCount,
     splitReplaceRows,
 } from "../minimax_replace_layout_core.mjs";
 
@@ -139,6 +140,28 @@ const generated = (start, length = 243) => ({
     assert.equal(rows.length, 1);
     assert.equal(rows[0], newWindows[0]);
     assert.equal(reinsertGeneratedRows(null, previous).length, 0);
+}
+
+// --------------------------------------------------------------------------
+// the Replace-ON readout is about windows
+// --------------------------------------------------------------------------
+
+{
+    const rows = [window_(0), generated(240), window_(240)];
+    const count = replaceEnabledCount(rows);
+    // Two windows, both on. Counting the generated row made this read "2/3" and
+    // left the master switch half-filled while nothing was actually off.
+    assert.equal(count.total, 2);
+    assert.equal(count.on, 2);
+    assert.equal(count.all, true);
+    assert.equal(count.none, false);
+}
+
+{
+    const onlyGenerated = replaceEnabledCount([generated(0), generated(243)]);
+    assert.equal(onlyGenerated.total, 0);
+    assert.equal(onlyGenerated.all, false);
+    assert.equal(onlyGenerated.none, false);
 }
 
 console.log("minimax_replace_generated_rows: OK");

@@ -48,8 +48,13 @@ assert.match(
 );
 assert.match(
     makeRow,
-    /genOnly\.append\(taskSel, genNote\);/,
-    "and attaches it next to the kind selector",
+    /genOnly\.append\(taskSel\);/,
+    "and holds the task choice on its own, so the control line keeps the window layout",
+);
+assert.match(
+    makeRow,
+    /line2\.append\(rowKindSel\);/,
+    "with the kind selector last, where a window row has it",
 );
 assert.match(
     makeRow,

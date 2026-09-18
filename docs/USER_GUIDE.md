@@ -877,6 +877,15 @@ Two readouts stay honest about the mix:
 - **covers n%** counts the *windows* only. A generated row does not cover the source,
   it is added to the output, so it never pushes coverage past what the footage allows.
 - a second badge reports the generated side: **`n generated · time`**.
+- **Replace ON n/total** counts windows too: a generated row has no Replace switch to be
+  on or off, and counting it made the header read `1/2` (and the master switch
+  half-filled) while every window was in fact enabled.
+
+A generated row is presented as part of the job it sits in: it keeps the panel style of
+its windows (the job's task decides the layout, not the row's own source-free task),
+and its control line reads the same way - the row's task choice where a window has its
+mask controls, then `cont`, then the kind selector last. Its explanation is the row
+tooltip rather than a sentence in the control line.
 
 **Long-form replace** re-cuts the windows, and generated rows are not part of that
 layout, so they are **kept** and put back where they were (counted in windows, so one

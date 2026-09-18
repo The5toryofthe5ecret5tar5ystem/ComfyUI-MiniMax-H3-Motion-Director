@@ -44,7 +44,7 @@ assert.match(
 );
 assert.match(
     makeRow,
-    /line2\.append\(winOnly\);/,
+    /line2\.append\(winOnly, genOnly\);/,
     "that control group is attached to the row (generated rows hide it as a unit)",
 );
 assert.match(

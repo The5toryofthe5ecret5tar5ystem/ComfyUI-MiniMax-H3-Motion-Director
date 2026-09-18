@@ -60,7 +60,7 @@ assert.match(
     /row\.addEventListener\("click", \(ev\) => \{[\s\S]{0,200}ev\.target\.closest\?\.\("input, button, select, textarea, a"\)[\s\S]{0,80}selectRow\(seg\.id\);/,
     "a click on the row selects it, except on the controls inside it",
 );
-assert.match(panel, /row\.title = t\("replace\.rowSelectTitle"\);/, "the row explains what clicking does");
+assert.match(panel, /row\.title = isGeneratedRow\(seg\)/, "the row explains what clicking does (and adds the generated note when it is one)");
 
 // --- the selected row is visibly the selected one ------------------------------
 

@@ -126,7 +126,10 @@ export function normalizeMaskKind(mask) {
  * @returns {{on: number, total: number, all: boolean, none: boolean}}
  */
 export function replaceEnabledCount(segments) {
-    const list = Array.isArray(segments) ? segments : [];
+    // Windows only: a generated row renders without a source range, so it has no
+    // Replace switch to be on or off. Counting it made the header read "1/2" and
+    // left the master switch half-filled while every window was in fact enabled.
+    const list = splitReplaceRows(segments).windows;
     let on = 0;
     for (const seg of list) {
         if (seg && seg.replace && seg.replace.enabled) on += 1;
