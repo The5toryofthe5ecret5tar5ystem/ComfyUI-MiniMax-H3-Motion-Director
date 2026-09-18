@@ -3,7 +3,7 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
-## Unreleased
+## v1.9.0 — 2026-09-18
 
 The prompt enhancer can now improve a prompt without rebuilding it. Every other
 path decides the *shape* of the answer - MiniMax's official template, a recipe, or

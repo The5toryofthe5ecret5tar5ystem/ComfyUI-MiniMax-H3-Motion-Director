@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.8.4-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.9.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.8.4**
+> Current version: **v1.9.0**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,44 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.9.0 — One reference pool, one numbering, and RefMod windows that can sit out
+
+**The Common References are a pool, not a fallback.** A segment used to render
+with *its own* reference pictures *or* the shared block, never both - so a window
+that carried one reference of its own silently lost the shared character sheet,
+and because the prompt's `<Picture N>` tags are numbered from the pool, they
+pointed at pictures the render never sent. Both plan builders now run the same
+compile: the shared assets this segment keeps, then its own, renumbered densely
+from `<Picture 1>`, with `useCommonAssets` / `excludedCommonAssetIds` honoured and
+the official 9-picture / 3-video / 3-audio limits enforced by a message that names
+what to remove. The editor's `@` mentions resolve per segment on the video
+timeline too, and a mention that outlived its file stays as written instead of
+killing a render.
+
+**The enhancer's vision pass sees what the render sees.** In Character Replace the
+identity lives in the shared block, so a caption collected from the window alone
+arrived with no reference image at all and described a character it had never been
+shown. It now resolves the same list in the same order and tells the model which
+slot each picture gets.
+
+**RefMod can sit a window out.** One harvested mod set is appended to every
+segment, so a mod that belongs to some windows and not others had no way to say
+so. Each window now carries a `refmod` switch (Replace list, or a segment's
+context menu), carried through the plan and honoured at both conditioning sites -
+including the five-frame Source Bridge.
+
+**A RefMod window can use its pictures too.** Identity prose was suppressed
+because the mod reaches the DiT only and text about her face fights it. When the
+window also carries numbered references, those are visible to the text encoder as
+well: they are captioned, and the block names the mod and the pictures as the same
+woman. With no pictures attached the old suppression stays.
+
+Also in this release: `rv2v` can reach Common References (button + library
+target), the Replace window list selects the window it stands for, `Unload model`
+reports what was held and what the card looks like now, the Enhance button keeps
+the panel's language while it runs, and **Polish wording only** edits prose without
+touching tags, headings or `[Shot N]` markers.
 
 ### v1.8.4 — An enhancer that runs in ComfyUI, and writes the prompt from your images
 
