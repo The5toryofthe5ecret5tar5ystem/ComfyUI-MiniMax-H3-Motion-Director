@@ -85,6 +85,21 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Changed
 
+- **Story to segments is reachable in the modes it was written for.** The section lives
+  in the enhancer settings panel, which is opened by the Enhance / Settings buttons beside
+  a prompt field - and those prompt rows are hidden in every mode that shows a card list
+  or a shot list instead. So the one step that turns a single brief into N prompts was
+  unreachable in exactly the place it saves the most work. The batch panel (`t2v` / `i2v` /
+  `r2v`) and the Long-form panel now carry their own **Story to segments** button, which
+  opens the panel with the section expanded and the cursor in the story box. The rules are
+  the same everywhere and now live in one pure module (`web/js/minimax_story_targets.mjs`):
+  a prompt batch *is* a list of generation segments, so the story may create the cards it
+  needs - as `durationSec`, so the batch normalizer builds 17k+5 frames at H3's 24 fps and
+  a created card is identical to a hand-added one; Long-form writes into the shots that
+  already exist, because a shot needs its own first/last image; a hand-laid video or
+  replace timeline is still never re-timed. The `isGenMode()` check that guarded growth was
+  dead code (all three batch tasks resolve to `prompt_batch`), which is why the story could
+  not grow a `t2v` job even where it could be opened.
 - **Vision frames follow the segment, not the file.** The caption pass sampled the
   source video uniformly across its whole length, so a Character Replace window was
   described from three moments somewhere else in the footage - and on a long project

@@ -159,6 +159,11 @@ import {
     splitReplaceRows,
 } from "./minimax_replace_layout_core.mjs?boot=director_ui_generated_rows_v16";
 import {
+    storyMayGrow,
+    storySegmentSeconds,
+    storyTargetKind,
+} from "./minimax_story_targets.mjs?boot=director_ui_story_v1";
+import {
     commitRunSelectionMutation as commitRunSelectionMutationNow,
     ensureRunSelectionSerialized,
 } from "./minimax_run_selection.mjs";
@@ -5738,6 +5743,118 @@ class MiniMaxH3MotionDirectorEditor {
         normalizeImageBatchSegments(this);
     }
 
+    /**
+     * Grow the timeline to `count` story segments, where this mode allows it.
+     *
+     * A prompt batch is a list of generation segments - one card, one render - so the
+     * story step may create the cards it needs, exactly as the panel's own "+ add"
+     * button does (`durationSec` is what the batch normalizer turns into 17k+5 frames
+     * at H3's 24 fps, so a card created here is identical to a hand-added one). A
+     * hand-laid video or replace timeline is never re-timed, and fl2v shots need their
+     * own images, so both stay fill-only - the caller reports how many were filled.
+     *
+     * @returns {{created: number, total: number, mayGrow: boolean}}
+     */
+    createStorySegments(count, { seconds = 0, frames = 0 } = {}) {
+        const timeline = this.timeline;
+        const want = Math.max(1, Math.round(Number(count) || 1));
+        if (!timeline || !Array.isArray(timeline.segments)) {
+            return { created: 0, total: 0, mayGrow: false };
+        }
+        const mode = this.getDirectorMode();
+        const mayGrow = storyMayGrow(mode, timeline.segments.length);
+        if (!mayGrow) {
+            return { created: 0, total: timeline.segments.length, mayGrow: false };
+        }
+        const sec = storySegmentSeconds(seconds, Math.round((Number(frames) || 0) || 0) / 24 || 7);
+        let created = 0;
+        if (mode === "prompt_batch") {
+            while (timeline.segments.length < want) {
+                timeline.segments.push(newBatchSegment({
+                    durationSec: sec,
+                    prompt: "",
+                    negativePrompt: "",
+                    useCommonAssets: true,
+                    excludedCommonAssetIds: [],
+                }));
+                created += 1;
+            }
+            if (created) {
+                this.normalizeImageBatchSegments();
+                this.selectedIndex = Math.max(0, timeline.segments.length - 1);
+                this.commitSegmentStructureMutation(true);
+                this.renderImageBatchGroups();
+                this.updateVideoNameLabel?.();
+            }
+            return { created, total: timeline.segments.length, mayGrow: true };
+        }
+        // An empty video / replace timeline: the plan is the layout. (The caller's
+        // normalizer recomputes starts and lengths afterwards.)
+        while (timeline.segments.length < want) {
+            timeline.segments.push({
+                id: `pe_story_${Date.now()}_${timeline.segments.length}`,
+                start: 0,
+                length: Math.max(1, Math.round(Number(frames) || 0)),
+                frameCount: Math.max(1, Math.round(Number(frames) || 0)),
+                prompt: "",
+                taskType: "",
+                refs: [],
+                genImage: { imageFile: "" },
+            });
+            created += 1;
+        }
+        if (created) {
+            this.normalizeSegments?.();
+            this.commit(false, { syncTimeline: true });
+        }
+        return { created, total: timeline.segments.length, mayGrow: true };
+    }
+
+    /**
+     * Write one story beat into the store this mode keeps prompts in.
+     *
+     * Returns false when the mode stores them somewhere this does not know about (a
+     * hand-laid video timeline, mixed), so the caller keeps its own writer instead of
+     * writing a segment nothing reads. fl2v keeps prompts on shots, which are
+     * flattened into segments: the shot is the source of truth, so the beat goes there
+     * and the segments are rebuilt from it.
+     */
+    writeStoryBeat(index, text) {
+        const kind = storyTargetKind(this.getDirectorMode());
+        if (kind === "shots") {
+            const shots = this.timeline.shots;
+            const shot = Array.isArray(shots) ? shots[index] : null;
+            if (!shot) return false;
+            shot.prompt = text;
+            syncFl2vFromShots(this);
+            return true;
+        }
+        if (kind === "segments" && this.isImageBatch?.()) {
+            const seg = this.timeline.segments?.[index];
+            if (!seg) return false;
+            // Batch cards keep their own prompt while the editor sits in segment mode,
+            // so this lands on the card rather than on the shared global prompt.
+            seg.prompt = text;
+            return true;
+        }
+        return false;
+    }
+
+    /** Repaint whatever shows those prompts, once a story pass has written them. */
+    refreshStoryTargets() {
+        const kind = storyTargetKind(this.getDirectorMode());
+        if (kind === "shots") {
+            updateFl2vDetailUI?.(this);
+            this.updateSelectionUI?.();
+            return;
+        }
+        if (kind === "segments" && this.isImageBatch?.()) {
+            this.renderImageBatchGroups();
+            return;
+        }
+        this.updateSelectionUI?.();
+    }
+
     syncNegativeFromWidget() {
         const v = this.negativePromptWidget?.value ?? "";
         if (this.globalNegative) this.globalNegative.value = v;
@@ -10308,6 +10425,11 @@ class MiniMaxH3MotionDirectorEditor {
             }
         };
         forward('[data-a="enhance-prompt"]', () => { void this._enhanceActivePrompt("current"); });
+        // Batch (t2v / i2v / r2v) and Long-form hide the prompt rows the Settings
+        // button lives on, so the story step - the only way to turn one brief into N
+        // prompts - had no entry point in exactly the modes it was written for. The
+        // batch and fl2v panels carry their own button for it, wired here.
+        forward('[data-a="story-plan"]', () => { void this._openStoryPlanner(); });
         // Batch goes through the review-list runner rather than the panel's plain
         // "enhance all", so a long run produces a list to approve instead of
         // silently overwriting every segment prompt.
@@ -10421,6 +10543,33 @@ class MiniMaxH3MotionDirectorEditor {
         // Opening the settings is also when the model list matters, so refresh it
         // rather than showing a stale catalogue.
         if (!overlay.hidden) void pe.fetchModels(true);
+    }
+
+    /**
+     * Open the enhancer panel on its Story to segments section.
+     *
+     * The section lives collapsed inside the settings panel, so a button that only
+     * opened the panel would leave the user hunting for it; this expands it, puts the
+     * cursor in the story box and brings it into view. It is the entry point the batch
+     * (t2v / i2v / r2v) and Long-form panels carry, because the prompt rows that hold
+     * the ordinary Settings button are hidden in those modes.
+     */
+    async _openStoryPlanner() {
+        const buttons = [...this.root.querySelectorAll('[data-a="story-plan"]')];
+        const pe = await this._ensureEnhancerPanel();
+        if (!pe) {
+            this._flashEnhancerUnavailable(buttons, buttons.map((btn) => btn.textContent));
+            return;
+        }
+        if (this._enhancerOverlay) this._enhancerOverlay.hidden = false;
+        pe.open = true;
+        if (pe.body) pe.body.style.display = "flex";
+        if (pe.arrow) pe.arrow.style.transform = "rotate(90deg)";
+        if (!pe.modelChoices?.length) void pe.fetchModels?.(true);
+        if (pe.storyBox) pe.storyBox.open = true;
+        pe.storyInput?.focus?.();
+        pe.storyBox?.scrollIntoView?.({ block: "nearest" });
+        this.updateDomWidgetHeight?.();
     }
 
     commit(skipRender = false, { syncTimeline = true } = {}) {

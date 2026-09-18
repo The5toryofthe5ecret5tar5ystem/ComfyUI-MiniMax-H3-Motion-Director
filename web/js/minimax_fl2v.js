@@ -29,6 +29,7 @@ import { resolveFl2vEndpointState } from "./minimax_fl2v_state.mjs";
 
 export const FL2V_STYLES = `
 .bd-fl2v-detail-wrap{width:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:8px}
+.bd-fl2v-story-row{display:flex;align-items:center;gap:8px;margin:0 0 8px;flex-wrap:wrap}
 .bd-fl2v-hint{color:#aaa;font-size:11px;line-height:1.45;background:#181818;border:1px solid #333;border-radius:6px;padding:8px 10px}
 .bd-fl2v-hint b{color:#4fff8f;font-weight:600}
 .bd-fl2v-workbench{display:flex;flex-wrap:wrap;gap:12px;align-items:stretch;width:100%;box-sizing:border-box}
@@ -701,6 +702,10 @@ export function mountFl2vPanel(parent) {
         <div class="bd-fl2v-hint" data-r="fl2v-hint">
             <b data-i18n="panel.fl2v.howToTitle">怎么用</b>：
             <span data-i18n-html="panel.fl2v.hint"></span>
+        </div>
+        <div class="bd-fl2v-story-row">
+            <button type="button" class="bd-btn" data-a="story-plan" data-i18n="pe.storySummary" data-i18n-title="pe.storyTip">故事 → 分段</button>
+            <span class="bd-meta" data-i18n="pe.storyFl2vNote">提示词写入每个现有镜头</span>
         </div>
         <div class="bd-fl2v-workbench" data-r="fl2v-workbench">
             <div class="bd-fl2v-shots" data-r="fl2v-shots"></div>

@@ -788,15 +788,28 @@ section (open it, it is collapsed by default) that does that step for you:
 3. Press **Plan story**. One model call splits the brief into a shared `world`
    paragraph (the place, the light, her look - stated once) plus one paragraph per
    segment.
-4. The segments are written into the timeline. If the timeline is empty - or it is a
-   generation timeline - the missing segments are **created** for you at that length;
-   segments that already exist keep their own timing and just receive a prompt. A
-   hand-laid video or Character Replace timeline is never re-timed.
+4. The segments are written into the timeline. If the timeline can hold them - a
+   **prompt batch** (`t2v`, `i2v`, `r2v` cards) or an empty timeline - the missing
+   segments are **created** for you, as cards of that length, exactly as if you had
+   added them by hand. Segments that already exist keep their own timing and just
+   receive a prompt. A hand-laid video or Character Replace timeline is never re-timed,
+   and in **Long-form** (`fl2v`) the beats fill the shots you have (a shot needs its own
+   first/last image, so nothing is invented there).
 5. Confirm the follow-up: each segment then goes through the normal enhancement, one
    prompt per segment, and the **review list** shows every result before anything is
    applied. Untick what you do not want, **Regenerate** a single segment you do not
    like (it re-runs just that one, from the same original text), **Regenerate all** if
    the run came out poorly, then **Apply selected**.
+
+### Finding it in every mode
+
+The section lives in the enhancer settings panel, which is normally opened by the
+**Enhance / Settings** buttons beside a prompt field. Those prompt rows are hidden in
+the modes that show a card list or a shot list instead, so the batch panel
+(`t2v` / `i2v` / `r2v`) and the Long-form panel each carry their own **Story to
+segments** button: pressing it opens the panel with the section already expanded and the
+cursor in the story box. That is the whole flow for a batch - describe the story, plan
+it, approve the list - without a single segment having to exist first.
 
 The plan itself follows the rules the rest of the pack enforces, because a screenwriter's
 instincts break them:

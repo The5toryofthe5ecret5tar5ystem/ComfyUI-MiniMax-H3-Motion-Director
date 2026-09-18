@@ -473,6 +473,7 @@ export function mountImageBatchPanel(root) {
     panel.innerHTML = `
         <div class="bd-batch-toolbar">
             <button type="button" class="bd-btn bd-btn-primary" data-a="batch-add" data-i18n="batch.addPromptGroup">+ 添加提示词组</button>
+            <button type="button" class="bd-btn" data-a="story-plan" data-i18n="pe.storySummary" data-i18n-title="pe.storyTip">故事 → 分段</button>
             <button type="button" class="bd-btn bd-batch-run-select hidden" data-a="batch-run-select" data-i18n="toolbar.runSelect" data-i18n-title="tooltip.batchRunSelect">选择运行</button>
             <label class="bd-batch-run-all hidden" data-r="batch-run-all-wrap" data-i18n-title="tooltip.runSelectAll">
                 <input type="checkbox" data-r="batch-run-all-cb">

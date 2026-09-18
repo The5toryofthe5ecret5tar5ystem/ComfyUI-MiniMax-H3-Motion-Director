@@ -1088,35 +1088,40 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
     /**
      * Make sure the timeline has ``count`` segments, creating the missing ones.
      *
-     * Only a generation timeline is grown here: a video or replace timeline is
-     * written by hand, and inventing windows in it would be worse than refusing. An
-     * existing segment keeps its own length - the story fills prompts, it does not
-     * silently re-time a project that was already laid out.
+     * The mode decides what may be created, and the timeline owns that decision: a
+     * prompt batch (t2v / i2v / r2v cards) is a list of generation segments, so the
+     * story may grow it; a hand-laid video or replace timeline is never re-timed, and
+     * Long-form shots need their own images, so those fill what exists. The fallback
+     * below is only for an editor that predates the hook.
      */
-    pe.ensureStorySegments = (count, frames) => {
+    pe.ensureStorySegments = (count, frames, seconds) => {
         const timeline = editor?.timeline;
         const want = Math.max(1, Math.round(Number(count) || 1));
         if (!timeline || !Array.isArray(timeline.segments)) {
             return { created: 0, total: 0, note: "" };
         }
-        const mayCreate = !timeline.segments.length || !!editor?.isGenMode?.();
         let created = 0;
-        while (mayCreate && timeline.segments.length < want) {
-            timeline.segments.push({
-                id: `pe_story_${Date.now()}_${timeline.segments.length}`,
-                start: 0,
-                length: frames,
-                frameCount: frames,
-                prompt: "",
-                taskType: "",
-                refs: [],
-                genImage: { imageFile: "" },
-            });
-            created += 1;
-        }
-        if (created) {
-            editor.normalizeGenSegments?.();
-            editor.commit?.(false, { syncTimeline: true });
+        if (typeof editor?.createStorySegments === "function") {
+            created = Number(editor.createStorySegments(want, { seconds, frames })?.created) || 0;
+        } else {
+            const mayCreate = !timeline.segments.length || !!editor?.isGenMode?.();
+            while (mayCreate && timeline.segments.length < want) {
+                timeline.segments.push({
+                    id: `pe_story_${Date.now()}_${timeline.segments.length}`,
+                    start: 0,
+                    length: frames,
+                    frameCount: frames,
+                    prompt: "",
+                    taskType: "",
+                    refs: [],
+                    genImage: { imageFile: "" },
+                });
+                created += 1;
+            }
+            if (created) {
+                editor?.normalizeGenSegments?.();
+                editor?.commit?.(false, { syncTimeline: true });
+            }
         }
         const total = timeline.segments.length;
         const note = created
@@ -1129,8 +1134,9 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
     pe.applyStoryPlan = (plan) => {
         const beats = Array.isArray(plan?.beats) ? plan.beats : [];
         const frames = Math.round(Number(plan?.frames) || 0);
+        const seconds = Number(plan?.seconds) || 0;
         const world = String(plan?.world || "").trim();
-        const { created, total, note } = pe.ensureStorySegments(beats.length, frames);
+        const { created, total, note } = pe.ensureStorySegments(beats.length, frames, seconds);
         let filled = 0;
         for (let index = 0; index < Math.min(beats.length, total); index += 1) {
             const beat = String(beats[index] || "").trim();
@@ -1138,9 +1144,17 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             // The world paragraph rides with every segment: for a text-to-video story
             // it is the only place her look and the place are stated, and on a
             // reference task it costs one sentence and keeps the segments agreeing.
-            pe.setPromptTextForBlock(world ? `${world}\n\n${beat}` : beat, index);
+            const text = world ? `${world}\n\n${beat}` : beat;
+            // The timeline knows where this mode keeps prompts (a batch card, an fl2v
+            // shot); it declines for the modes the panel has always written itself.
+            if (editor?.writeStoryBeat?.(index, text) !== true) {
+                pe.setPromptTextForBlock(text, index);
+            }
             filled += 1;
         }
+        // One repaint for the whole pass: the cards/shot detail show the beats now, and
+        // a per-beat repaint would rebuild them mid-loop.
+        editor?.refreshStoryTargets?.();
         editor.commit?.(false, { syncTimeline: true });
         const notes = [...(plan?.notes || []), note].filter(Boolean);
         pe.storyNote.textContent = notes.join(" ");
