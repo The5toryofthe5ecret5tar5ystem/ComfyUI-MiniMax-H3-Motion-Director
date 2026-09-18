@@ -917,3 +917,42 @@ So: `i2v` when the seam has to be exact (the row picks up the pose the last segm
 ended on), `r2v` when the row is a new beat and a small settle at the start is fine.
 A window after a generated row keeps its own source frame as frame 0 - that join is the
 row's business, not this one's.
+
+---
+
+## 26. Frame rate: 24 fps is the model's rate
+
+MiniMax H3 has **no fps input**. A frame count *is* a duration, and the model's joint
+video+audio latent is defined at a fixed **24 fps** - ComfyUI's own H3 nodes say so (the
+17k+5 grid is "at 24 fps", and a ref2va reference video is specified as "reference video
+frames at 24 fps").
+
+So a project whose frame rate is not 24 hands N frames of, say, 30 fps footage to the
+model as N model frames, and they come back as 24 fps content:
+
+- the **picture plays 25% slow** against the footage (4.57 s of action shown over 5.71 s),
+- the **segment audio is trimmed at the project rate** (`frames ÷ 30`), so every clip
+  ends in silence,
+- the **merged export is stamped with the project rate** while each per-segment clip is
+  written at 24 fps - the two do not even agree with each other.
+
+**Validate** now warns about this (`frame_rate_not_24`) whenever the project rate is not
+24, and says which direction the speed will be off.
+
+What to do about it, in order of preference:
+
+1. **Convert the source to 24 fps before importing it.** One ffmpeg pass does it and
+   keeps the duration, so the audio stays in sync:
+   `ffmpeg -i in.mp4 -vf fps=24 -c:a copy out24.mp4`. Frame-keyed masks have to be
+   converted with the same filter (regenerate them, or rebuild the folder and use the
+   mask's *offset* field to re-base the numbering), because the mask is addressed by
+   source frame. Window numbers change size by the same ratio: a 30 fps frame 1000 is
+   frame 800 at 24 fps. SAM3 windows need nothing - they re-segment whatever frames they
+   are given.
+2. **Leave it and accept the speed change**, but set the project frame rate to 24 so the
+   audio is full length and the merged export matches the clips. That fixes A/V, not the
+   slow motion.
+
+What is *not* a fix: setting the project rate to 24 while still feeding 30 fps footage.
+The window boundaries move (a "5 s" window becomes 120 frames, not 150), but the motion
+stays 25% slow, because the model still receives 30 fps frames as 24 fps ones.

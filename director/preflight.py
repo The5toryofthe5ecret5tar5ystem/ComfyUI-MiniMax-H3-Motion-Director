@@ -45,6 +45,12 @@ PLAN_INPUT_KEYS = (
 _H3_GRID = 17
 _FRAME_MASK_RE = re.compile(r"^frame_(\d+)\.png$", re.IGNORECASE)
 
+# MiniMax H3 has no fps input: the frame count *is* the duration, and the model's
+# joint video+audio latent is defined at a fixed 24 fps (see ComfyUI's own H3
+# nodes: "Duration snaps to the model's 17k+5 frame grid at 24 fps", and the
+# ref2va reference video is documented as "Reference video frames at 24 fps").
+H3_MODEL_FPS = 24.0
+
 
 def _resolve_mask_dir(raw_dir: str) -> str | None:
     """Resolve a frames-mask directory the way ``load_mask_window`` does.
@@ -124,9 +130,47 @@ def _raw_refs(timeline: dict) -> tuple[list[dict], list[dict], list[dict]]:
     return pics, audios, videos
 
 
+def _check_frame_rate(timeline: dict, issues: list) -> None:
+    """Warn when the project rate is not the 24 fps the model runs at.
+
+    H3 takes frames, not seconds, so a project whose rate differs from 24 gets a
+    picture that plays at the wrong speed: N frames of 30 fps footage are handed
+    over as N model frames and come back stamped at 24, i.e. 25% slow - and the
+    same rate then drives the segment audio trim and the merged export stamp, so
+    the audio is short on every clip (and the merged file fast) as well.
+
+    A warning rather than an error: the render is valid, it just does not play at
+    the speed the footage does, and only the user knows whether that is intended.
+    """
+    raw = timeline.get("frameRate")
+    if raw is None:
+        raw = (timeline.get("video") or {}).get("fps")
+    try:
+        fps = float(raw)
+    except (TypeError, ValueError):
+        return
+    if fps <= 0 or abs(fps - H3_MODEL_FPS) < 0.01:
+        return
+    ratio = fps / H3_MODEL_FPS
+    _issue(
+        issues,
+        "warning",
+        "frame_rate_not_24",
+        f"Project frame rate is {fps:g} fps, but MiniMax H3 generates at a fixed "
+        f"{H3_MODEL_FPS:g} fps - the frame count is the duration, and there is no fps "
+        f"input. Frames are passed to the model as they are, so this project's picture "
+        f"plays {ratio:.2f}x {'slow' if ratio > 1 else 'fast'} against the footage; "
+        "segment audio is trimmed at this rate (so each clip ends in silence when it "
+        f"is above {H3_MODEL_FPS:g}) and the merged export is stamped with it while the "
+        "per-segment clips are written at 24. Convert the source - and any frame-keyed "
+        "mask with it - to 24 fps, or set the project frame rate to 24.",
+    )
+
+
 def _static_checks(timeline: dict, task_key: str, issues: list) -> None:
     segments = timeline.get("segments") or []
     is_replace = bool(timeline.get("replaceMode"))
+    _check_frame_rate(timeline, issues)
     if not segments:
         _issue(issues, "error", "no_segments", "The timeline has no segments.")
         return

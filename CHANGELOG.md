@@ -7,6 +7,14 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Added
 
+- **A pre-flight warning when the project frame rate is not 24.** MiniMax H3 has no fps
+  input - the frame count is the duration, and the joint video+audio latent is defined at
+  a fixed 24 fps (ComfyUI's own H3 nodes document both). A project at another rate hands N
+  frames of e.g. 30 fps footage to the model as N frames, so the picture plays ~25% slow,
+  the segment audio (trimmed at the project rate) is short by the same ratio, and the
+  merged export is stamped with the project rate while each segment clip is written at
+  24. **Validate** now reports this as `frame_rate_not_24` and says which direction the
+  speed will be off; it stays a warning, because a slow render is a valid render.
 - **Generated rows: a Character Replace chain can leave the footage.** Every row in a
   replace job used to be a masked window over the source video, so a chain could only
   ever cover what the footage covered. A row can now be a **generated segment**
