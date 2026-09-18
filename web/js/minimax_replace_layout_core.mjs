@@ -14,6 +14,8 @@
  * to the window and is carried over.
  */
 
+import { isGeneratedRow } from "./minimax_segment_kind.mjs?boot=generated_rows_v1";
+
 /**
  * What a window owns, as opposed to where it sits in the clip. Mirrors the
  * payload the new-window factory initialises: anything it blanks out is content
@@ -135,4 +137,90 @@ export function replaceEnabledCount(segments) {
         all: list.length > 0 && on === list.length,
         none: list.length > 0 && on === 0,
     };
+}
+
+/**
+ * Split a replace job's rows into the two kinds it can hold.
+ *
+ * A *window* edits a range of the source video. A *generated* row has no source
+ * range at all and renders from its prompt and references (the H3 source-free
+ * tasks), which is how a chain continues past the end of the footage or breaks
+ * away from it in the middle.
+ *
+ * Every count and readout in the panel has to go through this: "how many
+ * windows" and "how much of the source is covered" are questions about the
+ * windows alone, and answered over the whole list they over-report by exactly
+ * the generated rows.
+ *
+ * @returns {{windows: object[], generated: object[]}}
+ */
+export function splitReplaceRows(segments) {
+    const windows = [];
+    const generated = [];
+    for (const seg of Array.isArray(segments) ? segments : []) {
+        if (!seg || typeof seg !== "object") continue;
+        (isGeneratedRow(seg) ? generated : windows).push(seg);
+    }
+    return { windows, generated };
+}
+
+/** Frames of the source the replace windows actually cover (windows only). */
+export function coverageFrames(segments, total) {
+    const limit = Math.max(0, parseInt(total, 10) || 0);
+    let sum = 0;
+    for (const seg of splitReplaceRows(segments).windows) {
+        const start = Math.max(0, parseInt(seg.start, 10) || 0);
+        const length = Math.max(0, parseInt(seg.length ?? seg.frameCount, 10) || 0);
+        sum += limit > 0 ? Math.min(Math.max(0, limit - start), length) : length;
+    }
+    return sum;
+}
+
+/**
+ * Frames the generated rows add to the export.
+ *
+ * They are additive: the output is the rows in list order, so a generated row
+ * makes the finished clip longer than the source instead of replacing part of it.
+ */
+export function generatedFrames(segments) {
+    let sum = 0;
+    for (const seg of splitReplaceRows(segments).generated) {
+        sum += Math.max(0, parseInt(seg.length ?? seg.frameCount, 10) || 0);
+    }
+    return sum;
+}
+
+/**
+ * Put the generated rows back where they were after a long-form re-cut.
+ *
+ * "Long-form replace - cover whole clip" rebuilds the window list from the plan,
+ * so a generated row - which is not part of the window layout and cannot be
+ * derived from it - was simply gone. Each one is remembered by how many windows
+ * preceded it, which survives a window count change (the row stays in the same
+ * relative place, and lands at the end when the new cut is shorter).
+ *
+ * @param {object[]} newWindows the re-cut window list, in order
+ * @param {object[]} previous the row list before the re-cut
+ * @returns {object[]} the rows to store, in order
+ */
+export function reinsertGeneratedRows(newWindows, previous) {
+    const windows = Array.isArray(newWindows) ? newWindows : [];
+    const byWindowIndex = new Map();
+    let seen = 0;
+    for (const seg of Array.isArray(previous) ? previous : []) {
+        if (!seg || typeof seg !== "object") continue;
+        if (!isGeneratedRow(seg)) {
+            seen += 1;
+            continue;
+        }
+        const at = Math.min(seen, windows.length);
+        if (!byWindowIndex.has(at)) byWindowIndex.set(at, []);
+        byWindowIndex.get(at).push(seg);
+    }
+    const rows = [];
+    for (let i = 0; i <= windows.length; i += 1) {
+        for (const seg of byWindowIndex.get(i) || []) rows.push(seg);
+        if (i < windows.length) rows.push(windows[i]);
+    }
+    return rows;
 }

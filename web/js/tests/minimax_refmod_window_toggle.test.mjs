@@ -39,8 +39,13 @@ assert.match(
 );
 assert.match(
     makeRow,
-    /line2\.append\(refmodLbl, refmodInput\);/,
+    /winOnly\.append\(refmodLbl, refmodInput\);/,
     "and sits in the row's own control line",
+);
+assert.match(
+    makeRow,
+    /line2\.append\(winOnly\);/,
+    "that control group is attached to the row (generated rows hide it as a unit)",
 );
 assert.match(
     makeRow,

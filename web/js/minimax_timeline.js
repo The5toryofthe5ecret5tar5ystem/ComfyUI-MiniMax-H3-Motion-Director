@@ -21,7 +21,7 @@ import {
     isTextEntryTarget,
     isUndoShortcut,
 } from "./minimax_undo_buffer.mjs";
-import { isGeneratedRow } from "./minimax_segment_kind.mjs?boot=generated_rows_v1";
+import { SEGMENT_KIND_GENERATE, isGeneratedRow } from "./minimax_segment_kind.mjs?boot=generated_rows_v1";
 import {
     PRESET_WIDGET_NAMES,
     collectPresetPayload,
@@ -151,9 +151,13 @@ import {
 import {
     carrySegmentContent,
     contentSourceForWindow,
+    coverageFrames,
+    generatedFrames,
     normalizeMaskKind,
+    reinsertGeneratedRows,
     replaceEnabledCount,
-} from "./minimax_replace_layout_core.mjs?boot=director_ui_recovery_v15";
+    splitReplaceRows,
+} from "./minimax_replace_layout_core.mjs?boot=director_ui_generated_rows_v16";
 import {
     commitRunSelectionMutation as commitRunSelectionMutationNow,
     ensureRunSelectionSerialized,
@@ -2925,6 +2929,12 @@ function installReplaceWindowsMode(ed) {
     hTitle.style.color = "#8fe3b0";
     const countBadge = mkBadge(t("replace.badge.windows", { n: 0 }));
     const coverBadge = mkBadge(t("replace.badge.covered", { n: 0 }));
+    // Generated rows are additive frames, not source coverage, so they get their
+    // own badge: the coverage badge must keep meaning "how much of the footage is
+    // replaced" and never count a row that does not touch the footage at all.
+    const genBadge = mkBadge("");
+    genBadge.dataset.a = "replace-generated-badge";
+    genBadge.style.display = "none";
     // Coverage answers "do the windows tile the clip?", which is not the same
     // question as "is Replace switched on?". The engine keys off
     // seg.replace.enabled, so coverage can read 100% while every window is off
@@ -2954,7 +2964,7 @@ function installReplaceWindowsMode(ed) {
     hSub.textContent = t("replace.help");
     const unit = makeUnitToggle("f", () => renderRows());
     unit.title = t("replace.rowUnitTitle");
-    header.append(hTitle, countBadge, coverBadge, onBadge, enableAllWrap, mkSpacer(), unit, hSub);
+    header.append(hTitle, countBadge, coverBadge, genBadge, onBadge, enableAllWrap, mkSpacer(), unit, hSub);
 
     // --- action row: the whole-clip action leads, its inputs follow, then the
     // narrow per-window utilities sit behind a divider ---
@@ -2987,9 +2997,15 @@ function installReplaceWindowsMode(ed) {
     const addAtBtn = mkSmallButton(t("replace.addAtPlayhead"));
     addAtBtn.dataset.i18n = "replace.addAtPlayhead";
     addAtBtn.title = t("replace.addAtPlayheadTitle");
+    // The second row kind: a segment with no source window at all, so the chain
+    // can leave the footage instead of only ever covering it.
+    const addGenBtn = mkSmallButton(t("replace.addGenerated"));
+    addGenBtn.dataset.i18n = "replace.addGenerated";
+    addGenBtn.dataset.a = "add-generated-row";
+    addGenBtn.title = t("replace.addGeneratedTitle");
     actionRow.append(
         longBtn, lenLbl, addLenInput, addLenUnit, contLbl, contMaster,
-        mkDivider(), addAfterBtn, addAtBtn,
+        mkDivider(), addAfterBtn, addAtBtn, addGenBtn,
     );
 
     // What the primary action will produce, stated before it runs.
@@ -3136,6 +3152,34 @@ function installReplaceWindowsMode(ed) {
         renderRows();
     }
 
+    /**
+     * Append a generated row: no source window, rendered from its prompt and
+     * references by a source-free task. This is the row that lets a chain keep
+     * going past the last frame of the footage. Its Replace switch goes off -
+     * there is no window to mask - but the recipe stays on the row so switching
+     * it back to a window does not lose the mask setup.
+     */
+    function pushNewGeneratedSegment() {
+        const segs = ed.timeline && ed.timeline.segments;
+        if (!segs) return;
+        const start = findLastEnd();
+        const seg = newWindowSeg(start, h3AlignFrameCount(addLengthFrames()));
+        // The factory clamps a new window inside the clip; a generated row is
+        // allowed to sit past the end, which is the point of it.
+        seg.start = start;
+        seg.kind = SEGMENT_KIND_GENERATE;
+        const cfg = replaceConfigFromSeg(seg);
+        cfg.enabled = false;
+        ensureReplaceConfigOnSeg(seg, cfg);
+        segs.push(seg);
+        // The prompt box follows the selection; a new row with no prompt is only
+        // useful if the user lands on it to write one.
+        ed.selectedIndex = segs.length - 1;
+        try { ed.updateSelectionUI?.(); } catch (_err) { /* panel may be unmounted */ }
+        commitLight();
+        renderRows();
+    }
+
     addAfterBtn.addEventListener("click", (e) => {
         stopDomEvent(e);
         pushNewWindow(findLastEnd(), addLengthFrames());
@@ -3154,6 +3198,10 @@ function installReplaceWindowsMode(ed) {
         } else {
             pushNewWindow(start, len);
         }
+    });
+    addGenBtn.addEventListener("click", (e) => {
+        stopDomEvent(e);
+        pushNewGeneratedSegment();
     });
 
     /** The window layout the primary action would produce, or null when impossible. */
@@ -3182,15 +3230,12 @@ function installReplaceWindowsMode(ed) {
         return windows.length ? { total, fps, len, windows } : null;
     }
 
-    /** Frames covered by the current window list. */
+    /** Frames of the source the WINDOWS cover (a generated row covers none of it). */
     function coveredFrames() {
-        const segs = (ed.timeline && ed.timeline.segments) || [];
-        const total = directorTotalFrames(ed);
-        return segs.reduce((sum, s) => {
-            const st = Math.max(0, parseInt(s.start, 10) || 0);
-            const ln = Math.max(0, parseInt(s.length ?? s.frameCount, 10) || 0);
-            return sum + Math.min(Math.max(0, total - st), ln);
-        }, 0);
+        return coverageFrames(
+            (ed.timeline && ed.timeline.segments) || [],
+            directorTotalFrames(ed),
+        );
     }
 
     /**
@@ -3252,12 +3297,22 @@ function installReplaceWindowsMode(ed) {
         const segs = (ed.timeline && ed.timeline.segments) || [];
         const total = directorTotalFrames(ed);
         const plan = longFormPlan();
+        const { windows, generated } = splitReplaceRows(segs);
 
-        countBadge.textContent = t("replace.badge.windows", { n: segs.length });
-        setBadgeMuted(countBadge, segs.length === 0);
+        countBadge.textContent = t("replace.badge.windows", { n: windows.length });
+        setBadgeMuted(countBadge, windows.length === 0);
         const pct = total > 0 ? Math.round((coveredFrames() / total) * 100) : 0;
         coverBadge.textContent = t("replace.badge.covered", { n: pct });
         setBadgeMuted(coverBadge, pct < 100);
+        if (generated.length) {
+            genBadge.style.display = "";
+            genBadge.textContent = t("replace.badge.generated", {
+                n: generated.length,
+                time: formatDuration(generatedFrames(segs), directorFps(ed) || 24),
+            });
+        } else {
+            genBadge.style.display = "none";
+        }
 
         longBtn.disabled = !plan;
         longBtn.style.cursor = plan ? "pointer" : "not-allowed";
@@ -3270,12 +3325,18 @@ function installReplaceWindowsMode(ed) {
             preview.style.borderStyle = "dashed";
             preview.style.borderColor = "#2f6f48";
             preview.style.color = "#a8d9bd";
-            preview.textContent = t("replace.preview", {
+            let text = t("replace.preview", {
                 n: plan.windows.length,
                 len: (plan.len / plan.fps).toFixed(2),
                 time: formatDuration(plan.total, plan.fps),
                 cont: contMaster.checked ? t("replace.previewOn") : t("replace.previewOff"),
             });
+            if (generated.length) {
+                // The re-cut only lays out windows; saying so here is the only
+                // warning the user gets that their generated rows survive it.
+                text += " · " + t("replace.generatedKept", { n: generated.length });
+            }
+            preview.textContent = text;
         }
 
         const showHint = directorIsVideoMode(ed) && !ed.timeline?.replaceMode && !!plan;
@@ -3300,6 +3361,7 @@ function installReplaceWindowsMode(ed) {
         const segs = ed.timeline && ed.timeline.segments;
         const plan = longFormPlan();
         if (!segs || !plan) return;
+        const kept = splitReplaceRows(segs).generated.length;
         // This action re-cuts the window layout, and laying out is all it may do.
         // The list is rebuilt from the plain new-window factory, so without the
         // carry below every window comes back blank and the clip loses the prompt
@@ -3318,6 +3380,12 @@ function installReplaceWindowsMode(ed) {
             ensureReplaceConfigOnSeg(seg, { ...base, enabled: true, continuity: wantCont });
             segs.push(seg);
         });
+        // Laying out windows is all this action may do. A generated row is not
+        // part of the window layout and cannot be derived from it, so without the
+        // re-insertion below it was silently deleted along with its prompt.
+        const rebuilt = reinsertGeneratedRows(segs.slice(), previous);
+        segs.length = 0;
+        for (const row of rebuilt) segs.push(row);
         // The prompt box reads segments[selectedIndex]; a shorter cut must not
         // leave it pointing past the end of the new list.
         ed.selectedIndex = clamp(Number(ed.selectedIndex) || 0, 0, Math.max(0, segs.length - 1));
@@ -3332,7 +3400,7 @@ function installReplaceWindowsMode(ed) {
         feedback.textContent = t("replace.done", {
             n: plan.windows.length,
             time: formatDuration(plan.total, plan.fps),
-        });
+        }) + (kept ? " · " + t("replace.generatedKept", { n: kept }) : "");
         feedback.style.display = "";
         setTimeout(() => { feedback.style.display = "none"; }, 6000);
     }
@@ -3402,6 +3470,20 @@ function installReplaceWindowsMode(ed) {
         lenSpan.style.color = "#7fa08b";
         const del = mkSmallButton("del", true);
         const cfg = replaceConfigFromSeg(seg);
+        // Row kind first: it decides whether any of the window controls below
+        // apply to this row at all.
+        const rowKindSel = selectField(["window", "generate"], isGeneratedRow(seg) ? "generate" : "window", 86);
+        rowKindSel.dataset.a = "replace-row-kind";
+        rowKindSel.title = t("replace.kindTitle");
+        const genNote = document.createElement("span");
+        genNote.dataset.r = "replace-generated-note";
+        genNote.style.cssText = "display:none;color:#c9ab7a;";
+        genNote.textContent = t("replace.generatedNote");
+        // Everything that only exists for a masked window lives in one wrapper, so
+        // a generated row hides the lot in a single toggle instead of leaving a
+        // row of controls that look active and do nothing.
+        const winOnly = document.createElement("span");
+        winOnly.style.cssText = "display:contents;";
         const kindSel = selectField(["frames", "sam3"], cfg.kind, 74);
         kindSel.title = "Mask source: 'frames' = PNG mask folder (mask dir); 'sam3' = auto-segment this window from a text prompt at render time (no files).";
         const renderSel = selectField(["anchor", "inpaint"], cfg.render, 82);
@@ -3426,20 +3508,21 @@ function installReplaceWindowsMode(ed) {
         const policy = selectField(REPLACE_AUDIO_POLICIES, cfg.audio_policy, 78);
         const line2 = document.createElement("div");
         line2.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap;opacity:.95;";
-        line2.append(kindSel, renderSel, dirWrap, promptWrap);
+        line2.append(winOnly);
+        winOnly.append(kindSel, renderSel, dirWrap, promptWrap);
         const growLbl = document.createElement("span");
         growLbl.textContent = "grow";
         const fthLbl = document.createElement("span");
         fthLbl.textContent = "feather";
         const leadLbl = document.createElement("span");
         leadLbl.textContent = "lead";
-        line2.append(growLbl, growInput, fthLbl, featherInput);
+        winOnly.append(growLbl, growInput, fthLbl, featherInput);
         leadInput.title = "Pre-roll frames rendered before this window start (pose runway); trimmed before export. 0 = off.";
         leadInput.style.background = "#141d16";
-        line2.append(leadLbl, leadInput);
+        winOnly.append(leadLbl, leadInput);
         const audLbl = document.createElement("span");
         audLbl.textContent = "audio";
-        line2.append(audLbl, policy);
+        winOnly.append(audLbl, policy);
         const contLbl = document.createElement("span");
         contLbl.textContent = "cont";
         contLbl.title = "Chain continuity: open this window from the previous window's last rendered frame (seamless). Off for gapped windows.";
@@ -3447,7 +3530,7 @@ function installReplaceWindowsMode(ed) {
         contInput.type = "checkbox";
         contInput.checked = cfg.continuity !== false;
         contInput.title = contLbl.title;
-        line2.append(contLbl, contInput);
+        winOnly.append(contLbl, contInput);
         // One RefMod set is appended to every segment's conditioning, so a mod that
         // belongs to some windows and not others needs a per-window switch.
         const refmodLbl = document.createElement("span");
@@ -3457,7 +3540,7 @@ function installReplaceWindowsMode(ed) {
         refmodInput.type = "checkbox";
         refmodInput.checked = seg.refmodEnabled !== false;
         refmodInput.title = refmodLbl.title;
-        line2.append(refmodLbl, refmodInput);
+        winOnly.append(refmodLbl, refmodInput);
         const testBtn = mkSmallButton("Test mask");
         testBtn.title = "Run SAM3 on this window now and show the subject mask on the Mask check card (no video render). Uses the current SAM3 prompt, lead and window range.";
         const pickBtn = mkSmallButton("Pick subject");
@@ -3473,10 +3556,13 @@ function installReplaceWindowsMode(ed) {
         const testImg = document.createElement("img");
         testImg.style.cssText = "display:none;max-width:100%;border-radius:4px;";
         testImg.alt = "Window mask test";
-        line2.append(pickBtn, testBtn, testStatus);
+        winOnly.append(pickBtn, testBtn, testStatus);
+        // Kind selector and its note stay outside the wrapper: the kind is what
+        // decides whether the wrapper's controls apply.
+        line2.append(rowKindSel, genNote);
         line1.append(handle, enabled, label, gotoBtn, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
         row.append(line1, line2, pickArea, testImg);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, contInput, refmodInput, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost } });
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, contInput, refmodInput, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost, rowKindSel, genNote, winOnly } });
         return row;
     }
 
@@ -3509,6 +3595,14 @@ function installReplaceWindowsMode(ed) {
         if (inp.testBtn) inp.testBtn.style.display = sam3Kind ? "" : "none";
         if (inp.pickBtn) inp.pickBtn.style.display = sam3Kind ? "" : "none";
         inp.enabled.checked = cfg.enabled;
+        // A generated row owns none of the window controls, so hide them rather
+        // than let the row look like a window with a broken mask.
+        const generated = isGeneratedRow(seg);
+        if (inp.rowKindSel && active !== inp.rowKindSel) {
+            inp.rowKindSel.value = generated ? "generate" : "window";
+        }
+        if (inp.winOnly) inp.winOnly.style.display = generated ? "none" : "contents";
+        if (inp.genNote) inp.genNote.style.display = generated ? "" : "none";
     }
 
     function bindRow(row) {
@@ -3584,6 +3678,24 @@ function installReplaceWindowsMode(ed) {
             cfg.kind = inp.kindSel.value === "sam3" ? "sam3" : "frames";
             ensureReplaceConfigOnSeg(seg, cfg);
             commitLight();
+        });
+        inp.rowKindSel.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            if (inp.rowKindSel.value === "generate") {
+                seg.kind = SEGMENT_KIND_GENERATE;
+                // A generated row has no source window, so its Replace switch
+                // cannot apply. The mask recipe stays on the row and comes back
+                // when it is switched to a window again (Replace stays off, since
+                // only the user knows whether that window should run).
+                const cfg = replaceConfigFromSeg(seg);
+                cfg.enabled = false;
+                ensureReplaceConfigOnSeg(seg, cfg);
+            } else {
+                delete seg.kind;
+            }
+            commitLight();
+            renderRows();
         });
         inp.renderSel.addEventListener("change", () => {
             const seg = getSeg();
@@ -4065,7 +4177,9 @@ function installReplaceWindowsMode(ed) {
             }
             const label = row.querySelector("span");
             if (label) {
-                label.textContent = "W" + (i + 1);
+                // G marks a generated row: it holds no source range, so numbering
+                // it with the windows would read as a window that lost its range.
+                label.textContent = (isGeneratedRow(seg) ? "G" : "W") + (i + 1);
                 // Selecting a segment happens on the canvas in every other mode, and
                 // Replace hides the canvas - so the prompt box, the reference slots
                 // and every other panel that follows the selection stayed on window 1

@@ -49,7 +49,7 @@ assert.match(
 );
 assert.match(
     body,
-    /header\.append\(hTitle, countBadge, coverBadge, onBadge, enableAllWrap, mkSpacer\(\), unit, hSub\);/,
+    /header\.append\(hTitle, countBadge, coverBadge, genBadge, onBadge, enableAllWrap, mkSpacer\(\), unit, hSub\);/,
     "the master switch belongs in the header row with the window-count badges",
 );
 assert.match(

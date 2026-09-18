@@ -860,6 +860,29 @@ What happens on run:
   generated in the table), the row kind wins, the window block is ignored, and both the
   plan and the pre-run **Validate** say so instead of silently rendering the window.
 
-Not there yet: the row-kind selector in the Replace windows table. Until it lands, rows
-can be authored in the saved project JSON (or by asking the enhancer to write the
-prompts, which is the same text either way).
+In the panel, every row has a **kind** selector at its start:
+
+- **`window`** - the default: a masked Character Replace over a range of the source.
+- **`generate`** - the row owns no source range and renders from its prompt and
+  references. **+ Add segment** appends one after the last row, using the same len
+  field as **+ Add after**. Its window controls (mask source, render mode, mask dir /
+  SAM3 prompt, grow, feather, lead, audio, continuity, refmod, Test mask, Pick
+  subject) are hidden, because none of them apply - and the row is labelled **G**
+  instead of **W** so a list of windows does not read as one window having lost its
+  range. Switching a row to `generate` switches its Replace off; the mask recipe stays
+  on the row and comes back if you switch it to a window again.
+
+Two readouts stay honest about the mix:
+
+- **covers n%** counts the *windows* only. A generated row does not cover the source,
+  it is added to the output, so it never pushes coverage past what the footage allows.
+- a second badge reports the generated side: **`n generated · time`**.
+
+**Long-form replace** re-cuts the windows, and generated rows are not part of that
+layout, so they are **kept** and put back where they were (counted in windows, so one
+that sat between window 1 and 2 still does). The preview line and the completion
+message both say how many were kept.
+
+Not there yet: per-row audio for a generated row. In a **generate**-audio project it
+gets model audio; in a **source**-audio project it takes the source audio at its
+insertion point, and past the end of the footage it is silent.

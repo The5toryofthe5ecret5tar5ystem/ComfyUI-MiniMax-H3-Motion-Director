@@ -18,7 +18,12 @@ Notable changes in this fork. Older releases are tagged in git and published on 
   behave exactly as before, and a leftover replace window on a generated row is ignored
   loudly rather than reactivating the masked path. The timeline normalizer keeps such a
   row intact too - it used to clamp every row to the source's frame total, which deleted
-  exactly the row that sits past the end of the footage.
+  exactly the row that sits past the end of the footage. In the panel each row now has a
+  **window / generate** kind selector, **+ Add segment** appends a generated row, the
+  window-only controls hide themselves on one (it is labelled **G**, not **W**), the
+  coverage badge counts windows only with a separate `n generated` badge for the added
+  frames, and **Long-form replace** keeps generated rows and puts them back in place
+  instead of deleting them with the old layout.
 - **Story to segments.** A multi-segment project is a story spread over N renders, and
   every segment prompt had to be written by hand. The enhancer panel now takes the whole
   story in a few sentences, a segment count and a seconds-per-segment value, and splits
