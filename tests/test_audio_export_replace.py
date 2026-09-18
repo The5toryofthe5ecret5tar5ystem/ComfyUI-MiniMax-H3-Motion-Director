@@ -3,6 +3,11 @@
 The combined "Export all" clip of replace windows is a back-to-back
 concatenation of independent source ranges, so its source audio must be the
 per-window tracks stitched in window order - not source[0:end].
+
+It also pins *which* fps the audio is measured at. The project here is 30 fps (a
+common source rate) while H3's picture is 24 fps content, and the audio has to
+follow the picture: measuring it at the project rate gave every clip a silent
+20% tail and a merged export that disagreed with the clips it was made of.
 """
 
 from __future__ import annotations
@@ -13,7 +18,10 @@ import torch
 
 import mmx_pkg.director.audio_export as audio_export
 from mmx_pkg.director.audio_export import build_director_audio_outputs
+from mmx_pkg.lib.h3_rate import H3_MODEL_FPS
 
+# Deliberately *not* 24: the project/source rate must no longer drive the audio
+# length, and a 30 fps project is what exposed the mismatch.
 FPS = 30.0
 
 
@@ -38,6 +46,7 @@ def _fake_seg(start, end, replace_enabled=True):
 
 
 def _wave_for(frames: int):
+    # What extract_timeline_audio hands over: source frames at the project rate.
     samples = int(round(frames * 44100 / FPS))
     return {"waveform": torch.zeros(1, 2, samples), "sample_rate": 44100}
 
@@ -67,7 +76,7 @@ def test_replace_export_all_extracts_each_window_track(monkeypatch):
     assert calls == [(100, 200), (500, 600)]
     assert fallback is None
     assert len(out) == 1
-    assert int(out[0]["waveform"].shape[-1]) == int(round(200 * 44100 / FPS))
+    assert int(out[0]["waveform"].shape[-1]) == int(round(200 * 44100 / H3_MODEL_FPS))
 
 
 def test_non_replace_export_all_keeps_source_from_zero(monkeypatch):
@@ -95,6 +104,41 @@ def test_non_replace_export_all_keeps_source_from_zero(monkeypatch):
     assert calls == [(0, 200)]
 
 
+def test_windows_extract_at_the_project_rate_but_mix_at_the_model_rate(monkeypatch):
+    """The two rates are not the same thing, and conflating them was the bug.
+
+    A window's start/end are *source* frames, so they become seconds of the source
+    file at the project rate. The picture those frames render is 24 fps content, so
+    the extracted track is padded/trimmed to *picture* seconds at the model rate.
+    Measuring both at the project rate left every clip's sound 20% short of its
+    picture; measuring both at the model rate would slice the source in the wrong
+    place.
+    """
+    segs = [_fake_seg(100, 200), _fake_seg(500, 600)]
+    plan = _fake_plan(replace=True, segments=segs)
+    combined = torch.zeros(200, 8, 8, 3)
+    seen: list[float] = []
+
+    def fake_extract(timeline, start, end, fps):
+        seen.append(fps)
+        return _wave_for(int(end) - int(start))
+
+    monkeypatch.setattr(audio_export, "extract_timeline_audio", fake_extract)
+    out, _ = build_director_audio_outputs(
+        plan,
+        [combined],
+        export_segments=False,
+        output_frame_end=int(combined.shape[0]),
+        segment_audios=None,
+        audio_mode="source",
+        mute_audio=False,
+    )
+    assert seen == [FPS, FPS], "extraction counts source frames, so it uses the project rate"
+    assert int(out[0]["waveform"].shape[-1]) == int(round(200 * 44100 / H3_MODEL_FPS)), (
+        "the mixed track is picture-length, which is model-rate seconds"
+    )
+
+
 def test_replace_export_all_silent_when_no_window_track(monkeypatch):
     segs = [_fake_seg(100, 200)]
     plan = _fake_plan(replace=True, segments=segs)
@@ -117,7 +161,7 @@ def test_replace_export_all_silent_when_no_window_track(monkeypatch):
     assert len(out) == 1
     # Digital-silence buffer, but still exactly the combined window length.
     wave = out[0]["waveform"]
-    assert int(wave.shape[-1]) == int(round(100 * 44100 / FPS))
+    assert int(wave.shape[-1]) == int(round(100 * 44100 / H3_MODEL_FPS))
     assert float(wave.abs().max()) == 0.0
 
 
@@ -132,6 +176,7 @@ def test_replace_export_all_silent_when_no_window_track(monkeypatch):
 
 
 def _ones_for(frames: int):
+    # Source-rate again: the picture is 24 fps, the extracted track is not.
     samples = int(round(frames * 44100 / FPS))
     return {"waveform": torch.ones(1, 2, samples), "sample_rate": 44100}
 
@@ -156,9 +201,10 @@ def test_merged_replace_audio_fades_window_joins_and_edges(monkeypatch):
     )
     wave = out[0]["waveform"]
     total = int(wave.shape[-1])
-    assert total == int(round(200 * 44100 / FPS))
+    assert total == int(round(200 * 44100 / H3_MODEL_FPS))
 
-    join = int(round(100 * 44100 / FPS))  # window 1 ends where window 2 begins
+    # The merged track is laid out in picture frames, which are model-rate ones.
+    join = int(round(100 * 44100 / H3_MODEL_FPS))  # window 1 ends where window 2 begins
     # Head, window join and tail all ramp to zero; nothing steps into silence.
     assert abs(float(wave[0, 0, 0])) < 1e-6
     assert abs(float(wave[0, 0, join - 1])) < 1e-6
@@ -166,7 +212,7 @@ def test_merged_replace_audio_fades_window_joins_and_edges(monkeypatch):
     assert abs(float(wave[0, 0, -1])) < 1e-6
     # The body of each window is untouched, so the fade does not duck the audio.
     for frame in (50, 150):
-        idx = int(round(frame * 44100 / FPS))
+        idx = int(round(frame * 44100 / H3_MODEL_FPS))
         assert abs(float(wave[0, 0, idx]) - 1.0) < 1e-6
 
 

@@ -22,6 +22,7 @@ from typing import Any
 
 import folder_paths
 
+from ..lib.h3_rate import H3_MODEL_FPS, rate_warning_message
 from ..lib.segment_kind import is_generated_segment
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director")
@@ -44,12 +45,6 @@ PLAN_INPUT_KEYS = (
 
 _H3_GRID = 17
 _FRAME_MASK_RE = re.compile(r"^frame_(\d+)\.png$", re.IGNORECASE)
-
-# MiniMax H3 has no fps input: the frame count *is* the duration, and the model's
-# joint video+audio latent is defined at a fixed 24 fps (see ComfyUI's own H3
-# nodes: "Duration snaps to the model's 17k+5 frame grid at 24 fps", and the
-# ref2va reference video is documented as "Reference video frames at 24 fps").
-H3_MODEL_FPS = 24.0
 
 
 def _resolve_mask_dir(raw_dir: str) -> str | None:
@@ -135,12 +130,12 @@ def _check_frame_rate(timeline: dict, issues: list) -> None:
 
     H3 takes frames, not seconds, so a project whose rate differs from 24 gets a
     picture that plays at the wrong speed: N frames of 30 fps footage are handed
-    over as N model frames and come back stamped at 24, i.e. 25% slow - and the
-    same rate then drives the segment audio trim and the merged export stamp, so
-    the audio is short on every clip (and the merged file fast) as well.
+    over as N model frames and come back as 24 fps content, i.e. 25% slow. The
+    output rates themselves are kept at the model's (segment audio and the merged
+    export), so what is left is the speed - which only the user can decide about.
 
     A warning rather than an error: the render is valid, it just does not play at
-    the speed the footage does, and only the user knows whether that is intended.
+    the speed the footage does.
     """
     raw = timeline.get("frameRate")
     if raw is None:
@@ -151,19 +146,11 @@ def _check_frame_rate(timeline: dict, issues: list) -> None:
         return
     if fps <= 0 or abs(fps - H3_MODEL_FPS) < 0.01:
         return
-    ratio = fps / H3_MODEL_FPS
     _issue(
         issues,
         "warning",
         "frame_rate_not_24",
-        f"Project frame rate is {fps:g} fps, but MiniMax H3 generates at a fixed "
-        f"{H3_MODEL_FPS:g} fps - the frame count is the duration, and there is no fps "
-        f"input. Frames are passed to the model as they are, so this project's picture "
-        f"plays {ratio:.2f}x {'slow' if ratio > 1 else 'fast'} against the footage; "
-        "segment audio is trimmed at this rate (so each clip ends in silence when it "
-        f"is above {H3_MODEL_FPS:g}) and the merged export is stamped with it while the "
-        "per-segment clips are written at 24. Convert the source - and any frame-keyed "
-        "mask with it - to 24 fps, or set the project frame rate to 24.",
+        rate_warning_message(fps),
     )
 
 

@@ -28,6 +28,21 @@ _ACTIVE_ATTR = "_mmx_audio_role_active"
 _INSTALLED = False
 
 
+def _model_fps() -> float:
+    """H3's fixed rate, for anything that turns a *rendered* frame count into seconds.
+
+    ``plan.frame_rate`` is the source/project rate - it measures source frames, and
+    a window's start/end have to stay in it. The picture is 24 fps content in every
+    project, so durations derived from rendered frames must not follow it. Imported
+    lazily because this module also loads standalone in the tests.
+    """
+    try:
+        from ..lib.h3_rate import H3_MODEL_FPS
+    except ImportError:  # pragma: no cover - standalone load (tests)
+        return 24.0
+    return H3_MODEL_FPS
+
+
 def _round_ms(value: Any) -> float:
     return round(float(value or 0.0), 3)
 
@@ -193,11 +208,25 @@ class _RuntimeState:
 _STATE: ContextVar[_RuntimeState | None] = ContextVar("mmx_audio_roles", default=None)
 
 
-def _segment_duration(plan: Any, segment: Any) -> float:
-    fps = float(getattr(plan, "frame_rate", 0.0) or 24.0)
+def _segment_model_frames(segment: Any) -> int:
+    """The segment's rendered frame count (its picture length), 0 when unknown."""
     frames = int(getattr(segment, "frame_count", 0) or 0)
     if frames <= 0:
-        frames = max(0, int(getattr(segment, "end_frame", 0)) - int(getattr(segment, "start_frame", 0)))
+        frames = max(0, int(getattr(segment, "end_frame", 0) or 0) - int(getattr(segment, "start_frame", 0) or 0))
+    return frames
+
+
+def _segment_duration(plan: Any, segment: Any) -> float:
+    """How long the segment's *picture* lasts, in seconds.
+
+    The frame count is a count of rendered H3 frames, and H3's picture is 24 fps
+    content whatever the project's rate says - the project rate only measures the
+    source frames a window addresses. A 30 fps project used to report a 240 frame
+    segment as 8 s here, while the model renders 10 s of picture for it, so a drive
+    block was validated and described in the prompt against a duration 20% short.
+    """
+    fps = _model_fps()
+    frames = _segment_model_frames(segment)
     return float(frames) / fps if fps > 0 else 0.0
 
 
@@ -428,7 +457,8 @@ def _inject_audio_drive(latent: dict[str, Any], conditioning: Any, state: _Runti
     if len(streams) < 2:
         raise ValueError("Motion Director Audio Drive could not find the H3 audio latent stream.")
     video, template_audio = streams[0], streams[1]
-    fps = float(getattr(state.plan, "frame_rate", 0.0) or 24.0)
+    # Latent/pixel frames are rendered frames: picture seconds, so the model rate.
+    fps = _model_fps()
     context_frames = _context_span(conditioning)
     prefix_seconds = float(context_frames) / fps
     total_frames = max(_video_pixel_frames(video), context_frames + int(getattr(segment, "frame_count", 0) or 1))
@@ -517,7 +547,9 @@ def apply_exact_audio_drive_outputs(
     if target_sr <= 0 or not isinstance(first_wave, torch.Tensor) or first_wave.ndim != 3:
         return outputs
     channels = int(first_wave.shape[1])
-    fps = float(getattr(plan, "frame_rate", 0.0) or 24.0)
+    # ``frame_count`` here is a rendered frame count, so the soundtrack is picture
+    # seconds long - the project rate would make it 20% short in a 30 fps project.
+    fps = _model_fps()
 
     def compose(base: dict | None, frame_count: int, placements: list[tuple[float, ActiveAudioRole]]) -> dict[str, Any]:
         wanted = max(1, int(round(float(frame_count) / fps * target_sr)))
@@ -548,10 +580,15 @@ def apply_exact_audio_drive_outputs(
     if not result:
         return result
     frame_count = int(getattr(images_out[0], "shape", [getattr(plan, "total_frames", 1)])[0] or getattr(plan, "total_frames", 1))
+    # The combined track is the segments' rendered pictures back to back, so a
+    # placement's position is the picture frames in front of it - not the segment's
+    # source frame, which only lines up when the source cadence is what played back.
     placements: list[tuple[float, ActiveAudioRole]] = []
+    picture_frames = 0
     for segment in getattr(plan, "segments", None) or []:
-        segment_offset = float(getattr(segment, "start_frame", 0) or 0) / fps
+        segment_offset = float(picture_frames) / fps
         placements.extend((segment_offset + r.start, r) for r in _exact_roles(segment))
+        picture_frames += _segment_model_frames(segment)
     result[0] = compose(result[0], frame_count, placements)
     return result
 

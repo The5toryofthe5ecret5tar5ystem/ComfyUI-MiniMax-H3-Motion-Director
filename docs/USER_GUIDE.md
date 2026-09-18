@@ -928,31 +928,46 @@ video+audio latent is defined at a fixed **24 fps** - ComfyUI's own H3 nodes say
 frames at 24 fps").
 
 So a project whose frame rate is not 24 hands N frames of, say, 30 fps footage to the
-model as N model frames, and they come back as 24 fps content:
+model as N model frames, and they come back as 24 fps content. The one consequence the
+pack cannot undo is **speed**:
 
-- the **picture plays 25% slow** against the footage (4.57 s of action shown over 5.71 s),
-- the **segment audio is trimmed at the project rate** (`frames ÷ 30`), so every clip
-  ends in silence,
-- the **merged export is stamped with the project rate** while each per-segment clip is
-  written at 24 fps - the two do not even agree with each other.
+- the **picture plays 25% slow** against the footage (4.57 s of action shown over 5.71 s).
 
-**Validate** now warns about this (`frame_rate_not_24`) whenever the project rate is not
-24, and says which direction the speed will be off.
+Everything else is kept at the model rate so the pack's own files agree with each other:
+the segment audio is measured against the picture at 24 fps, and the merged export is
+stamped 24 fps like the per-segment clips. (Before, the audio was trimmed at the project
+rate - a silent tail on every clip - and the merged export played 25% fast.)
 
-What to do about it, in order of preference:
+**Validate** warns about this (`frame_rate_not_24`) whenever the project rate is not 24,
+says which direction the speed will be off, and recommends a 24 fps source. The run
+report repeats it as a one-line note.
 
-1. **Convert the source to 24 fps before importing it.** One ffmpeg pass does it and
-   keeps the duration, so the audio stays in sync:
-   `ffmpeg -i in.mp4 -vf fps=24 -c:a copy out24.mp4`. Frame-keyed masks have to be
-   converted with the same filter (regenerate them, or rebuild the folder and use the
+What to do about it:
+
+1. **Use 24 fps footage for the video whose character is being replaced** (recommended).
+   Then the model's rate *is* the footage's rate and the timing is exact. If the footage
+   is not 24 fps, one ffmpeg pass converts it and keeps the duration, so the audio stays
+   in sync: `ffmpeg -i in.mp4 -vf fps=24 -c:a copy out24.mp4`. Frame-keyed masks have to
+   be converted with the same filter (regenerate them, or rebuild the folder and use the
    mask's *offset* field to re-base the numbering), because the mask is addressed by
    source frame. Window numbers change size by the same ratio: a 30 fps frame 1000 is
    frame 800 at 24 fps. SAM3 windows need nothing - they re-segment whatever frames they
    are given.
-2. **Leave it and accept the speed change**, but set the project frame rate to 24 so the
-   audio is full length and the merged export matches the clips. That fixes A/V, not the
-   slow motion.
+2. **Leave it and accept the slow motion.** The render is still valid and everything the
+   pack writes is now consistent, but the picture runs 25% long against the footage.
+   Setting the project rate to 24 does *not* change that: the window boundaries move (a
+   "5 s" window becomes 120 frames, not 150) and the timeline is addressed in the new
+   rate, but the motion stays 25% slow, because the model still receives 30 fps frames as
+   24 fps ones.
 
-What is *not* a fix: setting the project rate to 24 while still feeding 30 fps footage.
-The window boundaries move (a "5 s" window becomes 120 frames, not 150), but the motion
-stays 25% slow, because the model still receives 30 fps frames as 24 fps ones.
+Plan rows that only *generate* (the `G`/generate rows of a section 25 chain) have no
+source footage at all, so they are unaffected - their length is already model frames.
+
+One place still counts in the project's rate: a *duration* you type for a generated shot
+(**Long-form**, **Mixed**, shot groups). The renderer turns it into frames with
+`duration × project rate`, so a "5 s" shot in a 30 fps project is 150 frames where the
+model's own formula expects 24 fps - 6.25 s of picture - and the panel's own duration
+readout can disagree with what gets rendered. Those jobs have no source footage to stay in
+step with, so **set the project frame rate to 24** for them: the durations you type then
+mean what they say.
+

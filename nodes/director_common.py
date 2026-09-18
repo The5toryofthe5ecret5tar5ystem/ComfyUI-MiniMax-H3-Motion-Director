@@ -26,6 +26,7 @@ from ..director.frame_align import pad_or_trim_frames
 from ..director.gen_timeline import is_prompt_batch_timeline, is_video_batch_task_key
 from ..director.plan import build_director_plan, count_all_timeline_segments, count_timeline_segments, plan_summary
 from ..director.progress import report_director_planning
+from ..lib.h3_rate import H3_MODEL_FPS
 from ..lib.image_prep import fit_canvas, fit_video_long_edge
 from ..lib.video_io import load_timeline_segment
 from ..lib.task_prompts import resolve_task_key, task_type_combo_options
@@ -719,5 +720,10 @@ def finalize_director_outputs(
     images_out = _ensure_nonempty_image_batches(images_out, label="images")
     source_images_out = _ensure_nonempty_image_batches(source_images_out, label="source_images")
 
-    fps_out = float(plan.frame_rate or 24.0)
+    # The `fps` output is what COMBOs into CreateVideo/SaveVideo, so it stamps the
+    # muxed file. It must be the model's rate: H3's picture is 24 fps content
+    # whatever the project says (the project rate only measures the source frames
+    # the windows address). Using the project rate here made a 30 fps project's
+    # merged export play 25% fast while every per-segment clip beside it was 24.
+    fps_out = H3_MODEL_FPS
     return images_out, audio_out, fps_out, frame_count, source_images_out, report

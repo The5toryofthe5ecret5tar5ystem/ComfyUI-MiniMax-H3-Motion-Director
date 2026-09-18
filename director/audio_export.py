@@ -17,6 +17,7 @@ from typing import Any
 
 import torch
 
+from ..lib.h3_rate import H3_MODEL_FPS
 from ..lib.audio_io import (
     diagnose_source_audio_failure,
     extract_timeline_audio,
@@ -244,7 +245,18 @@ def build_director_audio_outputs(
     source_fallback is None or "silent" when audioMode=source could not
     extract a usable track (falls back to mute, never model audio).
     """
-    fps = float(plan.frame_rate or 24.0)
+    # Two rates are in play and they are not the same thing:
+    #   * ``fps`` measures the *source* frames this timeline is addressed in, so it
+    #     is what turns a window's start/end into seconds of the source file when
+    #     the original track is extracted;
+    #   * ``model_fps`` measures the *picture*, which is H3 content at 24 fps
+    #     whatever the project rate says, so it is what the audio is padded and
+    #     trimmed to.
+    # Using the project rate for the second one is what gave a 30 fps project
+    # segments whose sound ended 20% before their picture, and a merged export
+    # stamped 30 fps that disagreed with the clips it was made of.
+    fps = float(plan.frame_rate or H3_MODEL_FPS)
+    model_fps = H3_MODEL_FPS
     mode = AUDIO_MODE_MUTE if mute_audio else (audio_mode or resolve_audio_mode(plan))
     log.info("Director audio mode: %s (task=%s)", mode, getattr(plan, "global_task_key", ""))
 
@@ -260,7 +272,7 @@ def build_director_audio_outputs(
             if n_frames <= 0:
                 n_frames = int(output_frame_end or getattr(plan, "total_frames", 0) or 0)
             merged = _merge_generated_segment_audios(
-                plan, segment_audios, total_frames=n_frames, fps=fps,
+                plan, segment_audios, total_frames=n_frames, fps=model_fps,
             )
             if _audio_has_samples(merged):
                 log.info(
@@ -278,7 +290,7 @@ def build_director_audio_outputs(
                 outputs.append(
                     _fade_result_seams(
                         _pad_or_trim_audio_to_frames(
-                            gen, frame_count=n_frames, fps=fps, sample_rate=sr
+                            gen, frame_count=n_frames, fps=model_fps, sample_rate=sr
                         )
                     )
                 )
@@ -324,7 +336,7 @@ def build_director_audio_outputs(
             outputs.append(
                 _fade_result_seams(
                     _pad_or_trim_audio_to_frames(
-                        audio, frame_count=n_frames, fps=fps, sample_rate=sr
+                        audio, frame_count=n_frames, fps=model_fps, sample_rate=sr
                     )
                 )
             )
@@ -362,7 +374,7 @@ def build_director_audio_outputs(
                 )
             )
         merged = _merge_generated_segment_audios(
-            plan, per_window, total_frames=end, fps=fps
+            plan, per_window, total_frames=end, fps=model_fps
         )
         if mode == AUDIO_MODE_SOURCE and not any(
             _audio_has_samples(item) for item in per_window
@@ -388,7 +400,7 @@ def build_director_audio_outputs(
     sr = int(merged.get("sample_rate") or silent_sample_rate)
     merged = _fade_result_seams(
         _pad_or_trim_audio_to_frames(
-            merged, frame_count=end, fps=fps, sample_rate=sr
+            merged, frame_count=end, fps=model_fps, sample_rate=sr
         )
     )
     out = [merged] if len(images_out) == 1 else [empty_audio_dict(silent_sample_rate) for _ in images_out]
@@ -429,22 +441,24 @@ def source_audio_report_note(
             return f"\n\nSource audio: none — {hint} (fell back to silent)."
         return (
             "\n\nSource audio: extracted from input video "
-            "(frame-aligned PCM cut, length = picture / timeline fps)."
+            f"(frame-aligned PCM cut, padded to the picture's {H3_MODEL_FPS:g} fps length)."
         )
     if used_generated_audio and any(_audio_has_samples(a) for a in audio_out):
         return (
             "\n\nGenerated audio: decoded from MiniMax H3 AV latent "
-            "(frame-aligned to picture / timeline fps)."
+            f"(frame-aligned to the picture's {H3_MODEL_FPS:g} fps length)."
         )
     if mode != AUDIO_MODE_SOURCE and not task_passes_source_audio(plan.global_task_key):
         return ""
     if mode != AUDIO_MODE_SOURCE and any(_audio_has_samples(a) for a in audio_out):
         return (
             "\n\nSource audio: extracted from input video "
-            "(frame-aligned PCM cut, length = picture / timeline fps)."
+            f"(frame-aligned PCM cut, padded to the picture's {H3_MODEL_FPS:g} fps length)."
         )
 
-    fps = float(plan.frame_rate or 24.0)
+    # Only the *diagnosis* is left, and that one speaks about source frames: its
+    # start/end are source positions, so it measures them at the project rate.
+    fps = float(plan.frame_rate or H3_MODEL_FPS)
     timeline = plan.raw or {}
     if export_segments and plan.segments:
         if plan.run_indices is not None:

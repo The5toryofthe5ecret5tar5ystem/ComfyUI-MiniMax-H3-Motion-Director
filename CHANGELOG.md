@@ -10,11 +10,12 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 - **A pre-flight warning when the project frame rate is not 24.** MiniMax H3 has no fps
   input - the frame count is the duration, and the joint video+audio latent is defined at
   a fixed 24 fps (ComfyUI's own H3 nodes document both). A project at another rate hands N
-  frames of e.g. 30 fps footage to the model as N frames, so the picture plays ~25% slow,
-  the segment audio (trimmed at the project rate) is short by the same ratio, and the
-  merged export is stamped with the project rate while each segment clip is written at
-  24. **Validate** now reports this as `frame_rate_not_24` and says which direction the
-  speed will be off; it stays a warning, because a slow render is a valid render.
+  frames of e.g. 30 fps footage to the model as N frames, so the picture plays ~25% slow
+  (see the fix below for the parts of that the pack can absorb).
+  **Validate** reports it as `frame_rate_not_24`, says which direction the speed will be
+  off and recommends a 24 fps source for the footage whose character is replaced; the run
+  report repeats it as a one-line note. It stays a warning, because a slow render is a
+  valid render.
 - **Generated rows: a Character Replace chain can leave the footage.** Every row in a
   replace job used to be a masked window over the source video, so a chain could only
   ever cover what the footage covered. A row can now be a **generated segment**
@@ -111,6 +112,24 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Fixed
 
+- **The output stays at the model's 24 fps in an off-rate project.** A 30 fps project had
+  two rates in play - the source's and H3's - and every conversion that really meant
+  *picture* seconds used the project's. A window's start/end are *source* frames, so they
+  become seconds of the source file at the project rate: that part was right and is
+  unchanged. But the picture those frames render is 24 fps content, so the audio under it
+  was padded/trimmed to `frames ÷ 30` (a silent tail under a 5.71 s picture), the merged
+  "Export all" clip was stamped 30 fps by the node's `fps` output (a 20.29 s film played
+  back in 16.23 s while the per-segment clips beside it were written at 24), an Audio
+  Drive block was validated and written into the prompt against a picture duration 20%
+  short, its exact PCM overlay was built to that same short length, and the seam
+  diagnostics reported the merged track at the wrong rate. Four sites now share one
+  constant and one rule - source maths at the project rate, anything derived from
+  rendered frames at the model rate (`lib/h3_rate.py`) - so in a 30 fps project the whole
+  chain is 24 fps and agrees with the per-segment clips it was built from. The honest
+  remainder is speed: 30 fps frames handed to a 24 fps model still play 25% slow, and in
+  source-audio mode the extracted track covers only the footage's own duration, so it
+  ends in silence under the slowed picture - both need the source resampled (section 26
+  of the user guide).
 - **Enhancing the same replace window twice no longer nests the motion note.** The note
   is appended to the window's action prose, and the panel writes the assembled block back
   into the prompt box - so the next run read that note back in, from inside the block and

@@ -81,18 +81,40 @@ def test_overlapping_exact_drive_intervals_fail_before_sampling():
 def test_exact_audio_overlay_replaces_interval_and_preserves_source_samples():
     assert hasattr(mod, "apply_exact_audio_drive_outputs")
     src = audio("a", 2, sr=10)
-    seg = segment([src], frames=100)
+    # 240 frames is 10 s of *picture* (H3 is 24 fps content), and the plan's own
+    # rate here is deliberately 10 - the editor's seconds are picture seconds, so
+    # the rendered track is 10 s long and the 3-5 s block lands on samples 30-50.
+    seg = segment([src], frames=240)
     roles = {"version": 2, "segments": {"s1": {
         "a": {"role": "audio_drive", "sourceDuration": 2, "trimStart": 0, "trimEnd": 2, "timelineStart": 3},
     }}}
     p = plan(seg, roles, fps=10.0)
     mod.prepare_audio_role_plan(p)
     generated = {"waveform": torch.full((1, 1, 100), -1.0), "sample_rate": 10}
-    outputs = mod.apply_exact_audio_drive_outputs(p, [generated], [torch.zeros(100, 1, 1, 3)], export_segments=True)
+    outputs = mod.apply_exact_audio_drive_outputs(p, [generated], [torch.zeros(240, 1, 1, 3)], export_segments=True)
     out = outputs[0]["waveform"]
+    assert out.shape[-1] == 100, "the block is placed in picture seconds, not project seconds"
     assert torch.equal(out[..., 30:50], src.audio["waveform"])
     assert torch.all(out[..., :30] == -1)
     assert torch.all(out[..., 50:] == -1)
+
+
+def test_a_drive_block_is_measured_against_the_picture_duration():
+    """A 240 frame segment is 10 s of picture even when the project says 30 fps.
+
+    Measuring it at the project rate (8 s) let a block that fits the picture be
+    rejected as an overrun, and wrote the wrong interval into the prompt.
+    """
+    src = audio("a", 9, sr=10)
+    seg = segment([src], frames=240)
+    roles = {"version": 2, "segments": {"s1": {
+        "a": {"role": "audio_drive", "sourceDuration": 9, "trimStart": 0, "trimEnd": 9, "timelineStart": 0},
+    }}}
+    mod.prepare_audio_role_plan(plan(seg, roles, fps=30.0))
+    active = mod._exact_roles(seg)
+    assert [r.end for r in active] == [9.0], "a 9 s block fits a 10 s picture"
+    # 10 s of picture, so the block is a part of it rather than the whole segment.
+    assert "<Audio 1>: partially_copy" in seg.prompt
 
 
 def test_latent_mask_locks_only_exact_drive_interval():
@@ -133,7 +155,9 @@ def test_exact_drive_injection_replaces_only_masked_audio_latent_range(monkeypat
     monkeypatch.setitem(sys.modules, "comfy.nested_tensor", nested_mod)
 
     src = audio("a", 2, sr=10)
-    seg = segment([src], frames=100)
+    # 240 rendered frames = 10 s of picture at H3's 24 fps; the plan's own rate is
+    # deliberately 10 so a regression to the project rate shows up as a moved mask.
+    seg = segment([src], frames=240)
     roles = {"version": 2, "segments": {"s1": {
         "a": {"role": "audio_drive", "sourceDuration": 2, "trimStart": 0, "trimEnd": 2, "timelineStart": 3},
     }}}
@@ -145,7 +169,7 @@ def test_exact_drive_injection_replaces_only_masked_audio_latent_range(monkeypat
         def encode(self, wave):
             return torch.full((1, 2, 2, 20), 7.0)
 
-    video = torch.zeros((1, 1, 100, 1, 1))
+    video = torch.zeros((1, 1, 240, 1, 1))
     template = torch.ones((1, 2, 2, 20))
     latent = {"samples": Nested((video, template))}
     state = mod._RuntimeState(plan=p, audio_vae=FakeVAE(), segment=seg)

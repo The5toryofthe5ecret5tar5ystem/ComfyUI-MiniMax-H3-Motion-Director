@@ -14,6 +14,8 @@ tests pin the warning, the quiet case, and the fact that it never blocks a run.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 try:
@@ -64,8 +66,8 @@ def test_the_warning_states_what_changes():
     assert "30 fps" in message
     assert "24 fps" in message
     assert "1.25x slow" in message
-    assert "silence" in message, "the segment audio is trimmed at the project rate"
-    assert "merged export is stamped" in message
+    assert "recommended" in message.lower(), "the message has to say what to do"
+    assert "resampling" in message
 
 
 def test_a_faster_project_reads_as_fast():
@@ -86,3 +88,21 @@ def test_a_missing_or_broken_rate_does_not_crash_the_validator():
     for value in (None, "", "auto", 0, -30):
         timeline = _timeline(frameRate=value)
         assert _fps_issues(_issues(timeline)) == [], repr(value)
+
+
+def test_the_run_note_reaches_the_report_and_the_warnings_in_order():
+    """The note is written with the report lines but warns further down.
+
+    It first sat with the report lines, ~40 lines above
+    ``warning_messages: list[str] = []`` - so an off-rate project raised
+    UnboundLocalError before the first segment. Source order is the contract here:
+    the report line goes where the report is written, the warning after the list
+    exists.
+    """
+    source = Path("director/executor_core_legacy.py").read_text(encoding="utf-8")
+    report_at = source.index("reports.append(rate_note)")
+    init_at = source.index("warning_messages: list[str] = []")
+    warn_at = source.index("warning_messages.append(rate_note)")
+
+    assert report_at < init_at < warn_at, "the warning list is created between the two uses"
+    assert source.count("warning_messages.append(rate_note)") == 1

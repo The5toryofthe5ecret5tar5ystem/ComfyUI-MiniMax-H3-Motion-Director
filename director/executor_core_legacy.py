@@ -15,6 +15,7 @@ from typing import Any
 
 import torch
 
+from ..lib.h3_rate import H3_MODEL_FPS, rate_report_note
 from ..lib.image_prep import (
     H3_SPATIAL_PIPELINE,
     fit_canvas,
@@ -678,6 +679,12 @@ def execute_director_plan_core(
         reports.append("Audio: generate — decode MiniMax H3 AV latent audio.")
     if motion_enabled and audio_context_requested and not audio_context_active:
         reports.append(f"Audio context override: disabled because output audio mode is {audio_mode}.")
+    # An off-rate project renders fine but plays at the wrong speed; say it in the
+    # run log and as a UI warning instead of leaving it to be noticed afterwards.
+    # (The warning itself is added further down, once the list exists.)
+    rate_note = rate_report_note(plan.frame_rate)
+    if rate_note:
+        reports.append(rate_note)
     selected_ui = ext_meta.get("selected")
     if selected_ui is not None:
         selected_set = {int(x) for x in selected_ui}
@@ -718,6 +725,10 @@ def execute_director_plan_core(
     color_diagnostics: dict[int, str] = {}
     reference_diagnostics: dict[int, str] = {}
     warning_messages: list[str] = []
+    if rate_note:
+        # Same text the run log already carries, surfaced where the panel shows
+        # warnings - an off-rate project is worth seeing before the render's done.
+        warning_messages.append(rate_note)
     global_refine_outcomes: dict[int, Any] = {}
     replace_output_tails: dict[int, torch.Tensor] = {}
     segment_stage_timings: dict[int, dict[str, float]] = {}
@@ -2739,7 +2750,7 @@ def execute_director_plan_core(
         f"Output frames: {int(combined.shape[0])}",
     )
     for seam_line in build_seam_report_lines(
-        export_chunks, export_audios, fps=float(plan.frame_rate or 24),
+        export_chunks, export_audios, fps=H3_MODEL_FPS,
         segment_slots=[int(seg.timeline_index) for seg in export_segments],
     ):
         execution_report.add("Seam Diagnostics", seam_line)
