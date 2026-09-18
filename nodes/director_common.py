@@ -202,6 +202,20 @@ def _default_mixed_timeline_json(
     )
 
 
+def _stamp_refmod_digest(plan, digest: str):
+    """Attach the harvested RefMod identity to a finished plan.
+
+    Done here rather than inside every builder because this function is the one
+    funnel all four plan shapes return through, and a builder that forgot the
+    field would silently go back to reusing another mod's cache.
+    """
+    try:
+        plan.refmod_digest = str(digest or "")
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("MiniMax H3 Motion Director: could not stamp refmod digest: %s", exc)
+    return plan
+
+
 def prepare_director_plan(
     *,
     timeline_data: str,
@@ -217,6 +231,7 @@ def prepare_director_plan(
     i2v_groups=None,
     r2v_groups=None,
     refmod_block_count: int = 0,
+    refmod_digest: str = "",
 ):
     from ..director.external_groups import (
         build_plan_from_external_groups,
@@ -277,7 +292,7 @@ def prepare_director_plan(
             plan_summary(plan, include_prompts=False).replace("\n", " | "),
         )
         log.debug("MiniMax H3 Motion Director: Mixed (full) | %s", plan_summary(plan).replace("\n", " | "))
-        return plan
+        return _stamp_refmod_digest(plan, refmod_digest)
 
     task_key, ext_groups, family = validate_external_group_inputs(
         task_type=task_type,
@@ -319,7 +334,7 @@ def prepare_director_plan(
             family,
             plan_summary(plan).replace("\n", " | "),
         )
-        return plan
+        return _stamp_refmod_digest(plan, refmod_digest)
 
     report_director_planning(
         unique_id,
@@ -341,7 +356,7 @@ def prepare_director_plan(
     )
     log.info(plan_summary(plan, include_prompts=False).replace("\n", " | "))
     log.debug(plan_summary(plan).replace("\n", " | "))
-    return plan
+    return _stamp_refmod_digest(plan, refmod_digest)
 
 
 def _fmt_fp_value(value: Any) -> str:

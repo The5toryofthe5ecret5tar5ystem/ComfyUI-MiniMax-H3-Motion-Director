@@ -144,7 +144,7 @@ def generation_environment_identity(plan, settings: dict[str, Any]) -> dict[str,
         for key, value in sorted(dict(settings or {}).items())
         if str(key) not in _CONSUMER_ONLY_SETTINGS
     }
-    return {
+    identity = {
         "fps": float(getattr(plan, "frame_rate", 0.0)),
         "width": int(getattr(plan, "width", 0)),
         "height": int(getattr(plan, "height", 0)),
@@ -156,6 +156,18 @@ def generation_environment_identity(plan, settings: dict[str, Any]) -> dict[str,
         "source_height": int(getattr(plan, "source_height", 0)),
         "settings": producer_settings,
     }
+    # RefMod blocks condition every segment, so they belong to the generation
+    # environment rather than to any one segment's identity. Without this a
+    # different mod produced the same environment digest and cached motion
+    # context from the previous mod was reused.
+    #
+    # Added only when a RefMod is actually connected: the key appearing at all is
+    # itself the change, so a project with no RefMod keeps its existing caches
+    # instead of invalidating them for nothing.
+    refmod = str(getattr(plan, "refmod_digest", "") or "")
+    if refmod:
+        identity["refmod_digest"] = refmod
+    return identity
 
 
 def _uses_incoming_context(seg, plan, settings: dict[str, Any]) -> bool:

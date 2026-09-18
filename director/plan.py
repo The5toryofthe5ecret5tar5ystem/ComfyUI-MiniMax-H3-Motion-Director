@@ -164,6 +164,12 @@ class DirectorPlan:
     # Runtime-only setting appended to the node schema for old workflow safety.
     color_reanchor_enabled: bool = False
     spatial_stride: int = 32
+    # Identity of the RefMod blocks harvested from the connected conditioning.
+    # They are appended to every segment's conditioning and change the picture,
+    # but they arrive through the conditioning rather than the timeline, so a
+    # fingerprint built from the timeline alone cannot see a different mod. That
+    # made "swap the mod, re-run" silently reuse cached latents from the old mod.
+    refmod_digest: str = ""
     global_ref_audios: list[SegmentRefAudio] = field(default_factory=list)
     # Populated by the executor before any persistent cache access.
     cache_settings: dict | None = None

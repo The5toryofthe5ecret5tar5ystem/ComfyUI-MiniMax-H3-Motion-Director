@@ -98,6 +98,14 @@ def segment_cache_fingerprint(seg: SegmentPlan, plan: DirectorPlan) -> dict[str,
         "spatial_pipeline": H3_SPATIAL_PIPELINE,
         "context_link": context_link_identity(seg),
     }
+    # Present only when a RefMod is connected. The key appearing is itself the
+    # change, so a project without one keeps its caches rather than invalidating
+    # them for nothing. See generation_environment_identity for why a swapped mod
+    # has to invalidate: the blocks condition every segment but arrive through
+    # the conditioning, so nothing else here would notice a different mod.
+    refmod = str(getattr(plan, "refmod_digest", "") or "")
+    if refmod:
+        fingerprint["refmod_digest"] = refmod
     if seg.task_key in {"v2v", "rv2v"}:
         fingerprint["reference_video_pipeline"] = H3_REFERENCE_VIDEO_PIPELINE
         fingerprint["source_bridge_pipeline"] = H3_SOURCE_BRIDGE_PIPELINE

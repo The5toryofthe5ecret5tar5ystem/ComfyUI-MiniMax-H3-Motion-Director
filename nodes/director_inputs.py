@@ -26,7 +26,7 @@ from ..director.rtx_deblur import apply_rtx_deblur
 from ..director.verbosity import ENV_OVERRIDE, apply_director_verbose
 from ..director.video_export import FINAL_VIDEO_REGISTRY
 from .director import MiniMaxH3MotionDirector as _BaseDirector
-from .conditioning import harvest_and_report_refmods
+from .conditioning import harvest_and_report_refmods, refmod_digest
 from .director_common import (
     default_timeline_json,
     finalize_director_outputs,
@@ -212,6 +212,7 @@ class MiniMaxH3MotionDirector(_BaseDirector):
         # plan builder knows these segments are reference-conditioned even though
         # they carry no built-in reference media of their own.
         refmod_refs = harvest_and_report_refmods(refmod_conditioning)
+        refmod_identity = refmod_digest(refmod_refs)
 
         plan = prepare_director_plan(
             timeline_data=effective_timeline_data,
@@ -227,6 +228,7 @@ class MiniMaxH3MotionDirector(_BaseDirector):
             i2v_groups=None,
             r2v_groups=None,
             refmod_block_count=len(refmod_refs),
+            refmod_digest=refmod_identity,
         )
         apply_director_inputs_to_plan(plan, normalized_inputs)
 

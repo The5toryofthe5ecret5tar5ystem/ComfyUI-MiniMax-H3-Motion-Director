@@ -133,6 +133,61 @@ def harvest_refmod_refs(conditioning) -> list:
     return blocks
 
 
+def refmod_digest(blocks) -> str:
+    """Stable identity for a set of harvested RefMod blocks.
+
+    The blocks are appended to every segment's conditioning, so swapping a mod
+    changes the picture - but they arrive through the conditioning rather than
+    the timeline, so nothing else in a cache fingerprint notices the change. Two
+    different mods at the same retention produced byte-identical fingerprints,
+    which meant changing the mod silently reused latents generated with the
+    previous one and the old identity bled into the new render.
+
+    The tensors actually fed to the DiT are hashed rather than any file name,
+    because by this point a mod is an unnamed latent blob: there is no name to
+    compare. Strength is folded in implicitly, since it is applied to the latent
+    before it gets here.
+    """
+    if not blocks:
+        return ""
+    try:
+        import hashlib
+
+        import torch
+
+        parts: list[str] = []
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            # Shape first: it is cheap and distinguishes two mods that happen to
+            # hash identically in content but are pooled differently.
+            parts.append("|".join(
+                str(block.get(key, ""))
+                for key in ("kind", "latent_h", "latent_w", "latent_t", "ref_audio_t")
+            ))
+            for key in ("latent", "audio_latent"):
+                tensor = block.get(key)
+                if not isinstance(tensor, torch.Tensor) or tensor.numel() == 0:
+                    continue
+                arr = (
+                    tensor.detach()
+                    .to(device="cpu", dtype=torch.float32)
+                    .contiguous()
+                    .numpy()
+                )
+                parts.append(hashlib.sha256(arr.tobytes()).hexdigest())
+        if not parts:
+            return ""
+        joined = "\n".join(parts).encode("utf-8")
+        return hashlib.sha256(joined).hexdigest()[:16]
+    except Exception as exc:  # pragma: no cover - defensive
+        # Returning a constant marker (rather than "") keeps the value stable
+        # across runs while still differing from a real digest, so a failure here
+        # invalidates caches instead of silently reusing another mod's output.
+        print(f"[RefMod] could not fingerprint the harvested blocks: {exc}")
+        return "unavailable"
+
+
 def _refmod_metadata_keys(conditioning) -> list:
     """The metadata keys actually present on a connected conditioning."""
     seen: set = set()
@@ -173,9 +228,17 @@ def harvest_and_report_refmods(conditioning) -> list:
 
     blocks = harvest_refmod_refs(conditioning)
     if blocks:
+        # Print the digest, not just the count. A count cannot tell two different
+        # mods apart, which is exactly how "I switched mods and the old identity
+        # is still showing" became invisible: the log looked identical either way.
+        # The mod's name is not available here - it arrives as an unnamed latent
+        # blob, and the label->name map stays on the RefMod node's other output.
         print(
             f"[RefMod] {len(blocks)} reference block(s) harvested from "
-            f"refmod_conditioning and appended to every segment."
+            f"refmod_conditioning and appended to every segment. "
+            f"Mod digest {refmod_digest(blocks) or 'unavailable'} - this is part of "
+            "the segment and motion-context cache keys, so swapping the mod "
+            "invalidates cached work instead of reusing the previous mod."
         )
         return blocks
 
