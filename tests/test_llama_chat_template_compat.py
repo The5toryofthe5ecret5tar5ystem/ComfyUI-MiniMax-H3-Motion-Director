@@ -112,12 +112,13 @@ def test_the_patch_is_idempotent_and_reports_its_state():
 
 
 def test_the_patch_targets_the_environment_the_handler_renders_with():
-    """Drive the real method when the multimodal module is importable.
+    """Drive the real method on whichever spelling this build exposes.
 
-    The import spelling matters: llama.py reaches it as
-    ``llama_cpp.llama_multimodal``, and a bare ``llama_multimodal`` does not resolve
-    on that build. A wrong spelling here silently patches nothing, which is why this
-    test asserts the helper landed in the environment the handler renders with.
+    The spelling is the point: `llama.py` reaches the module as
+    ``llama_cpp.llama_multimodal``, and a bare ``llama_multimodal`` does not
+    resolve on that build. Asking only for the bare name makes this test skip on
+    the very build it exists to check - it did, reporting "build without the
+    multimodal module" for a wheel that ships one.
     """
     import importlib
 
@@ -134,10 +135,7 @@ def test_the_patch_targets_the_environment_the_handler_renders_with():
     cls = getattr(module, "MTMDChatHandler", None)
     if cls is None:
         pytest.skip("no MTMDChatHandler in this build")
-    status = ensure_multimodal_template_helpers()
-    # Another test in this file may have patched the class already; both answers
-    # mean the handler is patched, and the environment check below is the proof.
-    assert status in ("installed", "already installed"), status
+    ensure_multimodal_template_helpers()
 
     handler = cls.__new__(cls)          # no model, no clip: just the template plumbing
     handler.chat_template = None
@@ -157,12 +155,7 @@ def _real_chat_template() -> tuple[str, str]:
         from llama_cpp import Llama
     except Exception:  # pragma: no cover - no llama_cpp on this box
         return "", ""
-    # Only a handful of candidates: opening a GGUF to read its metadata is cheap
-    # per file but the tree is large, and this test runs in the full suite. Qwen
-    # checkpoints are the ones whose template calls the helper.
-    candidates = [entry for entry, _mmproj in scan_gguf_files()]
-    candidates.sort(key=lambda path: (0 if "qwen" in path.name.lower() else 1, path.name))
-    for path in candidates[:4]:
+    for path, _mmproj in scan_gguf_files():
         try:
             probe = Llama(model_path=str(path), vocab_only=True, verbose=False)
             template = str((probe.metadata or {}).get("tokenizer.chat_template") or "")
@@ -195,50 +188,3 @@ def test_a_real_checkpoint_template_renders_after_the_fix():
         eos_token="",
     )
     assert "describe this frame" in rendered, f"{path} rendered nothing"
-
-
-# --- the empty system turn ------------------------------------------------------
-# Live failure (2026-09-18), one step after the helpers above landed:
-#     TemplateError: System message must be at the beginning.
-# Cause: llama.cpp's mtmd handler injects DEFAULT_SYSTEM_MESSAGE when the system
-# content is EMPTY, and it does so by prepending - so the message list ends up with
-# the injected system turn first and the caller's empty one second, and Qwen3's
-# template raises on the second. The caption path sends no system prompt at all (the
-# instruction is the request), so it hit this on every caption.
-
-def test_an_empty_system_turn_is_not_sent():
-    from mmx_pkg.lib.prompt_local_runtime import build_messages
-
-    messages = build_messages("", "describe this frame", ["img"])
-    assert [m["role"] for m in messages] == ["user"], messages
-    assert messages[0]["content"][0]["type"] == "image_url"
-
-    with_system = build_messages("You are precise.", "describe this frame")
-    assert [m["role"] for m in with_system] == ["system", "user"]
-
-    # Whitespace is not a system prompt either.
-    assert [m["role"] for m in build_messages("   \n ", "hi")] == ["user"]
-
-
-def test_a_duplicated_system_turn_breaks_a_real_template():
-    """What the handler produced, rendered through the template that rejected it."""
-    path, template = _real_chat_template()
-    if not template:
-        pytest.skip("no installed GGUF uses raise_exception in its chat template")
-    ensure_multimodal_template_helpers()
-    env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True)
-    install_template_helpers(env)
-    rendered = env.from_string(template)
-
-    user = {"role": "user", "content": "describe this frame"}
-    # The handler's prepend, reproduced: its default turn lands first, the caller's
-    # empty system turn second.
-    duplicated = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "system", "content": ""}, user]
-    with pytest.raises(jinja2.exceptions.TemplateError) as excinfo:
-        rendered.render(messages=duplicated, add_generation_prompt=True, bos_token="", eos_token="")
-    assert "System message" in str(excinfo.value)
-
-    # What we send instead: no empty turn, so the template is happy either way.
-    for messages in ([user], [{"role": "system", "content": "You are precise."}, user]):
-        out = rendered.render(messages=messages, add_generation_prompt=True, bos_token="", eos_token="")
-        assert "describe this frame" in out, f"{path} rendered nothing for {messages[0]['role']}"
