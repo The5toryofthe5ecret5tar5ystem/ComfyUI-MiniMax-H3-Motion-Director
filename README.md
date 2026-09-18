@@ -1,10 +1,10 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.8.3-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.8.4-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
-> **Maintained fork** — upstream features plus a **per-scene Audio Room**, **Re-ground segments (anti-drift)**, a big **Generation-tab UI performance fix**, **newer-ComfyUI compatibility**, **CI**, and a ready-to-run **ref2va example workflow**. See [✨ Improvements in this fork](#-improvements-in-this-fork).
+> **Maintained fork** — upstream features plus a **per-scene Audio Room**, **Re-ground segments (anti-drift)**, an **in-process prompt enhancer** (no Ollama, no API key), a big **Generation-tab UI performance fix**, **newer-ComfyUI compatibility**, **CI**, and a ready-to-run **ref2va example workflow**. See [✨ Improvements in this fork](#-improvements-in-this-fork).
 
 **One Director. From a single MiniMax H3 shot to a complete multi-segment video project.**
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.8.3**
+> Current version: **v1.8.4**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,56 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.8.4 — An enhancer that runs in ComfyUI, and writes the prompt from your images
+
+**The prompt enhancer no longer needs a server.** It loads a GGUF model from your
+own `models/LLM` folder with llama.cpp and runs inside ComfyUI's process — no
+Ollama, no API key, no second thing to start. The model list is what is actually
+on disk, the recommended Qwen3.8 27B abliterated is a one-click download whose
+size is shown before anything is fetched, and a download reports real progress.
+Nothing heavy is imported until you use it, and a card that cannot host the model
+degrades down a VRAM ladder (fewer GPU layers, then a smaller context) instead of
+raising. `Unload model` hands the VRAM back for a render — meaningful here
+because the model lives in ComfyUI's own process. See
+[`docs/PROMPT_ENHANCER_LOCAL_SETUP.md`](docs/PROMPT_ENHANCER_LOCAL_SETUP.md).
+
+**`Build from images` writes the prompt instead of rewriting it.** A port of the
+external Character Remake workflow ("Masked Motion + QwenVL"), which handled
+character replacement reliably where rewriting did not — not because its prompt
+was better, but because the language model was never asked to *write the
+structure*. Two narrow vision calls answer two narrow questions ("what does this
+character look like", "what happens in this source window") and this pack's own
+code glues the answers into the section block, so every header, role line,
+retention rule and the discard sentence is code-owned and cannot be reordered,
+forgotten or invented. Identity sees only the reference slots, action only the
+source frames. Six recipes are covered (character replace with and without a
+RefMod, ref2va, source edit, start image, first/last), including the i2v/fl2v
+endpoint frames the panel never used to send — a caption is the only way that
+prose can agree with frame 0.
+
+**A RefMod window can have its `wardrobe:` line filled in.** A mod reaches the
+Director as an unnamed latent blob appended *after* text encoding, so the prompt
+never described it and the one line the guide requires stayed empty.
+`RefMod character` decodes the mod's own latents with the H3 video VAE, captions
+them, and answers with a wardrobe line plus at most one 2-4 word clue. Never a
+description of her face: prose about identity fights the reference instead of
+helping it.
+
+**And the performer being replaced can be hidden from the action caption.** A
+caption model looking straight at her occasionally volunteers her description,
+which then argues with your replacement reference for the rest of the prompt.
+`Hide the source performer` inverts the subject region of those frames before
+they are captioned, so nothing about the identity survives — and everything the
+caption actually needs (silhouette, pose, camera, room) does.
+
+**Plus:** `H3 prompt rules (compact)` and a `Recipe` selector that names the
+target shape explicitly; the panel reports which backend actually loaded
+(CUDA / Vulkan / Metal / CPU) and warns when a GPU build never mapped into the
+process; and four failures on the way here are fixed — `Enhance` returning a 500
+on every click, vision mode dying on Qwen3-VL's Jinja guards, caption mode being
+unable to send *no* system turn, and an enhancement that finished without
+changing the prompt in the box.
 
 ### v1.8.3 — An upscaler that stops reloading, and UI changes that arrive
 
@@ -164,7 +214,7 @@ Global Refine is now skipped automatically (keeping the first-pass result) when 
 
 ### Tests + CI
 
-- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 492 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
+- Python unit/contract tests run from any directory without a live ComfyUI (`python -m pytest`, 807 tests); a CI workflow (`.github/workflows/tests.yml`) runs the Python suite and the standalone frontend tests on every push/PR. See [`docs/FORK_REVIEW_2026-09-05.md`](docs/FORK_REVIEW_2026-09-05.md) for the full engineering-pass notes.
 
 ### Example workflows
 

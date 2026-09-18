@@ -3,7 +3,69 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
-## Unreleased
+## v1.8.4 — 2026-09-18
+
+The prompt enhancer now runs entirely inside ComfyUI. It loads a GGUF model from
+your own `models/LLM` folder with llama.cpp - no Ollama, no API key, no second
+server to start - and rewrites your prompt through the same H3 ruleset as before,
+so task types, reference slots and output language behave exactly as they did.
+The model list comes from what you actually have on disk, and the recommended
+Qwen3.8 27B abliterated is a one-click download (13.3 GB, sized for a 16 GB card)
+with the size shown before anything is fetched.
+
+This also fixes the reason none of it worked: `register_prompt_enhance_routes`
+was defined but never called, so all seven enhancement endpoints were missing at
+runtime while the panel's calls failed against a misleading `405 Method Not
+Allowed`.
+
+The enhancer can also *build* the prompt instead of rewriting it. Caption mode
+(`Build from images`) is a port of the external Character Remake workflow
+("Masked Motion + QwenVL") that handled character replacement reliably where
+rewriting did not - not because its prompt was better, but because the language
+model was never asked to write the structure. Two narrow vision calls answer two
+narrow questions ("what does this character look like", "what happens in this
+source window") and this pack's own code glues the answers into the section
+block, so every header, role line, retention rule and discard sentence is
+module-owned and cannot be reordered, forgotten or invented. Each call sees only
+the images it should: identity from the reference slots, action from the source
+frames, never the other way round. Six recipes are covered - character replace
+with and without a RefMod, ref2va, source edit, start image and first/last - and
+each names the images the model must look at, including the endpoint frames for
+i2v/fl2v that the panel previously never sent: a caption is the only way that
+prose can agree with frame 0.
+
+A RefMod window can now have its `wardrobe:` line filled in. A mod reaches the
+Director as an unnamed latent blob appended after text encoding, so it is
+invisible to the text encoder and to the prompt - deliberately - which left the
+one line the guide requires unanswered. The mod's own latents are decoded with
+the H3 video VAE and captioned, and the answer comes back as a wardrobe line
+plus at most one 2-4 word clue. Never a description of her face: prose about
+identity fights the reference instead of helping it.
+
+And the source performer can be hidden from the action caption. A caption model
+looking straight at the performer occasionally volunteers her description, which
+then argues with the replacement reference for the rest of the prompt. The
+subject region of those frames is inverted before they are captioned (rembg's
+salient-object mask on CPU, a couple of seconds per frame), so nothing about the
+identity survives and everything the caption actually needs - silhouette, pose,
+camera, room - does. It is opt-in, and it says so in the note when the mask
+could not be built.
+
+There is now a single command that reports whether a build is actually ready -
+`npm run qa` (`python scripts/qa_readiness.py`). It sweeps the pack and writes a
+severity-ordered report to `artifacts/qa_readiness_report.{json,md}`, exiting
+non-zero only when something reached the fail threshold. It covers the failure
+modes the test suites cannot see: whether the copy ComfyUI loads matches the copy
+you edited, whether a module is instantiated twice under two `?boot=` tokens,
+whether the frontend calls an endpoint that no longer exists, whether a
+registration function is defined but never called, whether a translation key was
+added to one locale only. Add `--live` to also probe a running ComfyUI, or
+`--fast` to skip the suites. See `docs/QA_READINESS.md`.
+
+Character Replace could be configured into a state where it could never run, and
+said nothing about it until the run was over: the validator accepted the
+configuration, the header implied it was engaged, and the engine rendered the
+whole clip before admitting it had not replaced anything.
 
 The long-form Character Replace workflow was four settings spread across three
 parts of the UI, and the one button that covered a whole clip looked identical to
@@ -13,8 +75,38 @@ deletes the prompt it was supposed to be applied to.
 The Director also repairs its own widget tail when a workflow loads, so a file
 saved before a widget existed heals itself instead of arriving unqueueable.
 
+And the Results page plays its previews again: the transport no longer parks on
+frame 0 while the picture runs.
+
 ### Changed
 
+- **The prompt enhancer can build the prompt from your images.** A new *Build
+  from images* switch sends the segment's reference images, its source frames and
+  (for i2v/fl2v) its endpoint frames to the model as captions instead of asking it
+  to rewrite your text. The panel says which mode produced the result, and the
+  server states when it declined a recipe it cannot caption rather than quietly
+  rewriting.
+- **`Recipe` picks the target shape explicitly.** `Auto` derives it from the task
+  and whether a source video is present, so nothing changes unless asked; a named
+  recipe replaces MiniMax's official one-paragraph template with the shape the
+  guide specifies for that job - a replace window with `<Picture N>` refs, a
+  replace window whose identity comes from a RefMod, the ref2va block, or the
+  simpler start-image / first-last / source-edit / text-only segments.
+- **`H3 prompt rules (compact)` sends the short form of the engine contract**,
+  which is what a small local model can actually follow without dropping slots.
+- **`Hide the source performer`** inverts the subject region of the action frames
+  before they are captioned, so the caption cannot describe the woman being
+  replaced.
+- **The local model list is a catalog, not a text field.** GGUF files already
+  under ComfyUI's `LLM` folders are listed beside the quants that can be fetched,
+  the recommended Qwen3.8 27B abliterated is one click away with its size shown
+  before anything is pulled, and a download reports real progress - measured from
+  huggingface_hub's own staging directory, so it survives a panel reload.
+- **The panel says where inference will run.** In local mode the engine note
+  reports the backend that actually loaded (CUDA / Vulkan / Metal / CPU), and
+  warns once when a GPU build is present but its backend never mapped into the
+  process - the wheel built against a different CUDA major that silently falls
+  back to the CPU.
 - **`Cover entire clip` is now `Long-form replace - cover whole clip`**, styled
   and placed as the panel's primary action instead of the seventh control in a
   10 px row. It does the whole recipe in one click: cut the source into equal
@@ -36,8 +128,87 @@ saved before a widget existed heals itself instead of arriving unqueueable.
   which made it look broken.
 - **The replace panel is localised.** Its strings were hardcoded English in a UI
   that is otherwise translated, so there was nothing to search for in Chinese.
+- **One switch to enable every replace window.** A long-form chain only engages
+  if each window's own `enabled` flag is set - the backend tests
+  `seg.replace.enabled`, not the panel's mode - so covering a 2:14 clip meant
+  ticking 15 boxes by hand. Worse, `Replace: ON` changed the panel without
+  changing a single window, which made an unengaged run look engaged. An
+  `enable all` checkbox in the panel header now sets them together. It is
+  tri-state: half-filled whenever the list disagrees with itself, so it never
+  claims a state the windows are not actually in.
+- **The replace header reports enabled windows, not just coverage.** The panel
+  showed `27 windows` and `covers 100%`, both of which stay true with every
+  window switched off - and the engine keys off `seg.replace.enabled`, so the run
+  would be plain video-to-video while the panel read as engaged. A third badge
+  counts the switches themselves: `Replace ON 27/27`, `Replace ON 3/27`, or a red
+  `Replace OFF - no window enabled`.
+- **A window with no mask source no longer reads back as `frames`.** The
+  per-window selector stored `frames` for anything that was not `sam3`, so a
+  window that never touched the control claimed a PNG folder with no folder set.
+  A missing kind is now read from what is configured: a folder means the file
+  route, no folder means the file-free SAM3 route. An explicit `frames` is left
+  alone - that is a real choice, and the validator reports the empty folder.
 
 ### Fixed
+
+- **`Enhance` returned a 500 on every click.** `director_enhance_prompt` called
+  `is_replace_task_prompt` without importing it, so every request died with
+  `NameError: name 'is_replace_task_prompt' is not defined` while the suite stayed
+  green: the rule tests call `enhance_prompt_sync` directly, the panel harness
+  stubs the HTTP layer, and the QA sweep only walks GET routes. Nothing exercised
+  the handler - exactly where a missing import is invisible until someone clicks
+  the button. `tests/test_enhance_route_handler.py` now drives both paths (rewrite
+  and captions) through the real function, and immediately found a second bug: the
+  route never passed the compact-rules flag on to the enhancer.
+- **Vision mode failed on every Qwen3-VL checkpoint.** llama.cpp registers the
+  Transformers Jinja helpers (`raise_exception`, `strftime_now`, the non-escaping
+  `tojson`, the loop-control extension) for its text formatter only; the
+  multimodal handlers build a bare sandboxed environment, and Qwen3-VL's template
+  calls `raise_exception` in its guard branches - so the request died with
+  `UndefinedError: 'raise_exception' is undefined` before generating a token. The
+  handlers' environment now gets the same helpers. The first attempt at this was a
+  silent no-op (it patched `llama_multimodal` as a top-level module; llama.cpp
+  keeps it at `llama_cpp.llama_multimodal`), which is why the test asserts the
+  patch reached the class it names.
+- **Caption mode could not send a system turn at all.** `MTMDChatHandler`
+  prepends its own `DEFAULT_SYSTEM_MESSAGE` whenever the system content is empty,
+  so a request without one arrived with two system messages and was rejected with
+  `TemplateError: System message must be at the beginning.` The caption path sends
+  no system turn, so the message builder now omits it instead of sending it empty.
+- **An enhancement that finished left your prompt unchanged.** The run completed
+  (`generated 449 tokens`, `Prompt built from images (character_replace): 3442
+  chars`) and the textarea still held the old text. Both prompt boxes are owned by
+  the mention controller, which keeps its own rich state and re-renders the
+  textarea from it, so writing `.value` directly left the controller on the old
+  text and its next read painted the old prompt back over the new one - every step
+  reported success while the result silently reverted. The panel now writes
+  through the controller (`setValue`), for the global prompt and the per-segment
+  box alike, and the harness pins a controller stub that reproduces the clobber.
+- **`Unload model` works on the Local (ComfyUI) backend.** Both the button and
+  `Unload the model afterwards` are offered for local models - it is the one
+  backend where freeing VRAM hands it straight back to the render - but the route
+  only knew Ollama and llama-swap, so clicking it answered `Current API format
+  does not support model unload`. It now calls the runtime that owns the model,
+  reports the file it dropped and how many were resident, and distinguishes
+  "nothing was loaded" from "freed".
+- **The Results page player no longer sits on frame 0 while the video plays.**
+  A finished result was played through the *playlist* transport even when it was
+  a single clip, and that transport re-derives the frame index from `seeked`
+  alone. `seeked` never fires during ordinary playback, so the scrubber, the
+  `0.00 / 9.96` readout and the `Frame 1 / 250` counter all stayed pinned at the
+  start while the element played on - and anything that re-synced the element to
+  the stale index 0 yanked it back to the beginning, which is why only the
+  opening frames were ever visible.
+  A lone clip is one continuous video, so it now plays through the element
+  itself: the src is assigned once and the element's own clock drives the index
+  from `timeupdate`. Only Multi Segment, which genuinely spans several clips,
+  keeps the playlist bookkeeping. Scrubbing a single clip moves the element
+  instead of a wall-clock index the picture knows nothing about, a fresh load
+  resets the index so the scrubber cannot claim a frame the picture is not on,
+  and the two audio-sync paths now accept a lone clip as a clip - they used
+  "empty playlist" to mean "not a clip", which would have left every single-clip
+  result playing silent. Pinned by
+  `web/js/tests/minimax_output_single_clip_transport.test.mjs`.
 
 - **Covering a clip no longer deletes its prompt.** The action rebuilds
   `timeline.segments` to lay the clip out in equal windows, and it built every
@@ -86,6 +257,97 @@ saved before a widget existed heals itself instead of arriving unqueueable.
   `tests/test_director_widget_tail_parity.py` fails if the frontend table drifts
   from the node's declaration in `nodes/director.py` — a repair that writes into
   the wrong slot would be worse than the null it was fixing.
+- **A `frames` mask with no folder is now a pre-flight error.** It is not a
+  preference, it is a guaranteed fallback: `prepare_replace_window` cannot build
+  the anchor without a mask, so the window renders as plain video-to-video and
+  only mentions it in the final report - after every segment has been paid for.
+  `Validate` now reports a missing folder, an unresolvable folder, a folder with
+  no `frame_*.png`, and an unusable mask kind as errors, and a folder that covers
+  only part of a window as a warning (runtime drops the whole window when any
+  frame is absent). Directory resolution and the `offset` rebase mirror
+  `load_mask_window` exactly, so the verdict cannot disagree with the run.
+- **`Character Replace fell back to plain RV2V` now appears during the run, not
+  after it.** The engine emits a live warning when a segment degrades, and the
+  run banner leads with it (`Segment 1: Character Replace fell back to plain
+  video-to-video - the mask could not be loaded for this window; check the mask
+  folder, or switch the mask source to sam3`), accumulating a count for the
+  segments that repeat it. Previously this was collected and only rendered into
+  the final report, so the cause - almost always a window configuration mistake
+  that was knowable before segment 1 - was discovered once everything had
+  rendered.
+- **Two modules were being loaded twice, and one of them styled the page twice.**
+  ESM keys a module by its full URL including the query string, so
+  `minimax_prompt_mentions.js` pulled in untokenised by `minimax_image_batch.js`
+  and as `?boot=director_ui_v2` by `minimax_timeline.js` was two independent
+  instances - two copies of every module-level binding, and two injected
+  stylesheets, because the idempotence guard was a module-local flag.
+  `minimax_r2v_common_ui.mjs` had the same split. Both importers now use one
+  agreed token, and the mention stylesheet keys off an element id so it stays
+  idempotent even if an instance ever duplicates again. A test reconciles every
+  shared module's token so this cannot silently return.
+- **The auto-mask no longer repeats a doomed search on every window.** The SAM3
+  attempt plan is five passes over the whole window - roughly two minutes each on
+  a 260-frame clip - and when text seeding finds nothing, nothing about the next
+  window makes the same prompt more likely to land. A chain could spend hours
+  rediscovering the same nothing before falling back on every segment. The first
+  window still runs the full plan; once it has missed for a given
+  (checkpoint, prompt), later text-seeded windows retry only the strongest
+  anchor(s) - the same reduction the interactive *Test mask* route already used.
+  A success clears the entry, entries expire after 30 minutes so a later attempt
+  against different footage gets the full plan back, and the log says plainly
+  that the retry was reduced and why.
+- **"building echo-free motion reference" is now "preparing ...".** The line was
+  logged just before the attempt that can still return nothing, so it read as if
+  the reference had been made and the fallback message two lines later looked
+  contradictory.
+- **The default SAM3 prompt no longer describes a subject that is not on screen.**
+  It was `the woman, full body from head to toe, including every strand of her
+  hair` - written to pull hair into the mask, but phrased as a description of a
+  standing, fully-visible figure. SAM3's text grounding answers literally, so on
+  a subject lying down and visible from the waist up it grounded nothing: over
+  five attempts at both detection profiles, `responses=0` and 0 of 260 frames
+  masked, then a silent fallback to plain video-to-video for the whole window.
+  Measured on the real footage, changing only the prompt:
+
+  | prompt | result | frames masked |
+  | --- | --- | --- |
+  | `the woman, full body from head to toe, including every strand of her hair` | none | 0/30 |
+  | `the woman` | MASK | 30/30, first attempt |
+  | `the person` | MASK | 30/30, first attempt |
+  | `the man` (control) | none | 0/30 |
+  | `dog` (control) | none | 0/30 |
+
+  The default is now `the woman`, matching what the proven standalone
+  `sam3_scene_mask.py` has always used. The controls confirm the text genuinely
+  steers detection rather than returning the largest region: the wrong-gender and
+  absent-object prompts both found nothing. Hair coverage belongs in the mask
+  grow/feather settings, not in a clause that may describe nothing on screen.
+- **A window with no SAM3 prompt can no longer be written.** `ensureReplaceConfigOnSeg`
+  stored `sam_prompts: []` whenever the prompt field was empty, so the engine fell
+  back to its own default and could ground nothing. Since an unconfigured window
+  now defaults to the `sam3` mask kind, that was the common path rather than an
+  edge case: it turned a fast, obvious failure into a silent one that first spent
+  about ten minutes per window on doomed detection. The default prompt is now
+  carried into the window instead.
+- **The SAM3 prompt field no longer suggests the pattern that fails.** Its
+  tooltip read `e.g. 'the woman with long blue hair including every strand'`,
+  which is the long descriptive clause implicated above; it now asks for a short
+  noun phrase.
+- **Swapping a RefMod now invalidates cached work instead of reusing the old
+  mod's output.** RefMod blocks are harvested from the connected conditioning and
+  appended to every segment, so they change the picture - but they arrive through
+  the *conditioning* rather than the timeline, and nothing in either cache
+  fingerprint looked at them. Two different mods at the same retention produced
+  byte-identical fingerprints, so changing the mod silently reused latents
+  generated with the previous one and the old identity bled into the new render.
+  The harvested blocks are now digested (hashed from the latents actually fed to
+  the DiT, since by then a mod is an unnamed blob with no name to compare) and
+  that digest is part of the segment cache key and the generation-environment
+  identity behind the motion-context cache. The key is added only when a RefMod
+  is connected, so projects without one keep their existing caches. The console
+  line now reports the digest as well as the block count: a count cannot tell two
+  mods apart, which is exactly what made "I switched mods and the old identity is
+  still showing" invisible.
 
 ## v1.8.3 — 2026-09-16
 
