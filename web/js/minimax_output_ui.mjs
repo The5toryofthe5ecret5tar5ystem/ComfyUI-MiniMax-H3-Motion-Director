@@ -1158,6 +1158,12 @@ export function mountOutputUI(
         clipPendingSeek: null,
         clipResume: false,
 
+        // Set when the result is a single preview clip. One clip is one
+        // continuous video, so it plays through the element rather than the
+        // playlist transport; this keeps the clip descriptor around for the
+        // scrubbing and clock-sync paths.
+        videoClip: null,
+
         saveStatus: {
             kind: "not_ready",
             value: "",
@@ -1913,6 +1919,18 @@ export function mountOutputUI(
         const clipTotal =
             totalClipFrames(playlist);
 
+        // A lone clip is one continuous video, not a playlist. Driving it
+        // through the playlist transport left it frozen: that path re-derives
+        // the frame index on `seeked` only, which never fires during ordinary
+        // playback, so the scrubber and the counters sat on frame 0 while the
+        // element played. Only Multi Segment, which really does span several
+        // clips, needs playlist bookkeeping.
+        const singleClip =
+            playlist.length
+                === 1
+                ? playlist[0]
+                : null;
+
         const frames =
             playlist.length
                 ? []
@@ -1926,10 +1944,21 @@ export function mountOutputUI(
             frames;
 
         state.clipPlaylist =
-            playlist;
+            singleClip
+                ? []
+                : playlist;
+
+        state.videoClip =
+            singleClip;
 
         state.clipFrames =
-            clipTotal;
+            singleClip
+                ? Math.max(
+                    0,
+                    Number(singleClip.frames)
+                    || 0,
+                )
+                : clipTotal;
 
         const total =
             playlist.length
@@ -1994,7 +2023,26 @@ export function mountOutputUI(
             isVideo
             || !!frames.length;
 
-        if (playlist.length) {
+        if (singleClip) {
+            // Point the element at the clip once; from then on it owns the
+            // clock and the scrubber follows it.
+            if (
+                video.getAttribute("src")
+                !== singleClip.url
+            ) {
+                video.pause();
+                video.setAttribute(
+                    "src",
+                    singleClip.url,
+                );
+                video.load();
+
+                // A load rewinds the element to 0, so the index has to follow
+                // or the scrubber would claim a frame the picture is not on.
+                state.index =
+                    0;
+            }
+        } else if (playlist.length) {
             state.clipResume =
                 false;
 
@@ -2289,6 +2337,28 @@ export function mountOutputUI(
                 return;
             }
 
+            if (state.videoClip) {
+                // One clip: the element is the transport, so a scrub has to move
+                // the element. Handing it to the frame controller moved a
+                // wall-clock index that the picture knows nothing about.
+                state.index =
+                    value;
+
+                try {
+                    video.currentTime =
+                        value
+                        / Math.max(
+                            0.001,
+                            Number(state.fps || 24),
+                        );
+                } catch {
+                    // Not seekable yet; the next render retries.
+                }
+
+                paintFrameIndex(true);
+                return;
+            }
+
             playback.seek(
                 value,
             );
@@ -2325,7 +2395,13 @@ export function mountOutputUI(
         // A preview clip carries picture only - the Director delivers audio on a
         // separate element. The frame-array player used to start that audio, so
         // clip playback has to do it here or the result would play silent.
-        if (!state.clipPlaylist.length) return;
+        // A single clip counts too: it is still a clip, just a lone one.
+        if (
+            !state.clipPlaylist.length
+            && !state.videoClip
+        ) {
+            return;
+        }
 
         if (
             !String(
@@ -2358,7 +2434,10 @@ export function mountOutputUI(
      */
     const syncAudioToVideo = () => {
         if (
-            !state.clipPlaylist.length
+            (
+                !state.clipPlaylist.length
+                && !state.videoClip
+            )
             || video.paused
         ) {
             return;
@@ -2445,11 +2524,52 @@ export function mountOutputUI(
     );
 
     /**
+     * True when the result plays as one clip through the video element, so the
+     * element's own clock is the time base instead of a playlist position.
+     */
+    const onSingleClipTransport = () =>
+        !!state.videoClip
+        && !state.clipPlaylist.length;
+
+    /**
      * Follow the element's own clock. When a clip is playing the browser is
      * authoritative for which frame is on screen, so the slider and counters
      * are derived from currentTime rather than driving it.
      */
     const syncIndexFromVideo = () => {
+        if (onSingleClipTransport()) {
+            const fps =
+                Math.max(
+                    0.001,
+                    Number(state.fps || 24),
+                );
+
+            const count =
+                Math.max(
+                    0,
+                    Number(state.clipFrames || 0),
+                );
+
+            state.index =
+                Math.max(
+                    0,
+                    Math.min(
+                        Math.max(
+                            0,
+                            count - 1,
+                        ),
+                        Math.round(
+                            Number(video.currentTime || 0)
+                            * fps,
+                        ),
+                    ),
+                );
+
+            paintFrameIndex();
+
+            return;
+        }
+
         if (!state.clipPlaylist.length) return;
 
         const position =
@@ -2484,6 +2604,15 @@ export function mountOutputUI(
 
     video.addEventListener(
         "seeked",
+        syncIndexFromVideo,
+    );
+
+    // `timeupdate` is what keeps the bar moving. Registering this only on
+    // `seeked` meant the index never advanced during ordinary playback, so a
+    // result that was playing perfectly well still showed 0.00 and frame 1.
+    // Registered last so its index-derived labels win over the element's own.
+    video.addEventListener(
+        "timeupdate",
         syncIndexFromVideo,
     );
 
