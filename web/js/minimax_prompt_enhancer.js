@@ -769,8 +769,14 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
     recipeRow.appendChild(pe.recipeSelect);
     pe.body.appendChild(recipeRow);
     pe.recipeNote = el({ fontSize: "9px", color: "#7d8698", lineHeight: "1.4" });
+    // The note can carry two lines: the recipe's summary, then where the user's own
+    // recipes live (or what is wrong with that file). textContent needs pre-line for
+    // the second line to actually show.
+    pe.recipeNote.style.whiteSpace = "pre-line";
     pe.body.appendChild(pe.recipeNote);
     pe.recipeOptions = [];
+    pe.userRecipesPath = "";
+    pe.userRecipeErrors = [];
 
     // A RefMod window has no <Picture N> slots - its identity is appended after text
     // encoding - so "build from images" has nothing to caption unless the panel can
@@ -829,6 +835,11 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             const data = await resp.json();
             const items = (data.recipes || []).filter((r) => r && r.key && r.key !== "auto");
             pe.recipeOptions = items;
+            // Recipes of your own come from a file in ComfyUI's user directory, and
+            // it is read on every open. A file with a typo in it is worth saying out
+            // loud - the recipe would otherwise just be missing from the list.
+            pe.userRecipesPath = data.user_path || "";
+            pe.userRecipeErrors = Array.isArray(data.errors) ? data.errors : [];
             const keep = pe.recipeSelect.value || "auto";
             while (pe.recipeSelect.options.length > 1) pe.recipeSelect.remove(1);
             for (const item of items) {
@@ -838,7 +849,10 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
                 // (t() returns the key unchanged when a translation is missing).
                 const i18nKey = `pe.recipe.${item.key}`;
                 const translated = t(i18nKey);
-                option.textContent = translated === i18nKey ? item.label : translated;
+                const base = translated === i18nKey ? item.label : translated;
+                option.textContent = item.source === "user"
+                    ? `${base} ${t("pe.recipeUser")}`
+                    : base;
                 option.title = item.summary || "";
                 pe.recipeSelect.appendChild(option);
             }
@@ -856,17 +870,32 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         const item = pe.recipeOptions.find((r) => r.key === key);
         // The character field belongs to the RefMod recipe only: showing it for a
         // recipe that cannot use it would imply it does something.
-        if (pe.refmodRow) pe.refmodRow.style.display = key === "character_replace_refmod" ? "flex" : "none";
+        const assembly = item?.based_on || key;
+        if (pe.refmodRow) pe.refmodRow.style.display = assembly === "character_replace_refmod" ? "flex" : "none";
+
+        let text = "";
         if (key === "auto") {
-            pe.recipeNote.textContent = t("pe.recipeAutoTip");
-            return;
+            text = t("pe.recipeAutoTip");
+        } else {
+            // Summaries are pack-side English; translate when the locale has them.
+            const i18nKey = `pe.recipe.${key}.summary`;
+            const translated = t(i18nKey);
+            text = translated === i18nKey ? (item?.summary || "") : translated;
         }
-        // Summaries are pack-side English; translate when the locale has them.
-        const i18nKey = `pe.recipe.${key}.summary`;
-        const translated = t(i18nKey);
-        pe.recipeNote.textContent = translated === i18nKey
-            ? (item?.summary || "")
-            : translated;
+        const extra = [];
+        if (pe.userRecipeErrors.length) {
+            // The file exists but something in it is wrong. One line with the first
+            // problem plus a count, so it is clear this is about their file.
+            extra.push(t("pe.recipeIssues", {
+                path: pe.userRecipesPath || "recipes.json",
+                count: pe.userRecipeErrors.length,
+                problem: pe.userRecipeErrors[0],
+            }));
+        } else if (item?.source === "user") {
+            extra.push(t("pe.recipeFromFile", { path: pe.userRecipesPath || "recipes.json" }));
+        }
+        pe.recipeNote.textContent = [text, ...extra].filter(Boolean).join("\n");
+        pe.recipeNote.style.color = pe.userRecipeErrors.length ? "#f87171" : "#7d8698";
     };
 
     const btnRow = el({ display: "flex", gap: "6px", flexDirection: "column" });

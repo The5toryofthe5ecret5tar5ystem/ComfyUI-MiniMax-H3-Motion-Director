@@ -722,3 +722,50 @@ A panel that cannot load now says so on the button you pressed instead of
 failing quietly. The browser console (`F12`) has the reason; a line like
 *"does not provide an export named ..."* means the browser used a stale module
 file, and step 2 or 3 above is the fix.
+
+## 23. Your own prompt recipes
+
+The prompt enhancer's **Recipe** dropdown decides what shape the enhanced prompt takes:
+a replace window needs the discard sentence and the role lines, a reference segment
+needs the full block, and so on. The pack ships nine of them, and you can add your own.
+
+Your recipes live in a file of your own:
+
+```
+<ComfyUI>/user/minimax_h3_motion_director/recipes.json
+```
+
+That is outside the custom-node folder, so a pack update never overwrites it. The panel
+shows the exact path for your machine under the dropdown, and re-reads the file every
+time it opens - an edit needs no ComfyUI restart. Entries from your file are marked
+`(yours)` in the list.
+
+Start from a ready-made template instead of a blank file: the pack ships one per shape
+in `recipe_templates/` (`character_replace.json`, `ref2va.json`, `first_last.json`, ...).
+Copy the entry into your `recipes.json`, rename the `key`, and edit the `block` - the
+shape instruction the enhancer sends.
+
+```json
+{
+  "version": 1,
+  "recipes": [
+    {
+      "key": "my_pov_replace",
+      "label": "My POV replace",
+      "based_on": "character_replace",
+      "block": "Shape the answer as ..."
+    }
+  ]
+}
+```
+
+`based_on` names the built-in your recipe is a variant of. It supplies everything you
+leave out - including the block itself - and, in `Build from images` mode, the assembly
+(that part of the block is written by code, not by a model, so a variant of
+`character_replace` builds exactly like `character_replace`). Add `"auto": true` if you
+want **Auto** to pick your recipe for its tasks; without it, Auto keeps choosing the
+pack's own.
+
+If something in the file is wrong - a duplicate key, a `based_on` that is not a recipe,
+broken JSON - the panel says so under the dropdown instead of silently dropping the
+entry. `recipe_templates/README.md` has the full field reference.

@@ -1043,7 +1043,14 @@ def build_from_images(
     ``hide_performer`` inverts the subject region of the action frames first, so the
     caption cannot describe the performer being replaced (see `anonymize_frames`).
     """
+    from .h3_prompt_recipes import assembly_key
     from .prompt_enhancer import enhance_prompt_sync
+
+    # A user recipe names the built-in whose assembly it borrows: caption mode builds
+    # the block in code, so the shape itself cannot come from a JSON file. The recipe
+    # key the caller passed is what the panel asked for; from here on the pack's own
+    # assembly key is what everything is planned and assembled from.
+    recipe = assembly_key(recipe)
 
     sources = [img for img in (source_images or []) if img]
     refs = [img for img in (reference_images or []) if img]

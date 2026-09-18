@@ -30,6 +30,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .h3_user_recipes import load_user_recipes
+
 # Recipes that edit a source video and therefore carry the replace contract.
 REPLACE_RECIPES = frozenset({"character_replace", "character_replace_refmod"})
 
@@ -47,10 +49,19 @@ class Recipe:
     # Summary shown in the panel tooltip.
     summary: str = ""
     block: str = ""
+    # "builtin" or "user" - the panel marks the user's own entries, and a pack update
+    # replaces this file's constants while leaving the user's recipes.json alone.
+    source: str = "builtin"
+    # For a user recipe: the built-in it is a variant of. It supplies the assembly
+    # used in Build from images mode (which is code, not text) and any field the
+    # entry leaves out.
+    based_on: str = ""
+    # Built-ins take part in Auto; a user recipe opts in explicitly.
+    auto: bool = True
 
     @property
     def is_replace(self) -> bool:
-        return self.key in REPLACE_RECIPES
+        return (self.based_on or self.key) in REPLACE_RECIPES
 
 
 _RECIPE_REF2VA = """
@@ -308,6 +319,84 @@ RECIPES: tuple[Recipe, ...] = (
 
 RECIPE_BY_KEY = {recipe.key: recipe for recipe in RECIPES}
 RECIPE_KEYS = tuple(recipe.key for recipe in RECIPES)
+# The pack's own keys. Anything else in a request comes from the user's recipes.json.
+_BUILTIN_KEYS = frozenset(RECIPE_BY_KEY)
+
+
+def user_recipes(*, refresh: bool = False) -> list[Recipe]:
+    """Recipes from the user's own recipes.json, as :class:`Recipe` objects.
+
+    A user recipe is a variant of one of the pack's: ``based_on`` supplies whatever
+    the entry does not set - the block, the tasks Auto may match, whether a source
+    video is required - and the assembly used by ``Build from images``, which is code
+    rather than text and so cannot be replaced from a JSON file.
+    """
+    entries, _ = load_user_recipes(_BUILTIN_KEYS, refresh=refresh)
+    recipes: list[Recipe] = []
+    for entry in entries:
+        parent = RECIPE_BY_KEY.get(entry.based_on)
+        recipes.append(
+            Recipe(
+                key=entry.key,
+                label=entry.label,
+                tasks=entry.tasks or (parent.tasks if parent else ()),
+                needs_source=(
+                    entry.needs_source
+                    if "needs_source" in entry.overrides
+                    else (parent.needs_source if parent else False)
+                ),
+                summary=entry.summary or (parent.summary if parent else ""),
+                block=entry.block or (parent.block if parent else ""),
+                source="user",
+                based_on=entry.based_on or (parent.key if parent else ""),
+                auto=entry.auto,
+            )
+        )
+    return recipes
+
+
+def user_recipe_problems() -> list[str]:
+    """What the user's file got wrong, for the panel to show by the dropdown."""
+    _, errors = load_user_recipes(_BUILTIN_KEYS, refresh=True)
+    return errors
+
+
+def all_recipes() -> list[Recipe]:
+    """Built-ins first (Auto, then the shapes in guide order), then the user's."""
+    return list(RECIPES) + user_recipes()
+
+
+def all_recipe_keys() -> tuple[str, ...]:
+    return tuple(recipe.key for recipe in all_recipes())
+
+
+def recipe_by_key(recipe_key) -> Recipe | None:
+    key = str(recipe_key or "").strip()
+    if not key:
+        return None
+    builtin = RECIPE_BY_KEY.get(key)
+    if builtin is not None:
+        return builtin
+    for recipe in user_recipes():
+        if recipe.key == key:
+            return recipe
+    return None
+
+
+def assembly_key(recipe_key) -> str:
+    """The built-in whose assembly a key uses in ``Build from images`` mode; "" = none.
+
+    Caption mode assembles the block in code, so a user recipe cannot bring its own
+    shape there; it borrows its parent's. A free-standing user recipe (no
+    ``based_on``) has no assembly at all, and the caller keeps the rewrite path and
+    says so.
+    """
+    recipe = recipe_by_key(recipe_key)
+    if recipe is None:
+        return str(recipe_key or "")
+    if recipe.source == "user":
+        return recipe.based_on
+    return recipe.key
 
 
 def recipe_options() -> list[dict]:
@@ -319,14 +408,22 @@ def recipe_options() -> list[dict]:
             "summary": recipe.summary,
             "tasks": list(recipe.tasks),
             "needs_source": recipe.needs_source,
+            "source": recipe.source,
+            "based_on": recipe.based_on,
+            "auto": recipe.auto,
         }
-        for recipe in RECIPES
+        for recipe in all_recipes()
     ]
 
 
 def normalize_recipe(value) -> str:
-    text = str(value or "").strip().lower()
-    return text if text in RECIPE_BY_KEY else ""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if recipe_by_key(text) is not None:
+        return text
+    lowered = text.lower()
+    return lowered if recipe_by_key(lowered) is not None else ""
 
 
 def resolve_recipe(
@@ -350,7 +447,11 @@ def resolve_recipe(
     key = str(task_key or "").strip().lower()
     if replace and has_source and key in ("rv2v", "v2v", "mv2v"):
         return "character_replace"
-    for recipe in RECIPES:
+    # A user recipe that opted into Auto is consulted first: "this is the shape Auto
+    # should pick in my projects" is exactly why someone writes one.
+    for recipe in list(user_recipes()) + list(RECIPES):
+        if not recipe.auto:
+            continue
         if key and key in recipe.tasks:
             if recipe.needs_source and not has_source:
                 continue
@@ -359,5 +460,5 @@ def resolve_recipe(
 
 
 def recipe_block(recipe_key: str) -> str:
-    recipe = RECIPE_BY_KEY.get(recipe_key)
+    recipe = recipe_by_key(recipe_key)
     return recipe.block if recipe else ""

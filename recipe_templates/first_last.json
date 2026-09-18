@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "_readme": "Starter file for the 'First + last frame (fl2v)' recipe. Copy the entry into your own recipes.json - the prompt-enhancer panel shows the exact path on every machine - then edit it. 'key' must be a name the pack does not already use, 'label' is what the dropdown shows, and 'block' is the shape instruction the enhancer sends. Anything you delete is inherited from 'based_on'.",
+  "recipes": [
+    {
+      "key": "my_first_last",
+      "label": "My First + last frame (fl2v)",
+      "summary": "Both frames are fixed; describe only the motion between them.",
+      "based_on": "first_last",
+      "auto": false,
+      "block": "Shape the answer as a first-and-last-frame (fl2v) segment: the two supplied frames are\nfixed constraints and the prose describes only the motion between them.\n\nsubject_definitions:\n<Subject 1> is <who she is in this scene>. Her appearance and wardrobe come from the two supplied frames - describe her only as they show her.\nCamera: <how the camera behaves between the frames>.\nScene: <what is permanently true: place, light, who is present, mood. No events.>\nAudio: <the cue block: named sounds, close to the camera mic, TALK-CONTROL, NO MALE AUDIO>\n\nsummary:\n<one line - the movement this segment performs>.\n\ndetailed_description:\n[Shot N] Begin from the supplied first frame, move through <the motion>, and arrive exactly at the supplied last frame. <action prose: the beats that carry her from one to the other, with named end states>. <dialogue>.\n\nRules for a first-last segment\n- The two frames are the truth at both ends: the prose describes the path between them and must not fight either one.\n- Never describe the end state as a new event that happens after the last frame arrives.\n- No reference slots exist in this task; do not write `<Picture N>`."
+    }
+  ]
+}

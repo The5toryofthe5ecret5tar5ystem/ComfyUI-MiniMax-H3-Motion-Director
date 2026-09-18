@@ -49,3 +49,23 @@ def _isolate_sam3_memory():
     sam3_auto.reset_auto_mask_memory()
     yield
     sam3_auto.reset_auto_mask_memory()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_user_recipes(tmp_path, monkeypatch):
+    """Never read the developer's real recipes.json from a test.
+
+    ``lib.h3_user_recipes`` caches by file stamp and defaults to the ComfyUI user
+    directory. On a machine where someone has written recipes of their own, that
+    would change what ``recipe_options()`` and Auto return - so every test points at
+    a path inside its own tmp_path unless it says otherwise.
+    """
+    monkeypatch.setenv("MMX_H3_USER_RECIPES", str(tmp_path / "no_recipes.json"))
+    try:
+        from mmx_pkg.lib import h3_user_recipes
+    except Exception:  # pragma: no cover - import guard
+        yield
+        return
+    h3_user_recipes.reset_cache()
+    yield
+    h3_user_recipes.reset_cache()

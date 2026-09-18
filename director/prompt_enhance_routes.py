@@ -18,7 +18,13 @@ from aiohttp import web
 
 from ..lib.h3_prompt_caption import CAPTION_RECIPES
 from ..lib.h3_prompt_polish import is_polish_mode
-from ..lib.h3_prompt_recipes import recipe_options, resolve_recipe
+from ..lib.h3_prompt_recipes import (
+    assembly_key,
+    recipe_options,
+    resolve_recipe,
+    user_recipe_problems,
+)
+from ..lib.h3_user_recipes import recipes_path, templates_dir
 from ..lib.h3_prompt_rules import h3_rules_enabled
 from ..lib.prompt_enhance_templates import (
     DETAILED_MIN_TOTAL_HAN,
@@ -293,7 +299,7 @@ async def director_enhance_prompt(request):
         frames = list(images[: max(0, int(source_count or 0))])
         refs = list(images[max(0, int(source_count or 0)) :]) if source_count else list(images)
         character: list[str] = []
-        if resolved_recipe == "character_replace_refmod" and refmod_character:
+        if assembly_key(resolved_recipe) == "character_replace_refmod" and refmod_character:
             character = _character_images()
         return build_from_images(
             recipe=resolved_recipe,
@@ -337,7 +343,7 @@ async def director_enhance_prompt(request):
             "free_gb": free_vram_gb(),
         }
     if caption_mode_requested:
-        if resolved_recipe not in CAPTION_RECIPES:
+        if assembly_key(resolved_recipe) not in CAPTION_RECIPES:
             # t2v has nothing to look at, and i2v/fl2v frames are not sent to the
             # enhancer today, so those recipes keep the rewrite path.
             caption_note = (
@@ -776,8 +782,19 @@ async def director_enhance_recipes(request):
 
     Served from the pack rather than hardcoded in the frontend so the two cannot
     drift, and so a new recipe needs no JS change.
+
+    The user's own recipes travel with the list, together with the path of the file
+    they live in and anything wrong with it: a typo in that file shows up next to the
+    dropdown instead of silently dropping a recipe.
     """
-    return web.json_response({"recipes": recipe_options()})
+    return web.json_response(
+        {
+            "recipes": recipe_options(),
+            "user_path": str(recipes_path()),
+            "templates_dir": str(templates_dir()),
+            "errors": user_recipe_problems(),
+        }
+    )
 
 
 async def director_download_status(request):

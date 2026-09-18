@@ -5,6 +5,28 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ## Unreleased
 
+### Added
+
+- **Your own prompt recipes, in a file a pack update cannot overwrite.** The recipe
+  dropdown was server-owned and closed: the shapes shipped as Python constants, an
+  update replaced them, and there was nowhere to put an edit. Recipes of your own now
+  live in `<ComfyUI user dir>/minimax_h3_motion_director/recipes.json`, which updates
+  never touch. Each entry is a *variant of a built-in* (`based_on`) that inherits
+  everything it does not set - the block, the tasks Auto may match, whether a source
+  video is required - and borrows that built-in's assembly in `Build from images`
+  mode, where the block is written by code rather than by a model. `"auto": true`
+  opts a recipe into Auto picking it; without it Auto keeps choosing the pack's own.
+  The file is re-read whenever it changes (no restart), its entries are marked
+  `(yours)` in the dropdown, and anything wrong with it - a duplicate key, a
+  `based_on` that is not a recipe, broken JSON - is shown in the panel instead of
+  silently dropping the recipe.
+- **A starter file for every shape.** `recipe_templates/` ships one JSON file per
+  recipe (`character_replace.json`, `ref2va.json`, `first_last.json`, ...) with the
+  pack's current block text in it, ready to copy into your recipes file and edit, plus
+  a `README.md` with the field reference. They are generated from the recipes
+  themselves (`scripts/generate_recipe_templates.py`) and a test fails when the two
+  drift apart, so the text you start editing from is the text the pack uses today.
+
 ### Changed
 
 - **Vision frames follow the segment, not the file.** The caption pass sampled the
