@@ -286,6 +286,47 @@ def report_director_mask_check(
         log.debug("Director mask-check send skipped: %s", exc)
 
 
+def report_director_warning(
+    node_id: str | None,
+    *,
+    segment_index: int,
+    code: str,
+    detail: str = "",
+    timeline_segment_index: int | None = None,
+) -> None:
+    """Announce a segment-level degradation while the run is still going.
+
+    Warnings used to be collected and only rendered into the final execution
+    report, so a per-segment fallback (Character Replace degrading to plain
+    rv2v, say) was invisible until every segment had already been rendered -
+    the user paid for the whole run before learning it had done the wrong
+    thing. The cause is usually a configuration mistake that was knowable
+    before segment 1, so it is worth surfacing the moment it is hit.
+
+    ``code`` is the stable identifier the UI localises on; ``detail`` is the
+    engine's own English explanation, shown underneath.
+    """
+    if not node_id:
+        return
+    payload = {
+        "node_id": str(node_id),
+        "segment_index": int(segment_index),
+        "code": str(code),
+        "detail": str(detail or ""),
+    }
+    if timeline_segment_index is not None:
+        payload["timeline_segment_index"] = int(timeline_segment_index)
+        payload["timeline_segment"] = int(timeline_segment_index) + 1
+    try:
+        from server import PromptServer
+
+        srv = PromptServer.instance
+        if srv:
+            srv.send_sync("minimax_motion_director_warning", payload, srv.client_id)
+    except Exception as exc:
+        log.debug("Director warning send skipped: %s", exc)
+
+
 def report_director_report(node_id: str | None, report: str) -> None:
     if not node_id:
         return

@@ -27,16 +27,24 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 from typing import Any
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director.sam3_auto")
 
 # Thresholds proven by sam3_scene_mask.py for prompt-driven subject tracking.
 SAM3_IMAGE_SIZE = 1008
-SAM3_DEFAULT_PROMPT = (
-    "the woman, full body from head to toe, "
-    "including every strand of her hair"
-)
+# A short noun phrase, matching what the proven standalone tool defaults to
+# (``sam3_scene_mask.py --prompt "the woman"``).
+#
+# This used to be "the woman, full body from head to toe, including every strand
+# of her hair". That clause describes a standing, fully-visible subject, and the
+# text grounding answers literally: asked for a full body on a frame showing
+# someone lying down and visible from the waist up, it finds nothing at all.
+# Measured on real footage: the long clause returned 0/30 frames where "the
+# woman" returned 30/30 on the first attempt, with 0.996 IoU against
+# "the person". Keep this short - a bare noun phrase is what grounds reliably.
+SAM3_DEFAULT_PROMPT = "the woman"
 SAM3_OBJ_ID_DEFAULT = 1
 
 # Detection profiles applied to the predictor model around each session.
@@ -60,6 +68,51 @@ _DETECTION_RELAXED = {
 
 _PREDICTOR_CACHE: dict[str, Any] = {}
 _SAM3_PACK_INSERTED = False
+
+# (checkpoint, prompt) pairs where text-only seeding already came up empty, with
+# the monotonic time it was seen.
+#
+# The full attempt plan is 5 passes over the whole window, ~2 minutes each on a
+# 260-frame clip. Nothing about a later window makes an identical text prompt
+# more likely to land, so a long chain ends up spending hours rediscovering the
+# same nothing before every segment falls back anyway. The first window still
+# runs the whole plan; once it has missed, later text-seeded windows retry only
+# the strongest anchor(s) - the same reduction the interactive "Test mask" route
+# already uses - and any success clears the entry.
+#
+# Entries expire: this is a hint about a prompt that was not landing, not a
+# permanent verdict. Re-running the same prompt much later, or against different
+# source footage, must get the full plan back. The map is capped as well so a
+# long session cannot accumulate keys without bound.
+_TEXT_SEED_MISS_TTL_SEC = 1800.0
+_TEXT_SEED_MISS_LIMIT = 32
+_TEXT_SEED_MISSES: dict[tuple[str, str], float] = {}
+
+
+def reset_auto_mask_memory() -> None:
+    """Forget recorded text-seed misses. Testing hook; also a manual retry reset."""
+    _TEXT_SEED_MISSES.clear()
+
+
+def note_text_seed_miss(key: tuple[str, str]) -> None:
+    """Record that text-only seeding found nothing for ``key``."""
+    _TEXT_SEED_MISSES[key] = time.monotonic()
+    if len(_TEXT_SEED_MISSES) > _TEXT_SEED_MISS_LIMIT:
+        oldest = sorted(_TEXT_SEED_MISSES, key=lambda k: _TEXT_SEED_MISSES[k])
+        for stale in oldest[: len(_TEXT_SEED_MISSES) - _TEXT_SEED_MISS_LIMIT]:
+            _TEXT_SEED_MISSES.pop(stale, None)
+
+
+def text_seed_is_known_miss(key: tuple[str, str]) -> bool:
+    """Whether text seeding already missed for ``key`` recently enough to matter."""
+    seen = _TEXT_SEED_MISSES.get(key)
+    if seen is None:
+        return False
+    if time.monotonic() - seen > _TEXT_SEED_MISS_TTL_SEC:
+        _TEXT_SEED_MISSES.pop(key, None)
+        return False
+    return True
+
 
 
 def _ensure_sam3_importable() -> bool:
@@ -353,6 +406,37 @@ def run_window_auto_mask(
         seed = {"kind": "points", "pts": pts[0], "lbls": pts[1]}
     elif box is not None:
         seed = {"kind": "box", "box": box}
+
+    # What is actually going to seed the mask, captured before the attempt loop
+    # rebinds `seed` per item. A window with no pick points and no prompt
+    # silently runs the built-in default; saying so up front stops the resulting
+    # "no mask" failure from reading as a detection problem rather than a
+    # missing-input problem.
+    effective_prompt = next(
+        (str(p).strip() for p in (prompts or []) if str(p).strip()), None
+    )
+
+    # Text seeding that already missed for this exact (checkpoint, prompt) pair
+    # is not worth the full plan again - see _TEXT_SEED_MISSES.
+    text_seed_key: tuple[str, str] | None = None
+    # Distinct from `quick`: that can also be set by an interactive test, and the
+    # two read differently to the user. This is true only when the plan was cut
+    # short because this exact search is already known to come up empty.
+    reduced_after_miss = False
+    if seed is None:
+        text_seed_key = (str(checkpoint or ""), effective_prompt or SAM3_DEFAULT_PROMPT)
+        if not quick and text_seed_is_known_miss(text_seed_key):
+            quick = True
+            reduced_after_miss = True
+            log.info(
+                "SAM3 auto-mask: text seeding already found no subject for prompt %r "
+                "earlier in this session, so this window only retries the strongest "
+                "anchor(s) instead of the full %d-attempt plan. Pick the subject with "
+                "clicks, or set a prompt that matches what is on screen, to restore "
+                "the full plan.",
+                text_seed_key[1], len(plan),
+            )
+
     if seed is not None:
         anchor = int(boxes_frame) if boxes_frame is not None and int(boxes_frame) >= 0 else lead
         anchor = max(0, min(anchor, total - 1))
@@ -365,15 +449,8 @@ def run_window_auto_mask(
         for pf, relaxed in text_plan:
             items.append((pf, relaxed, None))
 
-    # Say up front what is actually seeding the mask. Without this, a window with
-    # no pick points and no prompt silently runs the built-in default, and the
-    # resulting "no mask" failure looks like a detection problem rather than a
-    # missing-input problem. Click points are much stronger than text, so the
-    # no-points case is worth stating plainly.
-    effective_prompt = next(
-        (str(p).strip() for p in (prompts or []) if str(p).strip()), None
-    )
-    # Captured before the attempt loop, which rebinds `seed` per item.
+    # State the seeding decision plainly. Click points are much stronger than
+    # text, so the no-points case is worth saying out loud.
     used_default_prompt = seed is None and effective_prompt is None
     if used_default_prompt:
         log.warning(
@@ -481,6 +558,10 @@ def run_window_auto_mask(
         except Exception:
             pass
     if chosen is not None:
+        # Text seeding worked: this prompt is not hopeless, so later windows get
+        # the full attempt plan again.
+        if text_seed_key is not None:
+            _TEXT_SEED_MISSES.pop(text_seed_key, None)
         coverage = None
         try:
             _m = chosen.float()
@@ -501,17 +582,21 @@ def run_window_auto_mask(
             "used_box": chosen_box,
             "used_points": chosen_points,
         }
+    if text_seed_key is not None:
+        note_text_seed_miss(text_seed_key)
     log.warning(
         "SAM3 could not find a subject mask anywhere in this %d-frame window "
         "(%d attempt(s): %s). With no mask there is no Character Replace - this "
         "window falls back to an unmasked regeneration. Check that the subject is "
         "clearly visible, and if you are seeding by text rather than click points, "
-        "that the prompt describes what is actually on screen%s.",
+        "that the prompt describes what is actually on screen%s%s.",
         total, len(attempted), ", ".join(attempted) or "none",
         "" if not used_default_prompt else (
             f" (the built-in default {SAM3_DEFAULT_PROMPT!r} was used because no "
             "prompt and no pick points were set)"
         ),
+        " Remaining windows will retry a single anchor rather than repeating the "
+        "full plan." if text_seed_key is not None else "",
     )
     return {
         "mask": None,
@@ -522,7 +607,14 @@ def run_window_auto_mask(
             f"(attempts: {', '.join(attempted) or 'none'} - check that the "
             "subject is clearly visible in the window and that the SAM3 prompt "
             "matches her appearance; see log)"
-            + (" Quick test: only the strongest anchor(s) were tried." if quick else "")
+            # `quick` has two causes and they read very differently to the user:
+            # an interactive test, or an earlier text-seed miss in this session.
+            + (
+                " Text seeding already missed earlier in this session, so only the "
+                "strongest anchor(s) were retried."
+                if reduced_after_miss
+                else (" Quick test: only the strongest anchor(s) were tried." if quick else "")
+            )
         ),
     }
 
@@ -833,8 +925,11 @@ __all__ = [
     "candidate_prompt_frames",
     "frames_to_pils",
     "mask_attempt_plan",
+    "note_text_seed_miss",
     "release_sam3",
+    "reset_auto_mask_memory",
     "resolve_sam3_checkpoint",
     "run_window_auto_mask",
     "segment_window_frames",
+    "text_seed_is_known_miss",
 ]

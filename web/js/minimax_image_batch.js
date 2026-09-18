@@ -35,7 +35,7 @@ import {
     roundDurationSec,
     sumFrameCounts,
 } from "./minimax_gen_timeline.js";
-import { wirePromptImageMentions } from "./minimax_prompt_mentions.js";
+import { wirePromptImageMentions } from "./minimax_prompt_mentions.js?boot=director_ui_v3";
 import {
     allKnownReferenceAssets,
     ensureR2vReferenceAssetSchema,
@@ -46,7 +46,7 @@ import {
     resolveReferenceAssetId,
     setCommonAssetEnabled,
 } from "./minimax_reference_assets.mjs";
-import { syncR2vCommonToggleForTask } from "./minimax_r2v_common_ui.mjs";
+import { syncR2vCommonToggleForTask } from "./minimax_r2v_common_ui.mjs?boot=postprocess_output_v5";
 import {
     formatR2vAssetStatusLabel,
     mountR2vCommonSelection,

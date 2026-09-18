@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any
 
 import folder_paths
@@ -40,6 +41,40 @@ PLAN_INPUT_KEYS = (
 )
 
 _H3_GRID = 17
+_FRAME_MASK_RE = re.compile(r"^frame_(\d+)\.png$", re.IGNORECASE)
+
+
+def _resolve_mask_dir(raw_dir: str) -> str | None:
+    """Resolve a frames-mask directory the way ``load_mask_window`` does.
+
+    Keeping the two in step is the point: this must agree with runtime, or the
+    pre-flight verdict would disagree with what actually happens.
+    """
+    text = str(raw_dir or "").strip()
+    if not text:
+        return None
+    root = os.path.expanduser(text)
+    if not os.path.isabs(root):
+        try:
+            candidate = os.path.join(folder_paths.get_input_directory(), root)
+            if os.path.isdir(candidate):
+                root = candidate
+        except Exception:
+            pass
+    return root if os.path.isdir(root) else None
+
+
+def _mask_frame_indices(root: str) -> set:
+    """Source-frame indices present in a ``frame_%08d.png`` mask folder."""
+    found: set = set()
+    try:
+        for entry in os.listdir(root):
+            match = _FRAME_MASK_RE.match(entry)
+            if match:
+                found.add(int(match.group(1)))
+    except OSError:
+        pass
+    return found
 
 
 def _input_file_exists(subfolder: str, name: str) -> bool:
@@ -116,9 +151,63 @@ def _static_checks(timeline: dict, task_key: str, issues: list) -> None:
                        "Character Replace is enabled on this window, but the project is "
                        "not a video-edit mode (rv2v/v2v), so the window will be ignored.", i)
             mask = replace.get("mask") or {}
-            if str(mask.get("kind") or "none") == "sam3" and not (replace.get("sam_prompts") or []):
-                _issue(issues, "error", "replace_sam3_prompt",
-                       "Replace window uses SAM3 masking but has no subject prompt.", i)
+            kind = str(mask.get("kind") or "none").strip().lower()
+            if kind == "sam3":
+                if not (replace.get("sam_prompts") or []):
+                    _issue(issues, "error", "replace_sam3_prompt",
+                           "Replace window uses SAM3 masking but has no subject prompt.", i)
+            elif kind == "frames":
+                # A frames mask that cannot be loaded is a guaranteed fallback:
+                # prepare_replace_window returns None and the window silently
+                # renders as plain rv2v. Catch it here rather than after the run.
+                raw_dir = str(mask.get("dir") or "").strip()
+                if not raw_dir:
+                    _issue(issues, "error", "replace_mask_dir_missing",
+                           "Replace window uses a PNG mask folder but no folder is set, so "
+                           "Character Replace cannot build its anchor and would silently "
+                           "fall back to plain video-to-video. Set a mask folder, or switch "
+                           "the mask source to 'sam3' to auto-mask this window instead.", i)
+                else:
+                    root = _resolve_mask_dir(raw_dir)
+                    if root is None:
+                        _issue(issues, "error", "replace_mask_dir_not_found",
+                               f"Replace mask folder not found: {raw_dir}. Relative paths "
+                               "resolve against ComfyUI's input directory.", i)
+                    else:
+                        have = _mask_frame_indices(root)
+                        if not have:
+                            _issue(issues, "error", "replace_mask_dir_empty",
+                                   f"Replace mask folder has no frame_*.png files: {raw_dir}.", i)
+                        else:
+                            # The window must be covered end to end; a single
+                            # missing frame drops the whole window to rv2v.
+                            try:
+                                start = int(seg.get("start") or 0)
+                            except (TypeError, ValueError):
+                                start = 0
+                            try:
+                                span = int(frames or 0)
+                            except (TypeError, ValueError):
+                                span = 0
+                            try:
+                                offset = int(mask.get("offset") or 0)
+                            except (TypeError, ValueError):
+                                offset = 0
+                            if span > 0:
+                                want = {start - offset + step for step in range(span)}
+                                missing = want - have
+                                if missing:
+                                    _issue(issues, "warning", "replace_mask_gap",
+                                           f"Replace mask folder covers {len(want) - len(missing)} "
+                                           f"of {len(want)} frames in this window "
+                                           f"({len(missing)} missing). The engine falls back to "
+                                           "plain video-to-video for the whole window when any "
+                                           "frame is absent.", i)
+            else:
+                _issue(issues, "error", "replace_mask_unsupported",
+                       f"Replace window has no usable mask source (kind is {kind!r}). Set a "
+                       "PNG mask folder, or 'sam3' with a subject prompt; otherwise Character "
+                       "Replace falls back to plain video-to-video.", i)
             if str(replace.get("audio_policy") or "source") not in ("source", "generate", "none"):
                 _issue(issues, "error", "replace_audio_policy",
                        "Replace window audio_policy is invalid.", i)

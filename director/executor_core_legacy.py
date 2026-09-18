@@ -131,6 +131,7 @@ from .progress import (
     report_director_report,
     report_director_segment_done,
     report_director_segment_preview,
+    report_director_warning,
 )
 from .segment_cache import (
     load_segment_audio_cache,
@@ -1122,14 +1123,18 @@ def execute_director_plan_core(
                     )
             try:
                 if not replace_render_anchor and reference_clip_frames is not None:
+                    # "preparing", not "building": this announces an attempt, and
+                    # the attempt can still return None below. Saying "building"
+                    # read as if the reference had been made, so the fallback
+                    # message two lines later looked contradictory.
                     log.info(
-                        "Segment %d: building echo-free motion reference "
+                        "Segment %d: preparing echo-free motion reference "
                         "(inpaint: blurring %d reference frames at sigma 14) ...",
                         timeline_slot + 1, int(reference_clip_frames.shape[0]),
                     )
                 elif replace_render_anchor and reference_clip_frames is not None:
                     log.info(
-                        "Segment %d: building echo-free motion reference "
+                        "Segment %d: preparing echo-free motion reference "
                         "(anchor: photographic-negative of %d reference frames) ...",
                         timeline_slot + 1, int(reference_clip_frames.shape[0]),
                     )
@@ -1167,6 +1172,16 @@ def execute_director_plan_core(
                 log.warning(
                     "Segment %d: Character Replace FELL BACK to plain %s - %s",
                     timeline_slot + 1, seg.task_key.upper(), replace_fallback_reason,
+                )
+                # Say it now rather than at the end of the run: this is almost
+                # always a window configuration mistake, and the remaining
+                # segments are about to render without Character Replace too.
+                report_director_warning(
+                    node_id,
+                    segment_index=progress_index,
+                    timeline_segment_index=timeline_slot,
+                    code="replace_fallback",
+                    detail=replace_fallback_reason,
                 )
             else:
                 _mv = replace_state['mask_vis']

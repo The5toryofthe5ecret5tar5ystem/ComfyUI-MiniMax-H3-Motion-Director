@@ -14,7 +14,7 @@ import {
     globalRefineSummary,
     mountPostprocessUI,
 } from "./minimax_postprocess_ui.mjs?boot=postprocess_output_v11";
-import { mountOutputUI } from "./minimax_output_ui.mjs?boot=live_results_v2";
+import { mountOutputUI } from "./minimax_output_ui.mjs?boot=live_results_v3";
 import {
     compareTimelineMirrors,
     createUndoBuffer,
@@ -130,7 +130,7 @@ import {
     updateFl2vDetailUI,
     updateFl2vToolbarBtns,
 } from "./minimax_fl2v.js";
-import { mountPromptImageMentions } from "./minimax_prompt_mentions.js?boot=director_ui_v2";
+import { mountPromptImageMentions } from "./minimax_prompt_mentions.js?boot=director_ui_v3";
 import {
     createTimelineShortcutHandler,
 } from "./minimax_prompt_mentions_core.mjs?boot=director_ui_v2";
@@ -150,7 +150,9 @@ import {
 import {
     carrySegmentContent,
     contentSourceForWindow,
-} from "./minimax_replace_layout_core.mjs?boot=director_ui_recovery_v12";
+    normalizeMaskKind,
+    replaceEnabledCount,
+} from "./minimax_replace_layout_core.mjs?boot=director_ui_recovery_v15";
 import {
     commitRunSelectionMutation as commitRunSelectionMutationNow,
     ensureRunSelectionSerialized,
@@ -1685,6 +1687,23 @@ const STYLES = `
 .bd-prompt-layout.bd-v2v-layout.bd-v2v-with-live .bd-live-sample-body{flex:1 1 auto;min-height:180px;max-height:none}
 .bd-prompt-layout.bd-v2v-layout.bd-v2v-with-live .bd-live-sample-body img{max-height:100%}
 .bd-prompt-col{display:flex;flex-direction:column;gap:5px;min-width:0}
+/* Prompt header: label plus the inline enhance triggers. Kept on one row so the
+   buttons sit with the field they act on rather than in a separate toolbar. */
+.bd-prompt-head{display:flex;align-items:center;gap:6px;min-width:0}
+.bd-prompt-head>.bd-label{flex:1 1 auto;min-width:0}
+.bd-btn-mini{padding:2px 8px;font-size:10px;line-height:1.5;border-radius:6px;opacity:.9}
+.bd-btn-mini:hover{opacity:1}
+/* Enhancer settings overlay.
+   Centred rather than anchored: ComfyUI's DOM-widget wrappers apply
+   transform: scale(zoom), and a transformed ancestor makes position:fixed
+   resolve against that ancestor instead of the viewport - so viewport-based
+   coordinates put an anchored popover off-screen. A flex-centred overlay needs
+   no coordinate maths and is immune to that. */
+.bd-pe-overlay{position:absolute;inset:0;z-index:12000;display:flex;align-items:center;
+  justify-content:center;background:rgba(8,10,14,.72);padding:18px}
+.bd-pe-popover{width:min(420px,94%);max-height:88%;overflow:auto;border-radius:10px;
+  box-shadow:0 12px 32px rgba(0,0,0,.45)}
+.bd-pe-overlay[hidden]{display:none}
 .bd-rv2v-layout .bd-prompt-col,.bd-v2v-layout .bd-prompt-col{background:#0c0c0c;border:1px solid #262626;border-radius:10px;padding:10px 12px;gap:6px;min-height:220px}
 .bd-v2v-layout .bd-prompt-col{min-height:200px}
 .bd-prompt-col .bd-label,.bd-refs-col .bd-label{color:#888;font-size:10px;line-height:1.2;flex-shrink:0}
@@ -2453,7 +2472,11 @@ const REPLACE_AUDIO_POLICIES = ["source", "generate", "none"];
 const DEFAULT_REPLACE_LEAD_FRAMES = 12;
 // Default SAM3 auto-mask prompt for new windows (describe the target as she
 // appears in the source; full-body + hair phrasing improves coverage).
-const DEFAULT_SAM3_PROMPT = "the woman, full body from head to toe, including every strand of her hair";
+// Keep this a SHORT noun phrase. SAM3's text grounding answers literally, so a
+// long clause describing an absent configuration ("full body from head to toe"
+// on a subject who is lying down and visible from the waist up) finds nothing:
+// measured 0/30 frames, where "the woman" found 30/30 on the first attempt.
+const DEFAULT_SAM3_PROMPT = "the woman";
 
 function directorIsVideoMode(ed) {
     try {
@@ -2501,7 +2524,7 @@ function replaceConfigFromSeg(seg) {
         enabled: !!r.enabled,
         audio_policy: policy,
         lead: Number.isFinite(Number(r.lead)) ? Math.max(0, Math.round(Number(r.lead))) : DEFAULT_REPLACE_LEAD_FRAMES,
-        kind: String(m.kind || "frames") === "sam3" ? "sam3" : "frames",
+        kind: normalizeMaskKind(m),
         render: String(m.render || "anchor") === "inpaint" ? "inpaint" : "anchor",
         dir: String(m.dir || ""),
         sam_prompt: String(prompts.find((p) => String(p).trim()) || ""),
@@ -2515,7 +2538,7 @@ function replaceConfigFromSeg(seg) {
 
 function ensureReplaceConfigOnSeg(seg, cfg) {
     const c = cfg || replaceConfigFromSeg(seg);
-    const kind = String(c.kind || "frames") === "sam3" ? "sam3" : "frames";
+    const kind = normalizeMaskKind(c);
     const prompt = String(c.sam_prompt || "").trim();
     seg.replace = {
         enabled: !!c.enabled,
@@ -2529,7 +2552,12 @@ function ensureReplaceConfigOnSeg(seg, cfg) {
             feather: Math.max(0, Number(c.feather) || 0),
             render: String(c.render || "anchor") === "inpaint" ? "inpaint" : "anchor",
         },
-        sam_prompts: kind === "sam3" && prompt ? [prompt] : [],
+        // A sam3 window with no prompt cannot work: the engine falls back to its
+        // built-in default, which may ground nothing at all. Windows are
+        // defaulted to sam3 (see normalizeMaskKind), so carry a usable default
+        // here instead of writing an empty list and leaving the user with a
+        // window that silently replaces nobody.
+        sam_prompts: kind === "sam3" ? [prompt || DEFAULT_SAM3_PROMPT] : [],
         continuity: c.continuity !== false,
         note: String(c.note || ""),
         pick: c.pick || null,
@@ -2890,13 +2918,36 @@ function installReplaceWindowsMode(ed) {
     hTitle.style.color = "#8fe3b0";
     const countBadge = mkBadge(t("replace.badge.windows", { n: 0 }));
     const coverBadge = mkBadge(t("replace.badge.covered", { n: 0 }));
+    // Coverage answers "do the windows tile the clip?", which is not the same
+    // question as "is Replace switched on?". The engine keys off
+    // seg.replace.enabled, so coverage can read 100% while every window is off
+    // and the run is plain rv2v. This badge counts the switches themselves.
+    const onBadge = mkBadge(t("replace.badge.enabled", { n: 0, total: 0 }));
+    onBadge.dataset.a = "replace-enabled-badge";
+    onBadge.title = t("replace.badge.enabledTitle");
+    // Master switch for the per-window Replace checkbox below. The backend keys
+    // off seg.replace.enabled, so enabling a long chain by hand means ticking
+    // every row; this does the lot. Rendered as a tri-state: filled when every
+    // window is on, empty when none are, half-filled when they disagree.
+    const enableAllLbl = document.createElement("span");
+    enableAllLbl.dataset.i18n = "replace.enableAll";
+    enableAllLbl.textContent = t("replace.enableAll");
+    enableAllLbl.style.color = "#9fd9b4";
+    const enableAll = document.createElement("input");
+    enableAll.type = "checkbox";
+    enableAll.dataset.a = "replace-enable-all";
+    enableAll.title = t("replace.enableAllTitle");
+    enableAll.style.cssText = "accent-color:#4fff8f;width:11px;height:11px;margin:0;";
+    const enableAllWrap = document.createElement("span");
+    enableAllWrap.style.cssText = "display:flex;align-items:center;gap:5px;";
+    enableAllWrap.append(enableAll, enableAllLbl);
     const hSub = document.createElement("span");
     hSub.dataset.i18n = "replace.help";
     hSub.style.color = "#7fa08b";
     hSub.textContent = t("replace.help");
     const unit = makeUnitToggle("f", () => renderRows());
     unit.title = t("replace.rowUnitTitle");
-    header.append(hTitle, countBadge, coverBadge, mkSpacer(), unit, hSub);
+    header.append(hTitle, countBadge, coverBadge, onBadge, enableAllWrap, mkSpacer(), unit, hSub);
 
     // --- action row: the whole-clip action leads, its inputs follow, then the
     // narrow per-window utilities sit behind a divider ---
@@ -3136,6 +3187,56 @@ function installReplaceWindowsMode(ed) {
     }
 
     /**
+     * Mirror the real state of every window onto the master switch, and onto the
+     * header's enabled-count badge.
+     *
+     * The master switch is tri-state on purpose: claiming "on" while half the
+     * list is off is the exact confusion this control exists to remove. The badge
+     * exists because coverage (do the windows tile the clip?) is a different
+     * question from this one (is the window switched on?), and only this number is
+     * what the engine obeys - seg.replace.enabled.
+     */
+    function syncEnableAll() {
+        const segs = (ed.timeline && ed.timeline.segments) || [];
+        const enabled = replaceEnabledCount(segs);
+        enableAll.checked = enabled.all;
+        enableAll.indeterminate = enabled.on > 0 && enabled.on < enabled.total;
+        enableAll.disabled = enabled.total === 0;
+        enableAll.style.cursor = enabled.total ? "pointer" : "not-allowed";
+
+        if (enabled.total === 0) {
+            onBadge.textContent = t("replace.badge.enabled", { n: 0, total: 0 });
+        } else if (enabled.none) {
+            onBadge.textContent = t("replace.badge.enabledNone");
+        } else {
+            onBadge.textContent = t("replace.badge.enabled", {
+                n: enabled.on,
+                total: enabled.total,
+            });
+        }
+        setBadgeMuted(onBadge, !enabled.all);
+        if (enabled.none) {
+            // Deliberately louder than the muted state: nothing will be replaced.
+            onBadge.style.background = "#3a1e1e";
+            onBadge.style.borderColor = "#6f2f2f";
+            onBadge.style.color = "#ff9f9f";
+        }
+    }
+
+    enableAll.addEventListener("change", (e) => {
+        stopDomEvent(e);
+        const segs = (ed.timeline && ed.timeline.segments) || [];
+        const want = !!enableAll.checked;
+        for (const seg of segs) {
+            const cfg = replaceConfigFromSeg(seg);
+            cfg.enabled = want;
+            ensureReplaceConfigOnSeg(seg, cfg);
+        }
+        commitLight();
+        renderRows();
+    });
+
+    /**
      * Keep the badges, the outcome preview, the primary button's enabled state and
      * the Replace-OFF entry point in sync with the timeline. This is also what
      * re-localises the dynamic strings, so a locale change must call it.
@@ -3178,6 +3279,8 @@ function installReplaceWindowsMode(ed) {
                 n: plan.windows.length,
             });
         }
+
+        syncEnableAll();
     }
 
     /**
@@ -3303,7 +3406,7 @@ function installReplaceWindowsMode(ed) {
         promptInput.placeholder = DEFAULT_SAM3_PROMPT;
         const promptLbl = document.createElement("span");
         promptLbl.textContent = "SAM3 prompt";
-        promptInput.title = "Auto-mask prompt, e.g. 'the woman with long blue hair including every strand'.";
+        promptInput.title = "Auto-mask prompt. Use a short noun phrase naming the subject, e.g. 'the woman' or 'the person'.";
         const dirWrap = document.createElement("span");
         dirWrap.style.cssText = "display:inline-flex;align-items:center;gap:4px;";
         dirWrap.append(dirLbl, dirInput);
@@ -3497,6 +3600,9 @@ function installReplaceWindowsMode(ed) {
             cfg.enabled = !!inp.enabled.checked;
             ensureReplaceConfigOnSeg(seg, cfg);
             commitLight();
+            // Ticking a single row has to move the master switch too, or it
+            // would still claim the list is fully on (or fully off).
+            syncEnableAll();
         });
         inp.gotoBtn?.addEventListener("click", (e) => {
             stopDomEvent(e);
@@ -4145,6 +4251,11 @@ class MiniMaxH3MotionDirectorEditor {
         this._runHighlightSeg = -1;
         this._lastRunProgressDetail = null;
         this._lastRunErrorMessage = null;
+        // Segment-level degradations reported while the run is still going
+        // (Character Replace falling back to plain rv2v and the like). Kept so
+        // the banner can keep saying so on every later progress tick, instead
+        // of the next tick silently overwriting the notice.
+        this._runWarnings = [];
         this._modalEl = null;
         this._modalKeyHandler = null;
         this._directorModalOverlay = null;
@@ -4986,6 +5097,7 @@ class MiniMaxH3MotionDirectorEditor {
                     <button type="button" class="bd-btn" data-a="equal" data-i18n="toolbar.equalSplit">均分</button>
                     <button type="button" class="bd-btn" data-a="smart-split" data-i18n="toolbar.smartSplit" data-i18n-title="tooltip.smartSplit">智能分割</button>
                     <button type="button" class="bd-btn" data-a="run-select-toggle" data-i18n="toolbar.runSelect" data-i18n-title="tooltip.runSelect">选择运行</button>
+                    <button type="button" class="bd-btn" data-a="enhance-all" data-i18n="toolbar.enhanceAll" data-i18n-title="tooltip.enhanceAll">扩写全部提示词</button>
                     <label class="bd-run-select-all-wrap hidden" data-r="run-select-all-wrap" data-i18n-title="tooltip.runSelectAll">
                         <input type="checkbox" data-r="run-select-all-cb">
                         <span data-i18n="toolbar.selectAll">全选</span>
@@ -5188,7 +5300,11 @@ class MiniMaxH3MotionDirectorEditor {
                         <div class="bd-gen-src hidden" data-r="gen-global-img" data-i18n="panel.uploadSourceImage" data-i18n-title="tooltip.uploadSourceImage">点击上传源图片</div>
                     </div>
                     <div class="bd-prompt-col">
-                        <span class="bd-label" data-i18n="panel.prompt">提示词</span>
+                        <span class="bd-prompt-head">
+                            <span class="bd-label" data-i18n="panel.prompt">提示词</span>
+                            <button type="button" class="bd-btn bd-btn-mini" data-a="enhance-prompt" data-i18n="panel.enhance" data-i18n-title="tooltip.enhancePrompt">扩写</button>
+                            <button type="button" class="bd-btn bd-btn-mini" data-a="enhance-settings" data-i18n="panel.enhanceSettings" data-i18n-title="tooltip.enhanceSettings">设置</button>
+                        </span>
                         <textarea class="bd-prompt" data-r="global-prompt" data-i18n-placeholder="placeholder.globalPrompt" placeholder=""></textarea>
                         <textarea class="bd-prompt bd-prompt-negative hidden" data-r="global-negative" hidden aria-hidden="true"></textarea>
                     </div>
@@ -5227,7 +5343,11 @@ class MiniMaxH3MotionDirectorEditor {
                         <div class="bd-gen-src hidden" data-r="gen-seg-img" data-i18n="panel.uploadSegmentSourceImage" data-i18n-title="tooltip.uploadSourceImage">点击上传源图片</div>
                     </div>
                     <div class="bd-prompt-col">
-                        <span class="bd-label" data-i18n="panel.prompt">提示词</span>
+                        <span class="bd-prompt-head">
+                            <span class="bd-label" data-i18n="panel.prompt">提示词</span>
+                            <button type="button" class="bd-btn bd-btn-mini" data-a="enhance-prompt" data-i18n="panel.enhance" data-i18n-title="tooltip.enhancePrompt">扩写</button>
+                            <button type="button" class="bd-btn bd-btn-mini" data-a="enhance-settings" data-i18n="panel.enhanceSettings" data-i18n-title="tooltip.enhanceSettings">设置</button>
+                        </span>
                         <textarea class="bd-prompt" data-r="seg-prompt" data-i18n-placeholder="placeholder.segmentPrompt" placeholder=""></textarea>
                         <textarea class="bd-prompt bd-prompt-negative hidden" data-r="seg-negative" hidden aria-hidden="true"></textarea>
                     </div>
@@ -5333,6 +5453,7 @@ class MiniMaxH3MotionDirectorEditor {
         this.btnVideo = this.root.querySelector('[data-a="video"]');
         this.btnFl2vAddShot = this.root.querySelector('[data-a="fl2v-add-shot"]');
         this.btnVideoAppend = this.root.querySelector('[data-a="video-append"]');
+        this._wirePromptEnhancer();
         this.outHint = this.root.querySelector('[data-r="out-hint"]');
         this.outMode = this.root.querySelector('[data-r="out-mode"]');
         this.outAspect = this.root.querySelector('[data-r="out-aspect"]');
@@ -9904,6 +10025,108 @@ class MiniMaxH3MotionDirectorEditor {
         return result;
     }
 
+    /**
+     * Wire the prompt-row enhance buttons and lazily mount the enhancer panel.
+     *
+     * The enhancer module dynamically imports *this* file - it is the Director's
+     * boot entry - so a static import back would be circular. That is why this
+     * was never connected: the obvious wiring does not work. It is loaded on
+     * first use instead.
+     *
+     * The import deliberately carries NO ?boot= token. ComfyUI auto-loads this
+     * module as /extensions/<pack>/minimax_prompt_enhancer.js, and each distinct
+     * URL is a separate module instance with its own state and stylesheets, so a
+     * token here would create a second copy of the panel.
+     *
+     * The row buttons delegate to the panel's own enhancePrompt(), so pressing
+     * enhance beside a prompt field and pressing it inside the panel run exactly
+     * the same code path.
+     */
+    _wirePromptEnhancer() {
+        const forward = (selector, handler) => {
+            for (const btn of this.root.querySelectorAll(selector)) {
+                btn.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handler(btn);
+                });
+            }
+        };
+        forward('[data-a="enhance-prompt"]', () => { void this._enhanceActivePrompt("current"); });
+        // Batch goes through the review-list runner rather than the panel's plain
+        // "enhance all", so a long run produces a list to approve instead of
+        // silently overwriting every segment prompt.
+        forward('[data-a="enhance-all"]', () => { void this._enhanceAllPrompts(); });
+        forward('[data-a="enhance-settings"]', () => { void this._toggleEnhanceSettings(); });
+    }
+
+    async _ensureEnhancerPanel() {
+        if (this._promptEnhancer) return this._promptEnhancer;
+        if (!this._enhancerPanelPromise) {
+            this._enhancerPanelPromise = (async () => {
+                const mod = await import("./minimax_prompt_enhancer.js");
+                // The overlay wraps the panel so the settings UI can be shown
+                // centred, and so a click outside it closes it.
+                const overlay = document.createElement("div");
+                overlay.className = "bd-pe-overlay";
+                overlay.hidden = true;
+                const host = document.createElement("div");
+                host.className = "bd-pe-popover";
+                overlay.appendChild(host);
+                overlay.addEventListener("click", (event) => {
+                    if (event.target === overlay) overlay.hidden = true;
+                });
+                this.root.appendChild(overlay);
+                this._enhancerOverlay = overlay;
+                this._enhancerPopoverHost = host;
+                mod.registerDirectorPromptEnhancerEvents(findDirectorNode);
+                return mod.mountPromptEnhancerPanel(this, host);
+            })().catch((error) => {
+                console.error("[MiniMax H3] prompt enhancer failed to load:", error);
+                this._enhancerPanelPromise = null;
+                return null;
+            });
+        }
+        return this._enhancerPanelPromise;
+    }
+
+    async _enhanceActivePrompt(mode) {
+        const pe = await this._ensureEnhancerPanel();
+        if (!pe) return;
+        // The panel's own status line lives inside the settings overlay, so when
+        // that is closed a click would otherwise show nothing at all. Reflect the
+        // run on the button the user actually pressed.
+        const buttons = [...this.root.querySelectorAll('[data-a="enhance-prompt"]')];
+        const labels = buttons.map((btn) => btn.textContent);
+        buttons.forEach((btn) => { btn.disabled = true; btn.textContent = "扩写中…"; });
+        try {
+            await pe.enhancePrompt(mode);
+        } finally {
+            buttons.forEach((btn, index) => {
+                btn.disabled = false;
+                btn.textContent = labels[index];
+            });
+        }
+    }
+
+    async _enhanceAllPrompts() {
+        const pe = await this._ensureEnhancerPanel();
+        if (!pe) return;
+        const { runPromptEnhanceBatch } = await import("./minimax_prompt_enhance_batch.mjs");
+        await runPromptEnhanceBatch(this, pe);
+    }
+
+    async _toggleEnhanceSettings() {
+        const pe = await this._ensureEnhancerPanel();
+        if (!pe) return;
+        const overlay = this._enhancerOverlay;
+        if (!overlay) return;
+        overlay.hidden = !overlay.hidden;
+        // Opening the settings is also when the model list matters, so refresh it
+        // rather than showing a stale catalogue.
+        if (!overlay.hidden) void pe.fetchModels(true);
+    }
+
     commit(skipRender = false, { syncTimeline = true } = {}) {
         if (this.isMixedMode()) {
             this._syncMixedFromSharedWidgets();
@@ -13682,6 +13905,9 @@ class MiniMaxH3MotionDirectorEditor {
     _setRunActive(active) {
         const changed = this._runActive !== Boolean(active);
         this._runActive = Boolean(active);
+        // A new run starts from a clean slate; keeping the previous run's
+        // warnings would make the banner claim a problem that may be fixed.
+        if (this._runActive && changed) this._runWarnings = [];
         if (changed) this._syncRunControls?.();
         return changed;
     }
@@ -13762,6 +13988,59 @@ class MiniMaxH3MotionDirectorEditor {
         if (this._resumeTotal < next) this._resumeTotal = next;
         this._syncRunControls?.();
         this._updateRunStatusBanner?.();
+    }
+
+    /**
+     * A segment degraded while the run is still going.
+     *
+     * Character Replace falling back to plain video-to-video is nearly always a
+     * window configuration mistake, and it repeats on every following segment.
+     * Saying so the moment it happens lets the run be stopped and fixed instead
+     * of discovering it in the final report once everything has rendered.
+     */
+    _noteRunWarning(detail) {
+        if (!detail) return;
+        const code = String(detail.code || "segment_warning");
+        const timelineIndex = detail.timeline_segment_index;
+        const key = `${timelineIndex ?? detail.segment_index ?? "?"}:${code}`;
+        this._runWarnings = this._runWarnings || [];
+        if (this._runWarnings.some((w) => w.key === key)) return;
+        this._runWarnings.push({
+            key,
+            code,
+            timelineIndex,
+            segmentIndex: detail.segment_index,
+            detail: String(detail.detail || ""),
+        });
+        // Re-render immediately: the next progress tick may be seconds away, and
+        // this is the one moment the user can still stop the run cheaply.
+        if (this._lastRunProgressDetail) {
+            this.setRunProgress(this._lastRunProgressDetail);
+        } else {
+            this._syncRunControls?.();
+        }
+    }
+
+    /** The human-readable warning line for the run banner, or "" when clean. */
+    _runWarningText() {
+        const warnings = this._runWarnings || [];
+        if (!warnings.length) return "";
+        const first = warnings[0];
+        const n = first.timelineIndex != null
+            ? Number(first.timelineIndex) + 1
+            : t("run.warnSegmentUnknown");
+        // The engine's own reasons are English prose; the one that matters most
+        // is worth saying in the user's language with the way out attached.
+        const reason = first.detail.startsWith("mask window unavailable")
+            ? t("run.warnMaskWindow")
+            : first.detail;
+        const head = first.code === "replace_fallback"
+            ? t("run.warnReplaceFallback", { n, detail: reason })
+            : t("run.warnSegment", { n, detail: reason });
+        const more = warnings.length > 1
+            ? ` ${t("run.warnMore", { n: warnings.length - 1 })}`
+            : "";
+        return `\u26a0 ${head}${more}`;
     }
 
     _updateRunStatusBanner() {
@@ -14638,6 +14917,10 @@ class MiniMaxH3MotionDirectorEditor {
         }
         this.runTitleEl.textContent = title;
         const parts = [];
+        // Lead with any degradation. It is the only item here the user can still
+        // act on, and the run is usually going to repeat it on every segment.
+        const warningText = this._runWarningText();
+        if (warningText) parts.push(warningText);
         if (detail.frames_label) parts.push(detail.frames_label);
         if (detail.task_key) parts.push(detail.task_key);
         const elapsedSeconds = Math.max(0, Number(detail.elapsed_seconds) || 0);
@@ -14673,6 +14956,7 @@ class MiniMaxH3MotionDirectorEditor {
         if (!this.runStatusEl) return;
         this._lastRunProgressDetail = null;
         this._lastRunErrorMessage = null;
+        this._runWarnings = [];
         this.runStatusEl.className = "bd-run-status idle";
         this.runTitleEl.textContent = title || t("run.titleIdle");
         this.runDetailEl.textContent = detail || t("run.detailIdle");
@@ -15485,6 +15769,12 @@ app.registerExtension({
             const editor = findDirectorNode(detail?.node_id)?._minimaxEditor;
             if (!editor) return;
             editor.outputUi?.setMaskCheck?.(detail);
+        });
+
+        api.addEventListener("minimax_motion_director_warning", ({ detail }) => {
+            const editor = findDirectorNode(detail?.node_id)?._minimaxEditor;
+            if (!editor) return;
+            editor._noteRunWarning?.(detail);
         });
 
         api.addEventListener("minimax_motion_director_report", ({ detail }) => {

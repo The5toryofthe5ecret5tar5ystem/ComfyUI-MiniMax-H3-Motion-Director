@@ -86,3 +86,53 @@ export function contentSourceForWindow(previous, index, windowCount) {
     if (previous.length === windowCount) return previous[index] || null;
     return previous[0] || null;
 }
+
+/**
+ * Which mask source a window should actually use.
+ *
+ * The per-window selector stores `frames` for anything that is not `sam3`, so a
+ * window that never touched the control read back as "PNG mask folder" with no
+ * folder set. That is not a preference, it is a guaranteed fallback:
+ * `prepare_replace_window` cannot load a mask, so Character Replace quietly
+ * degrades to plain video-to-video and only says so at the very end of the run,
+ * after every segment has been paid for.
+ *
+ * A missing kind is therefore read from what is actually configured. A folder
+ * means the user meant the file route; no folder at all means the file-free
+ * SAM3 route is the only one that can work. An explicit `frames` is left alone -
+ * that is a real choice, and the pre-flight validator reports the empty folder.
+ *
+ * @param {object|null|undefined} mask a replace mask (or a flat cfg with
+ *     `kind` / `dir`, which is what the per-window editor hands over).
+ * @returns {"frames"|"sam3"}
+ */
+export function normalizeMaskKind(mask) {
+    const raw = String((mask && mask.kind) || "").trim().toLowerCase();
+    if (raw === "sam3") return "sam3";
+    if (raw === "frames") return "frames";
+    return String((mask && mask.dir) || "").trim() ? "frames" : "sam3";
+}
+
+/**
+ * How many windows will actually run Character Replace.
+ *
+ * The panel header reports coverage (do the windows tile the clip?), which is a
+ * different question. Coverage can read 100% while every window has the
+ * per-window switch off, in which case the engine never engages and the run is
+ * plain video-to-video. Counting the switches is what the badge needs.
+ *
+ * @returns {{on: number, total: number, all: boolean, none: boolean}}
+ */
+export function replaceEnabledCount(segments) {
+    const list = Array.isArray(segments) ? segments : [];
+    let on = 0;
+    for (const seg of list) {
+        if (seg && seg.replace && seg.replace.enabled) on += 1;
+    }
+    return {
+        on,
+        total: list.length,
+        all: list.length > 0 && on === list.length,
+        none: list.length > 0 && on === 0,
+    };
+}

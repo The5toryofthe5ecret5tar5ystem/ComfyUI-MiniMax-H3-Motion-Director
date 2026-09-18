@@ -335,9 +335,21 @@ def test_resolve_checkpoint_never_raises():
 
 
 def test_defaults_contract():
-    # Default prompt should request the full figure + hair coverage.
-    assert "full body" in SAM3_DEFAULT_PROMPT
-    assert "every strand" in SAM3_DEFAULT_PROMPT
+    # The default must stay a SHORT noun phrase.
+    #
+    # It used to be "the woman, full body from head to toe, including every strand
+    # of her hair" - written to pull hair into the mask, but phrased as a
+    # description of a standing, fully-visible figure. SAM3's text grounding
+    # answers literally, so on a subject lying down and visible from the waist up
+    # it found nothing at all: measured 0/30 frames, where "the woman" found 30/30
+    # on the first attempt. Hair coverage has to come from the mask grow/feather
+    # settings, not from a clause that may describe nothing on screen.
+    assert SAM3_DEFAULT_PROMPT == "the woman"
+    assert len(SAM3_DEFAULT_PROMPT.split()) <= 3, "keep the default a noun phrase"
+    for clause in ("full body", "head to toe", "every strand"):
+        assert clause not in SAM3_DEFAULT_PROMPT, (
+            f"{clause!r} describes a configuration the subject may not be in"
+        )
     assert SAM3_OBJ_ID_DEFAULT == 1
 
 

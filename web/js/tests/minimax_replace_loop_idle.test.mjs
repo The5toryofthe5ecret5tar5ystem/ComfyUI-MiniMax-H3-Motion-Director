@@ -12,10 +12,30 @@ import fs from "node:fs";
 
 const src = fs.readFileSync(new URL("../minimax_timeline.js", import.meta.url), "utf8");
 
-// Scope to the installer that owns the loop.
-const start = src.indexOf("function installReplaceWindowsMode(");
-assert.ok(start > 0, "installReplaceWindowsMode must still exist");
-const body = src.slice(start, start + 60000);
+/**
+ * Brace-match the installer's body.
+ *
+ * This used to slice a fixed 60,000 characters from the function's start, which
+ * silently stopped covering the code once the function grew past that mark: the
+ * assertions then failed against a body that looked truncated. Matching braces
+ * keeps the scope honest however long the installer gets.
+ */
+function functionBody(source, signature) {
+    const at = source.indexOf(signature);
+    assert.ok(at > 0, `${signature} must still exist`);
+    let depth = 0;
+    let i = source.indexOf("{", at);
+    for (; i < source.length; i += 1) {
+        if (source[i] === "{") depth += 1;
+        else if (source[i] === "}") {
+            depth -= 1;
+            if (depth === 0) break;
+        }
+    }
+    return source.slice(source.indexOf("{", at), i + 1);
+}
+
+const body = functionBody(src, "function installReplaceWindowsMode(");
 
 assert.match(body, /const IDLE_POLL_MS = \d+;/, "idle poll interval must be defined");
 assert.match(body, /const isBusy = \(\) => \{/, "an activity predicate must gate the loop");
