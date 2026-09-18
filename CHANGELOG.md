@@ -34,6 +34,24 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Fixed
 
+- **A caption that was really the model's own notes is no longer pasted into the
+  block.** A caption model sometimes answers with a transcript of its reasoning
+  ("The user wants... I need to cover... Let me write a single paragraph, no quotes")
+  and sometimes describes the attached frames one at a time ("frames 1-2 nearly
+  identical"). Both went into the prompt verbatim, so a whole render was spent on the
+  model's notes about the task instead of on the window. The answer is now cut back to
+  the description that follows the handover, instruction echoes and first-person
+  narration are stripped, a language that was not asked for is dropped (a leaked
+  Chinese word inside an English caption), the frames are no longer compared or listed,
+  and an answer that is still notes is asked once more with an instruction that names
+  the problem - after that the run reports it instead of shipping the transcript.
+- **The motion note no longer duplicates a whole structured prompt.** A replace window
+  carries the prompt box's own text in as a note about movement. When the box held a
+  full prompt (`subject_definitions`, identity, `Camera:`, `Scene:`), the note was a
+  verbatim copy of the block, cut off mid-sentence. Only the part that speaks about
+  movement travels now - a short note as typed, or the prompt's own
+  `detailed_description`/`summary` - and a structured prompt with nothing about
+  movement contributes no note at all.
 - **A stale cached module could kill the prompt enhancer in silence.** ComfyUI's
   cache rule covers paths ending in `.js` (and `.css`), so the pack's `.mjs` modules
   were left to the browser's own freshness heuristics: a copy cached before an export

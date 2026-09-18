@@ -28,6 +28,7 @@ identity to describe. This module relies on the instruction instead, and says so
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from .prompt_enhance_templates import OUTPUT_LANGUAGE_EN, normalize_output_language
@@ -91,12 +92,14 @@ framing, angle and movement; lighting; and the actions being done over time.
 Refer to the woman as <Subject 1>, and to any other visible person as <Subject 2>
 only if visible.
 
-Some of the attached frames are near-duplicates a moment apart (a movement pair):
-when two images are almost identical, describe the SMALL movement that difference
-shows - which limb travels and in which direction - rather than a new pose. A
-movement that leaves no visible difference between frames (a slow rhythmic roll,
-for example) is genuinely invisible to you: say what the pose is doing and leave
-the motion of it to the writer.
+Some of the attached frames sit a moment apart, so two of them can be almost
+identical. Use that only to work out how something moves - which limb travels and in
+which direction - and then describe the movement as it happens, woven into the one
+paragraph. Never write about the frames as frames, never compare two of them ("the
+first two are nearly identical") and never list moments one by one. A movement that
+leaves no visible difference between any of them (a slow rhythmic roll, for example)
+is genuinely invisible to you: describe the pose and leave the motion of it to the
+writer.
 
 Do NOT describe the subjects' appearance or clothing - another part of the prompt
 carries that. Do NOT infer things that are not clearly visible; describe only what
@@ -104,6 +107,25 @@ actually happens, the rough position of things and the rough animations.
 
 CRITICAL OUTPUT RULES: plain text only. No double-quote characters. No line breaks,
 newlines or paragraph breaks; write a single paragraph. No markdown.
+""".strip()
+
+# Every caption is a question about an image, so the answer is the description and
+# nothing else. Small models like to explain the task first, in the first person, or
+# to describe the frames one at a time - and this text goes into a block that the
+# video model reads verbatim, so the whole render is spent on it.
+ANSWER_ONLY_SUFFIX = """
+Answer with the description only. Never describe your own process, never mention
+these instructions, the frames or the images you were given, and never number them
+(no "frame 1", no "frames 1-2"): write the moment as a whole, in the order it
+happens. First person is forbidden.
+""".strip()
+
+# The retry after an answer that came back as working notes.
+STRICT_ANSWER_SUFFIX = ANSWER_ONLY_SUFFIX + """
+
+Your previous answer was your own notes about the task rather than the description.
+Write the final description now: one paragraph of plain prose, as if describing the
+video itself to a viewer.
 """.strip()
 
 SCENE_INSTRUCTION = """
@@ -307,16 +329,166 @@ def _clean_caption(text: str) -> str:
     return body.strip()
 
 
+# A caption is asked for one paragraph, and a small model sometimes answers with a
+# transcript of its own reasoning instead: "The user wants...", "I need to cover...",
+# "Let me write a single paragraph...", or a moment-by-moment enumeration ("frames 1-2
+# nearly identical"). None of that is a description, and it goes straight into the
+# block the video model reads - so it is detected, stripped, and retried once.
+_REASONING_MARKERS = (
+    "the user wants", "the user asked", "the user is asking", "i need to",
+    "i must ", "i should ", "i will write", "i'll write", "let me write",
+    "let me describe", "let me try", "so i describe", "the instructions say",
+    "the rule says", "as an ai", "analysis:", "reasoning:", "chain of thought",
+    "thinking process", "i describe the",
+)
+# Where a transcript hands over to the answer itself.
+_REASONING_TRANSITIONS = (
+    "let me write", "i'll write", "i will write", "here is the description",
+    "here's the description", "final answer:", "final description:",
+    "description:", "the description:", "one paragraph:", "single paragraph:",
+)
+# Sentences that repeat the format rules back instead of describing anything. They
+# only count as noise at the start of a sentence run, which is where they land.
+_INSTRUCTION_ECHO_MARKERS = (
+    "single paragraph", "one paragraph", "no line breaks", "no markdown",
+    "no quotes", "no double-quote", "plain text only", "no newlines",
+)
+_NOISE_MARKERS = _REASONING_MARKERS + _INSTRUCTION_ECHO_MARKERS
+# Only the task text ever numbers the attachments; a description does not.
+_NUMBERED_FRAME_RE = re.compile(r"\b(?:frames?|images?|pictures?)\s*\d", re.I)
+_CJK_RE = re.compile(
+    r"[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]+"
+)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _strip_cjk(text: str) -> str:
+    """Drop characters from a language the answer was not asked for."""
+    body = _CJK_RE.sub(" ", str(text or ""))
+    body = re.sub(r"\s+([,.;:)\]}])", r"\1", body)
+    return " ".join(body.split())
+
+
+def _looks_like_transcript(text: str) -> bool:
+    """True when the text reads as the model's notes rather than a description."""
+    low = " " + str(text or "").lower() + " "
+    if any(marker in low for marker in _NOISE_MARKERS):
+        return True
+    return bool(_NUMBERED_FRAME_RE.search(low))
+
+
+def _strip_reasoning(text: str) -> str:
+    """Keep the description, drop the narration about producing it."""
+    body = " ".join(str(text or "").split())
+    low = body.lower()
+    cut = -1
+    for phrase in _REASONING_TRANSITIONS:
+        at = low.rfind(phrase)
+        if at >= 0:
+            cut = max(cut, at + len(phrase))
+    if cut > 0 and len(body) - cut > 60:
+        body = body[cut:].lstrip(" \t:-\u2014")
+    # Drop whole leading sentences that are the model talking (or repeating the
+    # format rules back) until the description itself begins. Run twice: what follows
+    # a handover phrase is usually an echo of the rules before the description.
+    for _ in range(2):
+        parts = _SENTENCE_SPLIT_RE.split(body)
+        while parts and any(
+            marker in " " + parts[0].lower() + " " for marker in _NOISE_MARKERS
+        ):
+            parts.pop(0)
+        while parts and _NUMBERED_FRAME_RE.search(parts[0]):
+            parts.pop(0)
+        body = " ".join(parts).strip()
+    return body
+
+
+def _sanitize_caption(text: str, output_language: str = "") -> tuple[str, bool]:
+    """``(caption, ask_again)`` for one raw caption answer.
+
+    The caption is the best that can be salvaged from the answer - the description
+    after the model's own notes, without a language it was not asked for. ``ask_again``
+    is True when the answer was mostly notes, so the caller can put the question once
+    more with an instruction that says exactly what went wrong; the salvage is still
+    returned, so a failed retry is never worse than where it started.
+    """
+    raw = " ".join(str(text or "").split())
+    body = _clean_caption(_strip_reasoning(raw))
+    if normalize_output_language(output_language) != "zh":
+        body = _strip_cjk(body)
+    if not body or _looks_like_transcript(body):
+        return "", True
+    # Mostly narration with a usable tail: keep the tail and still ask once more,
+    # because the retry describes the whole window rather than the last sentence of
+    # an internal monologue.
+    return body, _looks_like_transcript(raw) and len(body) < 0.5 * len(raw)
+
+
+# The prompt box of a structured project holds a whole prompt, whose headings say so.
+_KNOWN_SECTIONS = {
+    "subject_definitions", "retention_analysis", "summary", "detailed_description",
+    "overall_soundscape", "non_diegetic_music", "identity", "outfit", "clue",
+    "camera", "scene", "audio", "subject", "wardrobe", "voice",
+}
+# Sections that can speak about movement, best first.
+_MOTION_SECTION_KEYS = ("detailed_description", "summary")
+_HEADING_RE = re.compile(r"^[ \t]*([A-Za-z][A-Za-z_ ]{2,40})[ \t]*:[ \t]*(.*)$")
+
+
+def _prompt_sections(text: str) -> dict[str, str]:
+    """Split a prompt-box text into ``heading -> body`` on its own heading lines."""
+    sections: dict[str, list[str]] = {}
+    current = ""
+    for raw in str(text or "").splitlines():
+        match = _HEADING_RE.match(raw)
+        heading = match.group(1).strip().lower().replace(" ", "_") if match else ""
+        if heading and heading in _KNOWN_SECTIONS:
+            current = heading
+            sections.setdefault(current, [])
+            rest = match.group(2).strip()
+            if rest:
+                sections[current].append(rest)
+            continue
+        if current:
+            sections[current].append(raw)
+    return {key: "\n".join(value).strip() for key, value in sections.items()}
+
+
+def _motion_from_prompt(text: str) -> str:
+    """The part of the prompt box that can speak about movement.
+
+    A replace window is the one shape whose caption replaces the user's text, so the
+    prompt box is carried into the block as a note. That is right for a short note
+    ("she keeps gyrating her hips") and wrong for a whole structured prompt, which
+    the block already contains: appending it duplicated every identity line and cut
+    the copy off mid-sentence. When the box holds a structured prompt, only its own
+    description of the action is used, and if it holds nothing about movement the
+    note is dropped.
+    """
+    body = str(text or "").strip()
+    if not body:
+        return ""
+    sections = _prompt_sections(body)
+    if sections:
+        for key in _MOTION_SECTION_KEYS:
+            value = sections.get(key, "")
+            if value.strip():
+                return value.strip()
+        return ""
+    return body
+
+
 def _clean_motion_note(text: str) -> str:
     """The user's own note on the motion, as one line, bounded.
 
     A window's action prose used to be the caption's alone, so anything the user
-    typed about the motion was thrown away - and a caption of three stills cannot
-    see a movement that leaves no visible difference between them (a hip roll, a slow
-    grind). Whatever is in the prompt box is the only source for that, so it is
-    carried into the block as a note on top of what the frames demonstrably show.
+    typed about the motion was thrown away - and a caption of stills cannot see a
+    movement that leaves no visible difference between them (a hip roll, a slow
+    grind). Whatever the prompt box says about the movement is the only source for
+    that, so it is carried into the block as a note on top of what the frames
+    demonstrably show.
     """
-    body = _clean_caption(text)
+    body = _clean_caption(_motion_from_prompt(text))
     if len(body) > MAX_MOTION_NOTE_CHARS:
         body = body[:MAX_MOTION_NOTE_CHARS].rsplit(" ", 1)[0].rstrip(",;.:")
     return body
@@ -904,10 +1076,22 @@ def build_from_images(
             "with images; a text-to-video segment has none."
         )
 
-    def _caption(instruction: str, images: list[str], cap: int, unload: bool):
+    def _caption(
+        instruction: str,
+        images: list[str],
+        cap: int,
+        unload: bool,
+        strict: bool = False,
+    ):
+        # The instruction IS the request: no task template, no engine rules. A caption
+        # is a question about an image, not a prompt rewrite. The answer rules ride
+        # along on every call, because this text goes into a block the video model
+        # reads verbatim - a model that narrates its own reasoning spends a whole
+        # render on that instead of on a description.
+        rules = STRICT_ANSWER_SUFFIX if strict else ANSWER_ONLY_SUFFIX
         return enhance_prompt_sync(
             task_type="default",
-            user_prompt=instruction,
+            user_prompt=f"{instruction}\n\n{rules}",
             url=url,
             model=model,
             api_format=api_format,
@@ -915,8 +1099,6 @@ def build_from_images(
             api_key=api_key,
             images_b64=images,
             image_num=len(images),
-            # The instruction IS the request: no task template, no engine rules.
-            # A caption is a question about an image, not a prompt rewrite.
             custom_template="{user_prompt}",
             output_language=output_language,
             character_feature_enhance=False,
@@ -961,10 +1143,35 @@ def build_from_images(
     for index, kind in enumerate(needed):
         instruction, images, cap = plans[kind]
         is_last = index == len(needed) - 1
-        text, err = _caption(instruction, images, cap, unload_after and is_last)
+        raw, err = _caption(instruction, images, cap, unload_after and is_last)
         if err:
             return None, f"{kind.capitalize()} caption failed: {err}"
-        captions[kind] = text or ""
+        text, ask_again = _sanitize_caption(raw or "", output_language)
+        if ask_again:
+            # One retry, told exactly what went wrong. A caption model that answers
+            # with its own notes was asked the wrong way once, and the alternative is
+            # worse than a second call: a block that ships analysis into a render.
+            log.warning(
+                "Prompt enhance: %s caption came back as notes about the task, "
+                "asking once more",
+                kind,
+            )
+            retry_raw, retry_err = _caption(
+                instruction, images, cap, unload_after and is_last, strict=True
+            )
+            if not retry_err:
+                retry_text, retry_ask_again = _sanitize_caption(
+                    retry_raw or "", output_language
+                )
+                if retry_text and not retry_ask_again:
+                    text = retry_text
+        if not text:
+            return None, (
+                f"{kind.capitalize()} caption answered with notes about the task "
+                "instead of a description, twice. A larger caption model writes this "
+                "reliably - the attached frames are not the problem."
+            )
+        captions[kind] = text
 
     if not any(value.strip() for value in captions.values()):
         return None, "Every caption came back empty."

@@ -232,6 +232,9 @@ def test_no_em_or_en_dashes():
 
 class _Handler(BaseHTTPRequestHandler):
     seen: list[dict] = []
+    # kind -> [answers], consumed in order. Lets a test hand the panel a transcript
+    # first and a description on the retry, which is what a small model does.
+    scripted: dict[str, list[str]] = {}
 
     def do_POST(self):  # noqa: N802 - http.server naming
         length = int(self.headers.get("Content-Length") or 0)
@@ -247,11 +250,15 @@ class _Handler(BaseHTTPRequestHandler):
                     part.get("text", "") for part in content if isinstance(part, dict)
                 )
                 break
+        kind = "action"
         caption = "ACTION-CAPTION"
         if "identity-preserving video generation" in user_text:
-            caption = "IDENTITY-CAPTION"
+            kind, caption = "identity", "IDENTITY-CAPTION"
         elif "scene continuity" in user_text:
-            caption = "SCENE-CAPTION"
+            kind, caption = "scene", "SCENE-CAPTION"
+        queue = _Handler.scripted.get(kind)
+        if queue:
+            caption = queue.pop(0)
         payload = json.dumps({"choices": [{"message": {"content": caption}}]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -266,10 +273,12 @@ class _Handler(BaseHTTPRequestHandler):
 @pytest.fixture
 def _server():
     _Handler.seen = []
+    _Handler.scripted = {}
     server = HTTPServer(("127.0.0.1", 0), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_port}"
     server.shutdown()
+    _Handler.scripted = {}
 
 
 def _image_urls(body: dict) -> list[str]:
@@ -471,3 +480,157 @@ def test_ref2va_captions_share_the_reference_images(_server):
     assert "IDENTITY-CAPTION" in result.text
     assert "SCENE-CAPTION" in result.text
     assert USER_PROMPT in " ".join(result.text.split())
+
+
+# --- a caption that is really the model's own notes ---------------------------
+#
+# A small vision model sometimes answers the caption question with a transcript of
+# its reasoning ("The user wants... I need to cover... Let me write a single
+# paragraph, no quotes") and sometimes enumerates the frames it was given ("frames
+# 1-2 nearly identical"). Both go straight into the block the video model reads, so
+# the whole render is spent on the model's notes about the task. The live case that
+# prompted this is quoted here verbatim, with its leaked Chinese word.
+
+LEAKED_TRANSCRIPT = (
+    "The user wants a single-paragraph detailed description of the video for "
+    "reference-to-video generation. I need to cover environment/background, camera "
+    "framing/angle/movement, lighting, and actions over time. I must refer to the "
+    "woman as <Subject 1> only if visible. The frames show a person in a teal "
+    "bodysuit. There's a purple \u803f\u9b3c (Gengar) plush on the left. Camera: low "
+    "angle, static. Actions over time: In frames 1-2, both hands are near the face. "
+    "So I describe the small movements between pairs. Let me write a single "
+    "paragraph, no quotes, no line breaks. Environment: indoor bedroom, plain "
+    "off-white wall behind, bed with a light gray sheet on the left. <Subject 1> "
+    "lies supine with both hands raised beside her head."
+)
+
+
+def test_the_instruction_names_where_the_notes_leak():
+    """The wording that invited frame-by-frame narration is gone, and the answer
+    rules ride on every caption call."""
+    from mmx_pkg.lib.h3_prompt_caption import ACTION_INSTRUCTION, ANSWER_ONLY_SUFFIX
+
+    flat = " ".join(ACTION_INSTRUCTION.split())
+    assert "never list moments one by one" in flat.lower()
+    assert "never write about the frames as frames" in flat.lower()
+    assert "near-duplicates a moment apart" not in flat, "the old invitation to compare"
+    assert "First person is forbidden" in ANSWER_ONLY_SUFFIX
+    assert 'no "frame 1"' in ANSWER_ONLY_SUFFIX
+
+
+def test_a_transcript_is_cut_down_to_the_description():
+    from mmx_pkg.lib.h3_prompt_caption import _sanitize_caption
+
+    clean, ask_again = _sanitize_caption(LEAKED_TRANSCRIPT, "English")
+    flat = " ".join(clean.split())
+    assert flat.startswith("Environment: indoor bedroom"), flat
+    assert "<Subject 1> lies supine" in flat
+    for noise in ("The user wants", "I need to", "Let me write", "no line breaks", "frames 1-2"):
+        assert noise.lower() not in flat.lower(), noise
+    assert ask_again is True, "mostly notes, so the question is worth asking again"
+
+
+def test_the_leaked_language_is_dropped_from_an_english_caption():
+    from mmx_pkg.lib.h3_prompt_caption import _sanitize_caption
+
+    clean, _ = _sanitize_caption("A purple \u803f\u9b3c (Gengar) plush sits on the bed.", "English")
+    assert "(Gengar) plush sits on the bed" in clean
+    assert not any("\u4e00" <= ch <= "\u9fff" for ch in clean)
+    kept, _ = _sanitize_caption("\u803f\u9b3c \u73a9\u5076\u653e\u5728\u5e8a\u4e0a\u3002", "\u4e2d\u6587")
+    assert "\u803f\u9b3c" in kept, "a Chinese answer keeps its Chinese"
+
+
+def test_a_transcript_answer_is_asked_again_and_the_retry_is_used(_server):
+    _Handler.scripted = {
+        "action": [
+            "I need to describe this window for the video model. Let me write it now.",
+            "A dim bedroom; the camera holds a low static close-up; she lies supine and "
+            "slowly rolls her hips without moving anything else.",
+        ]
+    }
+    result, err = build_from_images(
+        recipe="character_replace",
+        url=_server,
+        model="test-model",
+        api_format=API_FORMAT_OPENAI_COMPAT,
+        source_images=["SRC1"],
+        timeout=10,
+    )
+    assert err is None, err
+    assert len(_Handler.seen) == 2, "the first answer was notes, so it was asked once more"
+    flat = " ".join(result.text.split())
+    assert "slowly rolls her hips" in flat
+    assert "I need to describe" not in flat
+    # The retry says what was wrong with the first answer.
+    retry_text = " ".join(
+        part.get("text", "")
+        for part in _Handler.seen[1]["messages"][1]["content"]
+        if isinstance(part, dict)
+    )
+    assert "your own notes about the task" in retry_text
+    assert "Write the final description now" in retry_text
+
+
+def test_a_model_that_only_writes_notes_fails_loudly(_server):
+    notes = "I need to describe this window. Let me write it now."
+    _Handler.scripted = {"action": [notes, notes], "identity": [notes, notes]}
+    result, err = build_from_images(
+        recipe="character_replace",
+        url=_server,
+        model="test-model",
+        api_format=API_FORMAT_OPENAI_COMPAT,
+        source_images=["SRC1"],
+        reference_images=["REF1"],
+        timeout=10,
+    )
+    assert result is None
+    assert "instead of a description, twice" in err, err
+    assert "the attached frames are not the problem" in err
+    # Identity is captioned first, so the run stops there: one call, one retry, and
+    # no point spending the action caption on a run that cannot be assembled.
+    assert len(_Handler.seen) == 2, "one call plus one retry, then stop"
+
+
+# --- the note from the prompt box -------------------------------------------
+
+
+def test_a_structured_prompt_does_not_get_pasted_in_as_a_motion_note():
+    """The prompt box of a project holds a whole prompt; the block already has it."""
+    from mmx_pkg.lib.h3_prompt_caption import _clean_motion_note
+
+    structured = (
+        "subject_definitions:\n"
+        "<Subject 1> is the woman in the attached references: she replaces the woman "
+        "in the source video.\n"
+        "<Picture 1> is the sole source of her face, hair and skin.\n\n"
+        "summary:\n"
+        "<Subject 1> replaces the source performer inside this window.\n\n"
+        "detailed_description:\n"
+        "She lies face down and keeps gyrating her hips while the camera holds still.\n"
+    )
+    note = _clean_motion_note(structured)
+    assert note == "She lies face down and keeps gyrating her hips while the camera holds still."
+    assert "<Picture 1>" not in note and "subject_definitions" not in note
+
+
+def test_a_structured_prompt_without_a_description_contributes_nothing():
+    from mmx_pkg.lib.h3_prompt_caption import _clean_motion_note
+
+    structured = (
+        "subject_definitions:\n<Subject 1> is the woman in the references.\n\n"
+        "Camera: exactly as <Video 1>.\nScene: unchanged.\n"
+    )
+    assert _clean_motion_note(structured) == ""
+
+
+def test_a_short_note_still_travels():
+    from mmx_pkg.lib.h3_prompt_caption import _clean_motion_note
+
+    assert _clean_motion_note("she keeps gyrating her hips") == "she keeps gyrating her hips"
+    assert "gyrating" in build_replace_window_prompt(
+        recipe="character_replace",
+        identity_caption=IDENTITY,
+        action_caption=ACTION,
+        motion_note="she keeps gyrating her hips",
+    ).text
+
