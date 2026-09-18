@@ -16,7 +16,9 @@ Notable changes in this fork. Older releases are tagged in git and published on 
   segment's Motion Context, and a row that asks for a task that reads source pixels is
   rendered source-free with a warning instead of silently failing. Rows without a kind
   behave exactly as before, and a leftover replace window on a generated row is ignored
-  loudly rather than reactivating the masked path.
+  loudly rather than reactivating the masked path. The timeline normalizer keeps such a
+  row intact too - it used to clamp every row to the source's frame total, which deleted
+  exactly the row that sits past the end of the footage.
 - **Story to segments.** A multi-segment project is a story spread over N renders, and
   every segment prompt had to be written by hand. The enhancer panel now takes the whole
   story in a few sentences, a segment count and a seconds-per-segment value, and splits

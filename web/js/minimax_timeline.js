@@ -21,6 +21,7 @@ import {
     isTextEntryTarget,
     isUndoShortcut,
 } from "./minimax_undo_buffer.mjs";
+import { isGeneratedRow } from "./minimax_segment_kind.mjs?boot=generated_rows_v1";
 import {
     PRESET_WIDGET_NAMES,
     collectPresetPayload,
@@ -10329,6 +10330,20 @@ class MiniMaxH3MotionDirectorEditor {
             const bounded = [];
             for (const seg of this.timeline.segments || []) {
                 if (!seg || typeof seg !== "object") continue;
+                if (isGeneratedRow(seg)) {
+                    // A generated row renders without source pixels, so it has no
+                    // source range: the source total must not clamp it, and it is
+                    // never dropped for sitting past the end of the footage -
+                    // which is exactly what it exists to do.
+                    const genLength = Math.max(0, parseInt(seg.length ?? seg.frameCount, 10) || 0);
+                    if (genLength < 1) continue;
+                    bounded.push({
+                        ...seg,
+                        start: Math.max(0, parseInt(seg.start, 10) || 0),
+                        length: genLength,
+                    });
+                    continue;
+                }
                 const start = clamp(Math.max(0, parseInt(seg.start, 10) || 0), 0, rTotal);
                 let length = Math.max(
                     1,
