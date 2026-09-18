@@ -190,15 +190,48 @@ function swallowKeys(input) {
     input.addEventListener("keyup", (e) => e.stopPropagation());
 }
 
-async function fetchImageB64(imageFile) {
+async function fetchImageB64(imageFile, ref = {}) {
     const resp = await api.fetchApi("/minimax/motion-director/image_b64", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageFile }),
+        // A reference slot carries where its file lives: `subfolder` inside the
+        // bucket named by `type` (input/output/temp). Sending the name alone made a
+        // picture in a folder unreadable, and the caption silently lost it.
+        body: JSON.stringify({
+            imageFile,
+            subfolder: ref?.subfolder || "",
+            type: ref?.type || "input",
+        }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || resp.statusText);
     return data.image;
+}
+
+/** How many frames of the segment's own slice the model may look at, if unset. */
+const DEFAULT_VISION_FRAMES = 3;
+const MAX_VISION_FRAMES = 5;
+
+function clampVisionFrames(value, fallback = DEFAULT_VISION_FRAMES) {
+    const count = Math.round(Number(value));
+    if (!Number.isFinite(count) || count <= 0) return fallback;
+    return Math.max(1, Math.min(MAX_VISION_FRAMES, count));
+}
+
+/**
+ * The segment's own slice of the source video, as seconds, when it has one.
+ *
+ * The captions describe *this* window, so its frames have to come from this window:
+ * sampling the source file uniformly sent three moments from somewhere else in the
+ * footage, which on a long replace project is the same three moments for every
+ * window in the project. Returns `{}` in global mode, where there is no slice.
+ */
+function segmentWindowSeconds(block, editor) {
+    const start = Number(block?.start);
+    const length = Number(block?.length ?? block?.frameCount);
+    const fps = Number(editor?.timeline?.frameRate) || 24;
+    if (!Number.isFinite(start) || !Number.isFinite(length) || start < 0 || length <= 0) return {};
+    return { start_sec: start / fps, end_sec: (start + length) / fps };
 }
 
 function resolveOutputLanguage(pe) {
@@ -287,7 +320,13 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         const unloadNote = unloaded?.requested
             ? (unloaded.released ? t("pe.statusUnloadAfterDone") : t("pe.statusUnloadAfterFailed"))
             : "";
-        pe.setStatus(formatEnhanceSuccessStatus(taskKey, result) + modeNote + unloadNote, "success");
+        // Something the caption was supposed to look at was unreadable. The run did
+        // happen, so it is a warning on a success, not an error.
+        const visionIssues = result.vision?.issues || [];
+        const visionNote = visionIssues.length
+            ? ` ${t("pe.statusVisionIssues", { count: visionIssues.length })}`
+            : "";
+        pe.setStatus(formatEnhanceSuccessStatus(taskKey, result) + modeNote + unloadNote + visionNote, "success");
     };
 
     pe.setEnhanceLoading = (loading, activeBtn = null, label = t("pe.statusEnhancing")) => {
@@ -573,6 +612,50 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
     compactLabel.title = COMPACT_TIP;
     compactItem.appendChild(compactLabel);
     optionsRow.appendChild(compactItem);
+
+    // Vision frames. The number of frames the model is shown decides how much of the
+    // window's action it can describe - and it is the whole vision input for a source
+    // edit, where there are no reference pictures to look at. It used to be a
+    // constant (3, or 2 on Ollama), which is a strange thing to have no say in when
+    // the caption is the only description of the window.
+    const VISION_FRAMES_TIP = t("pe.visionFramesTip");
+    const framesItem = el({ cursor: "help" });
+    framesItem.className = "minimax-pe-check-item";
+    framesItem.title = VISION_FRAMES_TIP;
+    pe.visionFramesInput = document.createElement("input");
+    pe.visionFramesInput.type = "number";
+    pe.visionFramesInput.min = "1";
+    pe.visionFramesInput.max = String(MAX_VISION_FRAMES);
+    pe.visionFramesInput.step = "1";
+    pe.visionFramesInput.value = String(DEFAULT_VISION_FRAMES);
+    pe.visionFramesInput.title = VISION_FRAMES_TIP;
+    pe.visionFramesInput.style.width = "46px";
+    // The panel sits on the node canvas: typing must not move the node, and the
+    // number keys must not reach LiteGraph's shortcuts.
+    swallowKeys(pe.visionFramesInput);
+    pe.visionFramesInput.onchange = () => {
+        const count = pe.resolveVisionFrames();
+        pe.visionFramesInput.value = String(count);
+        savePeSettings({ visionFrames: count });
+    };
+    framesItem.appendChild(pe.visionFramesInput);
+    const framesLabel = el({ cursor: "help" }, t("pe.visionFrames"), "span");
+    framesLabel.title = VISION_FRAMES_TIP;
+    framesItem.appendChild(framesLabel);
+    optionsRow.appendChild(framesItem);
+
+    /**
+     * Frames of the segment's own slice the model may look at, 1..MAX_VISION_FRAMES.
+     * The typed value wins while the panel is open; otherwise the stored setting, and
+     * failing that the backend's own default (a local vision model handles three
+     * stills, an Ollama one is slower and historically got two).
+     */
+    pe.resolveVisionFrames = () => {
+        const fallback = pe.apiSelect?.value === API_OLLAMA ? 2 : DEFAULT_VISION_FRAMES;
+        const typed = Number(pe.visionFramesInput?.value);
+        if (Number.isFinite(typed) && typed > 0) return clampVisionFrames(typed, fallback);
+        return clampVisionFrames(loadPeSettings().visionFrames, fallback);
+    };
 
     // Wording only: the user already has a prompt that works and wants it phrased
     // better. Every other switch on this panel changes the *shape* of the answer
@@ -1058,6 +1141,9 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             if (pe.polishCheck.checked && pe.fromImagesCheck) pe.fromImagesCheck.checked = false;
             pe.updateModeRows?.();
         }
+        if (pe.visionFramesInput && stored.visionFrames) {
+            pe.visionFramesInput.value = String(clampVisionFrames(stored.visionFrames));
+        }
         if (pe.h3CompactCheck) {
             pe.h3CompactCheck.checked = !!stored.h3Compact;
         }
@@ -1305,22 +1391,30 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         let sourceCount = 0;
         let refCount = 0;
         const refSlots = [];
+        // Anything the model should have been shown but could not be. Silent in the
+        // panel before: `if (b64)` dropped a picture, and one unreadable file threw
+        // out of the whole collection, so the caption ran with no references at all
+        // and no indication why.
+        const issues = [];
         const video = editor.timeline?.video || {};
         const videoFile = video.videoFile || video.fileName;
-        const isOllama = pe.apiSelect?.value === API_OLLAMA;
-        const sourceFrameCount = isOllama ? 2 : 3;
+        const visionFrames = pe.resolveVisionFrames();
         if (videoFile && editor.getDirectorMode?.() === "video") {
+            const window = segmentWindowSeconds(block, editor);
             const resp = await api.fetchApi("/minimax/motion-director/extract_frames", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     filename: videoFile,
                     subfolder: video.subfolder || "",
-                    num_frames: sourceFrameCount,
+                    num_frames: visionFrames,
+                    ...window,
                 }),
             });
-            const data = await resp.json();
-            if (data.frames?.length) { sourceCount = data.frames.length; images.push(...data.frames); }
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) issues.push(`source frames: ${data.error || resp.status}`);
+            else if (data.frames?.length) { sourceCount = data.frames.length; images.push(...data.frames); }
+            else issues.push("source frames: none returned");
         }
         const global = editor.timeline.global || {};
         // Vision has to look at the pictures the render will use, in the order the
@@ -1339,8 +1433,13 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         if (taskUsesReferenceImages(taskKey) && pictureRefs.length) {
             for (const { item: ref, index: slot } of pictureRefs) {
                 if (ref.imageFile) {
-                    const b64 = await fetchImageB64(ref.imageFile);
-                    if (b64) { images.push(b64); refCount += 1; refSlots.push(slot); }
+                    try {
+                        const b64 = await fetchImageB64(ref.imageFile, ref);
+                        if (b64) { images.push(b64); refCount += 1; refSlots.push(slot); }
+                        else issues.push(`${ref.imageFile}: empty`);
+                    } catch (e) {
+                        issues.push(`${ref.imageFile}: ${e.message}`);
+                    }
                 } else if (ref.imageB64) {
                     images.push(ref.imageB64.startsWith("data:") ? ref.imageB64.split(",", 2)[1] : ref.imageB64);
                     refCount += 1;
@@ -1359,11 +1458,14 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
                     body: JSON.stringify({
                         filename: refVid,
                         subfolder: rv.subfolder || "",
-                        num_frames: isOllama ? 1 : 2,
+                        // The inserted clip is a different asset from the source
+                        // window, and a couple of frames already describe it.
+                        num_frames: Math.max(1, Math.min(2, Math.ceil(visionFrames / 2))),
                     }),
                 });
-                const data = await resp.json();
-                if (data.frames?.length) {
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok) issues.push(`reference video: ${data.error || resp.status}`);
+                else if (data.frames?.length) {
                     refVideoCount = data.frames.length;
                     images.push(...data.frames);
                 }
@@ -1374,7 +1476,8 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         // their own list: appending them to `images` would put them in the reference
         // slice and leak the start frame into a caption that must not see it.
         const frameImages = await pe.collectEndpointFrames(refsBlock, taskKey);
-        return { images, sourceCount, refCount, refSlots, refVideoCount, frameImages };
+        if (issues.length) console.warn("[MiniMax H3 PE] vision inputs skipped:", issues);
+        return { images, sourceCount, refCount, refSlots, refVideoCount, frameImages, issues };
     };
 
     /** The fixed endpoint frames of an i2v / fl2v segment, as base64 JPEG. */
@@ -1388,7 +1491,9 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             }
             if (!file) return "";
             try {
-                return (await fetchImageB64(file)) || "";
+                // Same location handling as a reference slot: an endpoint frame can
+                // live in a subfolder or in outputs too.
+                return (await fetchImageB64(file, ref)) || "";
             } catch (e) {
                 return "";
             }
@@ -1593,6 +1698,7 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
     pe.callEnhanceApi = async (prompt, taskKey, block, cfg) => {
         let images = []; let refCount = 0; let sourceCount = 0; let refSlots = []; let refVideoCount = 0;
         let frameImages = [];
+        let visionIssues = [];
         // The window's audio policy lives in the segment's replace spec; passing it
         // saves the model from guessing between "keep the source track" (no <d>
         // lines) and "generate the audio" (full cue block).
@@ -1610,10 +1716,14 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             if (!cfg?.skipVision && promptMode !== "polish") {
                 ({
                     images, refCount, sourceCount, refSlots, refVideoCount, frameImages,
+                    issues: visionIssues,
                 } = await pe.collectVisionImagesForBlock(block, taskKey));
             }
         } catch (e) {
             console.warn("[MiniMax H3 PE] vision collect failed:", e);
+            // A failed collection is a caption written blind, not a caption without
+            // references: say so instead of letting it look successful.
+            visionIssues = [e.message || String(e)];
         }
         const resp = await api.fetchApi("/minimax/motion-director/enhance", {
             method: "POST",
@@ -1636,6 +1746,10 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
                     // Only meaningful for the RefMod recipe, and only a hint: the
                     // server resolves it and says so in the note when it cannot.
                     refmod_character: pe.refmodInput?.value || "",
+                    // How many frames of the mod's own latents may be decoded for the
+                    // wardrobe line. Same knob as the window frames: "how many
+                    // pictures may the model look at" is one decision.
+                    refmod_frames: pe.resolveVisionFrames(),
                 }),
         });
         let data = {};
@@ -1665,7 +1779,7 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             // asked for one: {requested, released, resident_path, free_gb}.
             unloadAfter: data.unload_after || null,
             refmod: data.refmod || null,
-            vision: { images, sourceCount, refCount },
+            vision: { images, sourceCount, refCount, issues: visionIssues },
         };
     };
 

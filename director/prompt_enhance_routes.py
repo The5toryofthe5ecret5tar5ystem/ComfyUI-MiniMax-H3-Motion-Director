@@ -483,6 +483,20 @@ async def director_enhance_prompt(request):
     })
 
 
+MAX_VISION_FRAMES = 5
+
+
+def _as_seconds(value) -> float | None:
+    """A finite, non-negative timestamp, or None when the caller sent nothing usable."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):  # NaN / inf
+        return None
+    return max(0.0, number)
+
+
 async def director_extract_frames(request):
     try:
         data = await request.json()
@@ -491,12 +505,26 @@ async def director_extract_frames(request):
 
     filename = data.get("filename") or data.get("videoFile") or ""
     subfolder = data.get("subfolder") or ""
-    num_frames = min(int(data.get("num_frames") or 3), 5)
-    frames, err = extract_input_video_frames_b64(filename, subfolder=subfolder, num_frames=num_frames)
+    num_frames = min(max(int(data.get("num_frames") or 3), 1), MAX_VISION_FRAMES)
+    # A segment's window, when the caller knows one: the caption must describe the
+    # slice being rendered, not three moments from elsewhere in the source.
+    start_sec = _as_seconds(data.get("start_sec", data.get("startSec")))
+    end_sec = _as_seconds(data.get("end_sec", data.get("endSec")))
+    frames, err = extract_input_video_frames_b64(
+        filename,
+        subfolder=subfolder,
+        num_frames=num_frames,
+        start_sec=start_sec,
+        end_sec=end_sec,
+    )
     if err:
         status = 404 if "not found" in err.lower() else 500
         return web.json_response({"error": err}, status=status)
-    return web.json_response({"frames": frames})
+    return web.json_response({
+        "frames": frames,
+        "num_frames": len(frames),
+        "in_window": bool(start_sec is not None and end_sec is not None and end_sec > start_sec),
+    })
 
 
 async def director_image_b64(request):
@@ -506,7 +534,11 @@ async def director_image_b64(request):
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
     filename = data.get("filename") or data.get("imageFile") or ""
-    b64, err = load_input_image_b64(filename)
+    b64, err = load_input_image_b64(
+        filename,
+        subfolder=data.get("subfolder") or "",
+        kind=data.get("type") or data.get("kind") or "input",
+    )
     if err:
         status = 404 if "not found" in err.lower() else 400
         return web.json_response({"error": err}, status=status)

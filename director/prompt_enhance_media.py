@@ -679,20 +679,85 @@ def _extract_frames_at(video_path: str, stamps: list[float]) -> list[str]:
     return frames
 
 
+def window_sample_stamps(
+    *,
+    num_frames: int,
+    fps: float = 0.0,
+    duration: float = 0.0,
+    total_frames: int = 0,
+    start_sec: float | None = None,
+    end_sec: float | None = None,
+) -> tuple[list[float], bool]:
+    """Timestamps for ``num_frames`` samples, optionally inside one time window.
+
+    Returns ``(stamps, in_window)``. The caller asked for a *segment's* frames and
+    used to get three moments spread over the whole source video instead: a replace
+    window is a slice of the source, so sampling the file uniformly captioned some
+    other part of the footage (on a long source: the same three moments for every
+    window in the project).
+
+    Inside a window the samples stay strictly interior - the first and last frame
+    belong to the neighbouring windows - while the stamp shape matches the whole-file
+    case so a caption sees the same kind of spread. A window that is unusable
+    (negative, empty, or shorter than a frame) falls back to the whole file, which is
+    also what a caller with no window gets.
+    """
+    count = max(1, int(num_frames or 1))
+    span_start = max(0.0, float(start_sec or 0.0))
+    span_end = float(end_sec) if end_sec is not None else 0.0
+    if span_end <= span_start or (duration > 0 and span_start >= duration):
+        span_start, span_end = 0.0, 0.0
+
+    if span_end > span_start:
+        span = span_end - span_start
+        stamps = [span_start + span * (i + 1) / (count + 1) for i in range(count)]
+        if duration > 0:
+            stamps = [min(stamp, max(duration - 0.05, 0.0)) for stamp in stamps]
+        return [max(0.0, stamp) for stamp in stamps], True
+
+    # Whole file (the pre-window behaviour).
+    if total_frames > count:
+        step = total_frames / (count + 1)
+        indices = [int(step * (i + 1)) for i in range(count)]
+    elif total_frames:
+        indices = list(range(total_frames))
+    else:
+        indices = list(range(count))
+    stamps = []
+    for pos, idx in enumerate(indices):
+        stamp = idx / fps if fps > 0 else duration * (pos + 1) / (count + 1)
+        if duration > 0:
+            stamp = min(stamp, max(duration - 0.05, 0.0))
+        stamps.append(max(0.0, stamp))
+    return stamps, False
+
+
 def extract_input_video_frames_b64(
     filename: str,
     *,
     subfolder: str = "",
     num_frames: int = 3,
+    start_sec: float | None = None,
+    end_sec: float | None = None,
 ) -> tuple[list[str], str | None]:
-    """Extract uniformly sampled JPEG base64 frames from a file in ComfyUI input/."""
+    """Extract uniformly sampled JPEG base64 frames from a file in ComfyUI input/.
+
+    ``start_sec``/``end_sec`` restrict the samples to one segment's window, which is
+    what a Character Replace window needs: its action caption must describe the slice
+    being replaced, not three moments from somewhere else in the source.
+    """
     if not filename:
         return [], "No filename"
     input_dir = folder_paths.get_input_directory()
+    safe_sub = os.path.normpath(str(subfolder or "")).replace("\\", "/")
+    if safe_sub in (".", "/"):
+        safe_sub = ""
+    if safe_sub.startswith("..") or os.path.isabs(safe_sub):
+        return [], "Invalid subfolder"
     safe = os.path.normpath(str(filename)).replace("\\", "/")
     if safe.startswith("..") or os.path.isabs(safe):
         return [], "Invalid filename"
-    video_path = os.path.join(input_dir, subfolder, safe) if subfolder else os.path.join(input_dir, safe)
+    video_path = os.path.join(input_dir, safe_sub, safe) if safe_sub else os.path.join(input_dir, safe)
     if not os.path.isfile(video_path):
         return [], f"File not found: {filename}"
 
@@ -705,19 +770,22 @@ def extract_input_video_frames_b64(
         # times per request, which is what made the panel sit on "collecting
         # material" for minutes on long sources.
         if fps > 0 or duration > 0:
-            if total_frames > num_frames:
-                step = total_frames / (num_frames + 1)
-                indices = [int(step * (i + 1)) for i in range(num_frames)]
-            elif total_frames:
-                indices = list(range(total_frames))
-            else:
-                indices = list(range(num_frames))
-            stamps: list[float] = []
-            for pos, idx in enumerate(indices):
-                stamp = idx / fps if fps > 0 else duration * (pos + 1) / (num_frames + 1)
-                if duration > 0:
-                    stamp = min(stamp, max(duration - 0.05, 0.0))
-                stamps.append(max(0.0, stamp))
+            stamps, in_window = window_sample_stamps(
+                num_frames=num_frames,
+                fps=fps,
+                duration=duration,
+                total_frames=total_frames,
+                start_sec=start_sec,
+                end_sec=end_sec,
+            )
+            if in_window:
+                log.info(
+                    "Prompt enhance: sampling %d frame(s) inside %.1fs-%.1fs (of %.1fs)",
+                    len(stamps),
+                    max(0.0, float(start_sec or 0.0)),
+                    float(end_sec or 0.0),
+                    duration,
+                )
             frames_b64 = _extract_frames_at(video_path, stamps)
             if frames_b64:
                 return frames_b64, None
@@ -744,7 +812,20 @@ def extract_input_video_frames_b64(
         )
         total_str = (probe.stdout or "").strip().split(",")[0].strip()
         total_frames = int(total_str) if total_str.isdigit() else 100
-        if total_frames <= num_frames:
+        stamps, in_window = window_sample_stamps(
+            num_frames=num_frames,
+            fps=fps,
+            duration=duration,
+            total_frames=total_frames,
+            start_sec=start_sec,
+            end_sec=end_sec,
+        )
+        if in_window:
+            # The index scan has no timestamps, so turn the window stamps back into
+            # frame numbers instead of sampling the file from the top.
+            rate = fps if fps > 0 else 24.0
+            indices = sorted({max(0, min(total_frames - 1, int(stamp * rate))) for stamp in stamps})
+        elif total_frames <= num_frames:
             indices = list(range(total_frames))
         else:
             step = total_frames / (num_frames + 1)
@@ -782,14 +863,37 @@ def extract_input_video_frames_b64(
         return [], f"{type(exc).__name__}: {exc}"
 
 
-def load_input_image_b64(filename: str) -> tuple[str | None, str | None]:
+def load_input_image_b64(
+    filename: str,
+    *,
+    subfolder: str = "",
+    kind: str = "input",
+) -> tuple[str | None, str | None]:
+    """Read an image the timeline references, as a JPEG base64 string.
+
+    ``subfolder`` and ``kind`` come from the reference entry itself (the timeline
+    stores ``type: input|output`` and a subfolder for every slot). Ignoring them - as
+    this route did - meant a reference kept in a folder, or one that points at a render
+    output, could not be read at all, and the caption silently lost that picture.
+    """
     if not filename:
         return None, "No filename"
-    input_dir = folder_paths.get_input_directory()
+    # `type` is the timeline's own vocabulary: input (default), output or temp.
+    dir_getters = {
+        "output": getattr(folder_paths, "get_output_directory", None),
+        "temp": getattr(folder_paths, "get_temp_directory", None),
+    }
+    getter = dir_getters.get(str(kind or "input").strip().lower())
+    base_dir = (getter() if callable(getter) else None) or folder_paths.get_input_directory()
+    safe_sub = os.path.normpath(str(subfolder or "")).replace("\\", "/")
+    if safe_sub in (".", "/"):
+        safe_sub = ""
+    if safe_sub.startswith("..") or os.path.isabs(safe_sub):
+        return None, "Invalid subfolder"
     safe = os.path.normpath(str(filename)).replace("\\", "/")
     if safe.startswith("..") or os.path.isabs(safe):
         return None, "Invalid filename"
-    path = os.path.join(input_dir, safe)
+    path = os.path.join(base_dir, safe_sub, safe) if safe_sub else os.path.join(base_dir, safe)
     if not os.path.isfile(path):
         return None, f"File not found: {filename}"
     try:

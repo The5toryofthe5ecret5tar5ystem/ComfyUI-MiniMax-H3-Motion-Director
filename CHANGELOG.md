@@ -3,6 +3,35 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## Unreleased
+
+### Changed
+
+- **Vision frames follow the segment, not the file.** The caption pass sampled the
+  source video uniformly across its whole length, so a Character Replace window was
+  described from three moments somewhere else in the footage - and on a long project
+  the same three moments for every window. The panel now sends the segment's own
+  window (`start_sec`/`end_sec`) and the frames are sampled inside it; a segment with
+  no window still falls back to the whole file, and so does the ffprobe index-scan
+  fallback, which now keeps the window as well.
+- **`Vision frames` (1-5) is a setting.** The count was a constant (3, or 2 on
+  Ollama). It sits next to the other enhancer options, persists per browser, and also
+  caps how many frames of the RefMod character are decoded for the wardrobe line
+  (`refmod_frames`). An inserted reference clip keeps its own smaller count.
+
+### Fixed
+
+- **A reference picture in a folder could not be read.** The panel asked for the file
+  name alone, so a picture in a subfolder - or one in outputs - came back "not found"
+  and the caption silently lost it. A slot's `subfolder` and `type` now travel with
+  the request, and the image route and loader honour them.
+- **One unreadable picture no longer discards the rest.** A single failed fetch threw
+  out of the whole collection, so the caption ran with no reference images at all and
+  the panel reported success. Each input is now read on its own, what failed is
+  logged with its reason, and the status line says how many inputs were skipped; a
+  collection that fails outright is reported as such rather than looking like a run
+  without references.
+
 ## v1.9.0 — 2026-09-18
 
 The prompt enhancer can now improve a prompt without rebuilding it. Every other
