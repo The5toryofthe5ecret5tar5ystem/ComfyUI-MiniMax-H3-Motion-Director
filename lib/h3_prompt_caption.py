@@ -735,7 +735,9 @@ def build_replace_window_prompt(
     if not refmod:
         body.append(
             "Only <Subject 1> is regenerated: her face, hair, skin and body come from "
-            "the attached references, her outfit from the identity line."
+            "the attached references, her outfit from the identity line. She stays "
+            "exactly where the source has her - same position, size in frame, body "
+            "language and timing."
         )
     else:
         tail = (

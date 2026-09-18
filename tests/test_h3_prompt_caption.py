@@ -692,6 +692,32 @@ def test_only_the_users_words_survive_a_block_that_came_back():
     assert _clean_motion_note(block) == "", "the block is not a motion brief"
 
 
+def test_a_replace_window_locks_the_pose_to_the_source():
+    """Both replace variants must say she stays where the source has her.
+
+    Without the sentence the model has nothing holding the body where the video puts
+    it, and a hand the prompt does not place gets invented somewhere visible - a live
+    run ended up with the arm reaching over the back instead of staying under the body.
+    """
+    for recipe in ("character_replace", "character_replace_refmod"):
+        kwargs = {"recipe": recipe, "identity_caption": IDENTITY, "action_caption": ACTION}
+        if recipe == "character_replace_refmod":
+            kwargs["character_caption"] = "OUTFIT: a linen dress.\nCLUE: the ponytail woman."
+        text = " ".join(build_replace_window_prompt(**kwargs).text.split())
+        # The RefMod variant folds it into the previous sentence ("; she stays ..."),
+        # the picture variant starts a new one.
+        assert "she stays exactly where the source has her - same position, size in frame" in text.lower(), recipe
+
+
+def test_the_recipe_instruction_and_the_block_agree_on_that_line():
+    from mmx_pkg.lib.h3_prompt_recipes import recipe_block
+
+    instruction = " ".join(recipe_block("character_replace").split())
+    assert "She stays exactly where the source has her" in instruction, (
+        "the shape the model is asked for must say the same thing the assembled block does"
+    )
+
+
 def test_a_caption_never_carries_the_blocks_own_note():
     from mmx_pkg.lib.h3_prompt_caption import _sanitize_caption
 
