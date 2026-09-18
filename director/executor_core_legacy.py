@@ -850,6 +850,20 @@ def execute_director_plan_core(
                         f"Segment {timeline_slot + 1}: continuity anchor from Segment "
                         f"{max(prev_slots) + 1} (previous window's last rendered frame)."
                     )
+        elif bool(getattr(seg, "is_generated", False)):
+            # A generated row opens from the previous segment's rendered frames
+            # exactly like a window does, and it has no window of its own: the
+            # previous output's last frame becomes a <Picture N> anchor. i2v goes
+            # further and uses it as frame 0, so the anchor is computed anyway and
+            # skipped at the injection below.
+            if getattr(replace_spec, "continuity", True):
+                prev_slots = [slot for slot in replace_output_tails if slot < timeline_slot]
+                if prev_slots:
+                    replace_continuity_frame = replace_output_tails[max(prev_slots)]
+                    reports.append(
+                        f"Segment {timeline_slot + 1}: continuity anchor from Segment "
+                        f"{max(prev_slots) + 1} (previous segment's last rendered frame)."
+                    )
         if not context_link.explicit:
             warning_messages.append(f"S{timeline_slot + 1}: legacy workflow fallback is being used")
         if context_link.requested_audio and not apply_audio_context and not replace_active:
@@ -1096,6 +1110,26 @@ def execute_director_plan_core(
         prev_tail = None
         if not context_pipeline_active and is_continuity_active(plan, seg):
             prev_tail = resolve_prev_segment_output(plan, all_segments, seg.index, completed_outputs, node_id)
+        elif bool(getattr(seg, "is_generated", False)) and (
+            seg.task_key == "i2v" or bool(getattr(replace_spec, "continuity", True))
+        ):
+            # A generated row opens from the previous segment's rendered frames -
+            # as a hard first frame (i2v) or as the <Picture> anchor below - and
+            # that has to work when Motion Context is the active pipeline, which is
+            # what the legacy continuity flag above gates on. A missing previous
+            # output degrades to the row's own references instead of failing the
+            # run the user asked for.
+            try:
+                prev_tail = resolve_prev_segment_output(
+                    plan, all_segments, seg.index, completed_outputs, node_id
+                )
+            except ValueError:
+                prev_tail = None
+                log.warning(
+                    "Segment %d is a generated row and its previous segment has no render "
+                    "or cache yet; it opens from its own references instead of the chain.",
+                    timeline_slot + 1,
+                )
         ctx_w = plan.width
         ctx_h = plan.height
         if visible_clip_frames is not None and visible_clip_frames.shape[0] > 0:
@@ -1267,7 +1301,11 @@ def execute_director_plan_core(
         )
         if ref_videos:
             ref_videos = {name: fit_canvas(frames, ctx_w, ctx_h) for name, frames in ref_videos.items()}
-        if replace_active and replace_continuity_frame is not None:
+        if (
+            (replace_active or bool(getattr(seg, "is_generated", False)))
+            and seg.task_key != "i2v"
+            and replace_continuity_frame is not None
+        ):
             ref_images = dict(ref_images or {})
             next_idx = 0
             if ref_images:

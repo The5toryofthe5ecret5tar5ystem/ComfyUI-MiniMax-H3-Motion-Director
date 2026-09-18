@@ -47,8 +47,8 @@ from .replace_engine import snap_window_length
 from .replace_spec import ReplaceSpec, parse_replace_spec
 from .context_links import ContextLink, parse_context_link
 
-from ..lib.generation_source_policy import SOURCE_FREE_GENERATION_TASKS
 from ..lib.segment_kind import (
+    GENERATED_ROW_TASKS,
     GENERATED_SEGMENT_TASK,
     SEGMENT_KIND_GENERATE,
     SEGMENT_KIND_REPLACE,
@@ -897,11 +897,13 @@ def build_director_plan(
             seg_prompt = (seg_data.get("prompt") or "").strip() or prompt
             row_task = seg_data.get("taskType") or seg_data.get("task_type") or ""
             if generated_row:
-                # A generated row consumes no source pixels, so it has to run one
-                # of H3's source-free tasks; anything else would ask the executor
-                # for a source window this row does not have.
+                # A generated row consumes no source pixels, so it has to run a
+                # task that does not read them; anything else would ask the
+                # executor for a source window this row does not have. i2v is in
+                # the set: it locks frame 0 to the previous segment's last
+                # rendered frame instead of reading the footage.
                 row_task = row_task or GENERATED_SEGMENT_TASK
-                if resolve_task_key(row_task) not in SOURCE_FREE_GENERATION_TASKS:
+                if resolve_task_key(row_task) not in GENERATED_ROW_TASKS:
                     log.warning(
                         "Segment %d is a generated row but asks for task %r, which reads "
                         "source frames; rendering it as %s instead.",
@@ -971,14 +973,16 @@ def build_director_plan(
         if generated_row:
             # The row kind wins. A row switched from window to generated in the UI
             # can leave a replace block behind, and reactivating the masked path
-            # would need source frames this row does not have.
+            # would need source frames this row does not have. The recipe itself is
+            # kept: enable off, and the row's own continuity flag stays readable.
             if replace_spec_for_seg.enabled:
                 log.warning(
                     "Segment %d is a generated row and also carries a replace window; the "
                     "row kind wins and the window spec is ignored.",
                     idx + 1,
                 )
-            replace_spec_for_seg = ReplaceSpec()
+                replace_spec_for_seg = copy.deepcopy(replace_spec_for_seg)
+                replace_spec_for_seg.enabled = False
         if (
             replace_spec_for_seg.enabled
             and seg_task_key in {"v2v", "rv2v"}

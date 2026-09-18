@@ -203,6 +203,52 @@ def test_a_generated_row_may_be_first_or_last():
 
 
 # --------------------------------------------------------------------------
+# a hard first frame from the segment in front
+# --------------------------------------------------------------------------
+
+
+def test_a_generated_row_may_run_i2v_to_lock_its_first_frame():
+    """i2v reads no source pixels: it locks frame 0 to the previous render.
+
+    That is the difference between "the chain continues near where the last
+    segment stopped" (r2v, conditioned on context) and a real join at frame 0.
+    """
+    plan = _build([_window(0, 240), _generated(240, 243, taskType="i2v")])
+    assert plan.segments[1].task_key == "i2v"
+    assert plan.segments[1].is_generated is True
+
+
+@pytest.mark.parametrize("task", ["i2v", "r2v", "t2v"])
+def test_a_generated_row_never_resolves_source_pixels(task):
+    """Whatever it runs, a generated row must not pull the source window.
+
+    i2v is the case that makes this load-bearing: allowed to reach the
+    video-timeline loader it would open from the *source* performer instead of
+    the previous segment's rendered frame.
+    """
+    from mmx_pkg.director.segment_runtime import resolve_segment_raw_clip
+
+    plan = _build([_window(0, 240), _generated(240, 243, taskType=task)])
+    clip = resolve_segment_raw_clip(plan, plan.segments[1])
+    assert int(clip.shape[0]) == 0
+
+
+def test_a_generated_row_keeps_its_continuity_switch():
+    """The row's own switch decides whether it opens from the previous segment."""
+    plan = _build([
+        _window(0, 240),
+        _generated(240, 243, replace={"enabled": True, "continuity": False, "mask": {"dir": "masks/x"}}),
+    ])
+    generated = plan.segments[1]
+
+    assert getattr(generated.replace, "enabled", False) is False
+    assert generated.replace.continuity is False
+    # The recipe stays on the row: switching it back to a window in the UI must
+    # not lose the mask setup it had.
+    assert generated.replace.mask.dir == "masks/x"
+
+
+# --------------------------------------------------------------------------
 # nothing changes for jobs that never asked for this
 # --------------------------------------------------------------------------
 

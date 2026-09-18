@@ -886,3 +886,25 @@ message both say how many were kept.
 Not there yet: per-row audio for a generated row. In a **generate**-audio project it
 gets model audio; in a **source**-audio project it takes the source audio at its
 insertion point, and past the end of the footage it is silent.
+
+### How a generated row joins the segment in front of it
+
+A generated row renders from its prompt and references, and the one thing it cannot do
+by itself is start where the last segment ended. Two controls decide that:
+
+- **`cont`** - open from the previous segment's last rendered frame. For a replace
+  window this is a `<Picture N>` anchor with an "open matching that frame" instruction;
+  a generated row gets the same anchor.
+- **the row's own task**, which a generated row picks with the small selector next to
+  its note:
+  - **`r2v`** (default) - continues from the previous segment as *context*: the previous
+    frames steer the render, plus the `<Picture>` anchor above. The opening pose lands
+    near the previous last frame, not exactly on it.
+  - **`i2v`** - locks that frame as this row's **literal frame 0**, which is a real
+    join rather than a near-continuation. If the previous segment has no render and no
+    cache yet, the row falls back to its own first reference image and logs a warning.
+
+So: `i2v` when the seam has to be exact (the row picks up the pose the last segment
+ended on), `r2v` when the row is a new beat and a small settle at the start is fine.
+A window after a generated row keeps its own source frame as frame 0 - that join is the
+row's business, not this one's.

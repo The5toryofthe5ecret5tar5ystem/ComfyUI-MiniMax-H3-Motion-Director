@@ -23,7 +23,12 @@ Notable changes in this fork. Older releases are tagged in git and published on 
   window-only controls hide themselves on one (it is labelled **G**, not **W**), the
   coverage badge counts windows only with a separate `n generated` badge for the added
   frames, and **Long-form replace** keeps generated rows and puts them back in place
-  instead of deleting them with the old layout.
+  instead of deleting them with the old layout. A generated row also chooses how it
+  joins the segment in front of it: **r2v** (default) continues from it as context with
+  its last rendered frame as a `<Picture>` anchor, **i2v** locks that frame as the row's
+  literal frame 0, and the `cont` switch turns the join off entirely. Neither task reads
+  source pixels - i2v included, which is why a generated row never picks up the source
+  window as its opening frame.
 - **Story to segments.** A multi-segment project is a story spread over N renders, and
   every segment prompt had to be written by hand. The enhancer panel now takes the whole
   story in a few sentences, a segment count and a seconds-per-segment value, and splits

@@ -59,6 +59,13 @@ _GENERATE_FLAGS = ("generate", "generated", "isGenerated", "is_generated")
 # replace job has attached.
 GENERATED_SEGMENT_TASK = "r2v"
 
+# Which tasks a generated row may run. r2v/t2v never read source frames, and i2v
+# does not either - it conditions on a first frame (the previous segment's last
+# rendered frame, or the row's own first reference image), which is what turns
+# "the chain continues near where the last one stopped" into a hard join at
+# frame 0.
+GENERATED_ROW_TASKS = frozenset({"r2v", "t2v", "i2v"})
+
 
 def segment_kind(raw: Any) -> str:
     """Kind of a timeline row. Anything unrecognised is a replace window."""
@@ -105,6 +112,7 @@ def generated_row_length(raw: Any) -> int:
 
 
 __all__ = [
+    "GENERATED_ROW_TASKS",
     "GENERATED_SEGMENT_TASK",
     "SEGMENT_KIND_GENERATE",
     "SEGMENT_KIND_REPLACE",

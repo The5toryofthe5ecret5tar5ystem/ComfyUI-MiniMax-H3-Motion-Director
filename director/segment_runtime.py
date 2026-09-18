@@ -114,7 +114,13 @@ def load_source_bridge_clip(
 def resolve_segment_raw_clip(plan: DirectorPlan, seg) -> torch.Tensor:
     """Prefer real visual sources; source-free generation returns no pixel clip."""
     task_key = str(getattr(seg, "task_key", "") or "").lower()
-    if is_source_free_generation_task(task_key):
+    # A generated row never consumes source pixels, whatever task it runs. That
+    # matters most for i2v, which is the task that locks frame 0 to the previous
+    # segment's last rendered frame: allowed to fall through to the video-timeline
+    # loader it would instead pick up the source window at its insertion point and
+    # open from the *source* performer, which is exactly what this row exists to
+    # stop being.
+    if is_source_free_generation_task(task_key) or bool(getattr(seg, "is_generated", False)):
         return torch.zeros((0, 16, 16, 3), dtype=torch.float32)
 
     if seg.source_clip is not None and seg.source_clip.shape[0] > 0:

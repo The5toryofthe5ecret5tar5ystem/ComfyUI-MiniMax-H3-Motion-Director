@@ -3168,6 +3168,7 @@ function installReplaceWindowsMode(ed) {
         // allowed to sit past the end, which is the point of it.
         seg.start = start;
         seg.kind = SEGMENT_KIND_GENERATE;
+        seg.taskType = "r2v";
         const cfg = replaceConfigFromSeg(seg);
         cfg.enabled = false;
         ensureReplaceConfigOnSeg(seg, cfg);
@@ -3482,6 +3483,18 @@ function installReplaceWindowsMode(ed) {
         // Everything that only exists for a masked window lives in one wrapper, so
         // a generated row hides the lot in a single toggle instead of leaving a
         // row of controls that look active and do nothing.
+        const genOnly = document.createElement("span");
+        genOnly.style.cssText = "display:none;align-items:center;gap:6px;";
+        // How the row joins the segment in front of it. r2v conditions on the
+        // previous segment as context; i2v locks its last rendered frame as this
+        // row's frame 0, which is a real join rather than a near-continuation.
+        const taskSel = selectField(
+            ["r2v", "i2v"],
+            String(seg.taskType || "").trim().toLowerCase() === "i2v" ? "i2v" : "r2v",
+            74,
+        );
+        taskSel.dataset.a = "replace-generated-task";
+        taskSel.title = t("replace.generatedTaskTitle");
         const winOnly = document.createElement("span");
         winOnly.style.cssText = "display:contents;";
         const kindSel = selectField(["frames", "sam3"], cfg.kind, 74);
@@ -3525,12 +3538,14 @@ function installReplaceWindowsMode(ed) {
         winOnly.append(audLbl, policy);
         const contLbl = document.createElement("span");
         contLbl.textContent = "cont";
-        contLbl.title = "Chain continuity: open this window from the previous window's last rendered frame (seamless). Off for gapped windows.";
+        contLbl.title = "Open from the previous segment's last rendered frame: for a window that is a <Picture> anchor, for a generated row it is the anchor too (and the actual first frame when the row's task is i2v). Off leaves this segment to open on its own.";
         const contInput = document.createElement("input");
         contInput.type = "checkbox";
         contInput.checked = cfg.continuity !== false;
         contInput.title = contLbl.title;
-        winOnly.append(contLbl, contInput);
+        // Outside the window-only wrapper: a generated row joins the chain with
+        // the same switch, so it has to stay visible for both kinds.
+        line2.append(contLbl, contInput);
         // One RefMod set is appended to every segment's conditioning, so a mod that
         // belongs to some windows and not others needs a per-window switch.
         const refmodLbl = document.createElement("span");
@@ -3557,12 +3572,13 @@ function installReplaceWindowsMode(ed) {
         testImg.style.cssText = "display:none;max-width:100%;border-radius:4px;";
         testImg.alt = "Window mask test";
         winOnly.append(pickBtn, testBtn, testStatus);
-        // Kind selector and its note stay outside the wrapper: the kind is what
-        // decides whether the wrapper's controls apply.
-        line2.append(rowKindSel, genNote);
+        // The kind selector stays outside both wrappers: it is what decides which
+        // of them shows. A generated row gets the task choice and its note.
+        line2.append(rowKindSel, genOnly);
+        genOnly.append(taskSel, genNote);
         line1.append(handle, enabled, label, gotoBtn, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
         row.append(line1, line2, pickArea, testImg);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, contInput, refmodInput, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost, rowKindSel, genNote, winOnly } });
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, contInput, refmodInput, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost, rowKindSel, genNote, winOnly, genOnly, taskSel } });
         return row;
     }
 
@@ -3603,6 +3619,10 @@ function installReplaceWindowsMode(ed) {
         }
         if (inp.winOnly) inp.winOnly.style.display = generated ? "none" : "contents";
         if (inp.genNote) inp.genNote.style.display = generated ? "" : "none";
+        if (inp.genOnly) inp.genOnly.style.display = generated ? "inline-flex" : "none";
+        if (inp.taskSel && active !== inp.taskSel) {
+            inp.taskSel.value = String(seg.taskType || "").trim().toLowerCase() === "i2v" ? "i2v" : "r2v";
+        }
     }
 
     function bindRow(row) {
@@ -3691,9 +3711,20 @@ function installReplaceWindowsMode(ed) {
                 const cfg = replaceConfigFromSeg(seg);
                 cfg.enabled = false;
                 ensureReplaceConfigOnSeg(seg, cfg);
+                if (String(seg.taskType || "").trim() === "") seg.taskType = "r2v";
             } else {
                 delete seg.kind;
+                seg.taskType = "";
             }
+            commitLight();
+            renderRows();
+        });
+        inp.taskSel.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            // r2v continues from the previous segment as context; i2v locks its
+            // last rendered frame as this row's frame 0.
+            seg.taskType = inp.taskSel.value === "i2v" ? "i2v" : "r2v";
             commitLight();
             renderRows();
         });
