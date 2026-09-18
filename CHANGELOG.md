@@ -16,10 +16,13 @@ Notable changes in this fork. Older releases are tagged in git and published on 
   video is required - and borrows that built-in's assembly in `Build from images`
   mode, where the block is written by code rather than by a model. `"auto": true`
   opts a recipe into Auto picking it; without it Auto keeps choosing the pack's own.
-  The file is re-read whenever it changes (no restart), its entries are marked
-  `(yours)` in the dropdown, and anything wrong with it - a duplicate key, a
-  `based_on` that is not a recipe, broken JSON - is shown in the panel instead of
-  silently dropping the recipe.
+  The dropdown keeps the pack's nine shapes; your recipes load from the **Browse...**
+  button beside it, which says how many you have, lists each one's summary, ticks the
+  active one and lights up while one of yours is being sent. The selected one keeps a
+  place in the dropdown (marked `(yours)`) so the panel always shows what it will use.
+  The file is re-read whenever it changes (no restart), and anything wrong with it - a
+  duplicate key, a `based_on` that is not a recipe, broken JSON - is shown in the panel
+  instead of silently dropping the recipe.
 - **A starter file for every shape.** `recipe_templates/` ships one JSON file per
   recipe (`character_replace.json`, `ref2va.json`, `first_last.json`, ...) with the
   pack's current block text in it, ready to copy into your recipes file and edit, plus

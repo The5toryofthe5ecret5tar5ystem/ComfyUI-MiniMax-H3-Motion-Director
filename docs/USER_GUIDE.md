@@ -727,7 +727,8 @@ file, and step 2 or 3 above is the fix.
 
 The prompt enhancer's **Recipe** dropdown decides what shape the enhanced prompt takes:
 a replace window needs the discard sentence and the role lines, a reference segment
-needs the full block, and so on. The pack ships nine of them, and you can add your own.
+needs the full block, and so on. The dropdown holds the nine shapes the pack ships.
+Your own are loaded through the **Browse...** button beside it.
 
 Your recipes live in a file of your own:
 
@@ -737,8 +738,11 @@ Your recipes live in a file of your own:
 
 That is outside the custom-node folder, so a pack update never overwrites it. The panel
 shows the exact path for your machine under the dropdown, and re-reads the file every
-time it opens - an edit needs no ComfyUI restart. Entries from your file are marked
-`(yours)` in the list.
+time it opens - an edit needs no ComfyUI restart. **Browse...** lists what is in it
+(with how many), shows each recipe's summary, and marks the one that is active; the
+button itself lights up while one of yours is the recipe being sent. A recipe you pick
+keeps its place in the dropdown, marked `(yours)`, so the panel always shows what it is
+about to use.
 
 Start from a ready-made template instead of a blank file: the pack ships one per shape
 in `recipe_templates/` (`character_replace.json`, `ref2va.json`, `first_last.json`, ...).

@@ -752,7 +752,14 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
     // wrong for a replace window (no discard sentence, no role lines) - the recipe
     // says what this node actually needs. Auto keeps the previous behaviour for
     // anyone who never touches it.
-    const recipeRow = el({ display: "flex", gap: "6px", alignItems: "center" });
+    //
+    // The dropdown holds the pack's own shapes. Recipes of your own are loaded from
+    // the Browse menu beside it: they live in your recipes.json, they arrive and
+    // change without a pack update, and a list that grows as you write must not
+    // compete with the shapes that describe what this node actually does. When one of
+    // yours is active it keeps a place in the dropdown, so the panel always shows
+    // what it is about to send.
+    const recipeRow = el({ display: "flex", gap: "6px", alignItems: "center", position: "relative" });
     recipeRow.appendChild(el({}, t("pe.recipeLabel"), "span")).className = "minimax-pe-label";
     pe.recipeSelect = document.createElement("select");
     pe.recipeSelect.className = "minimax-pe-select";
@@ -767,6 +774,21 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         pe.updateRecipeNote();
     };
     recipeRow.appendChild(pe.recipeSelect);
+
+    // Browse: the recipes in your own file. A button rather than more options in the
+    // dropdown, because these are not shapes the pack defines - they are yours, they
+    // are read from disk, and there may be none at all.
+    pe.recipeBrowseBtn = el({
+        background: "#252a34", color: "#e8ecf4", border: "1px solid #2a3140",
+        borderRadius: "4px", padding: "4px 8px", cursor: "pointer", flexShrink: "0",
+        fontSize: "11px", whiteSpace: "nowrap",
+    }, t("pe.recipeBrowse"), "button");
+    pe.recipeBrowseBtn.title = t("pe.recipeBrowseTip");
+    pe.recipeBrowseBtn.onclick = (event) => {
+        event.stopPropagation();
+        pe.toggleRecipeMenu();
+    };
+    recipeRow.appendChild(pe.recipeBrowseBtn);
     pe.body.appendChild(recipeRow);
     pe.recipeNote = el({ fontSize: "9px", color: "#7d8698", lineHeight: "1.4" });
     // The note can carry two lines: the recipe's summary, then where the user's own
@@ -777,6 +799,114 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
     pe.recipeOptions = [];
     pe.userRecipesPath = "";
     pe.userRecipeErrors = [];
+    pe.recipeMenu = null;
+
+    /** The recipes from your own file, as the Browse menu lists them. */
+    pe.userRecipes = () => (pe.recipeOptions || []).filter((r) => r && r.source === "user");
+
+    pe.closeRecipeMenu = () => {
+        if (!pe.recipeMenu) return;
+        pe.recipeMenu.remove();
+        pe.recipeMenu = null;
+        document.removeEventListener("pointerdown", pe._closeRecipeMenuOnOutside, true);
+    };
+
+    /** Close when the click was anywhere but the menu or its button. */
+    pe._closeRecipeMenuOnOutside = (event) => {
+        const target = event.target;
+        if (pe.recipeMenu?.contains(target) || pe.recipeBrowseBtn?.contains(target)) return;
+        pe.closeRecipeMenu();
+    };
+
+    /** One <option> for a recipe: locale label when there is one, else the pack's own. */
+    pe.recipeOptionFor = (item) => {
+        const option = document.createElement("option");
+        option.value = item.key;
+        // (t() returns the key unchanged when a translation is missing.)
+        const i18nKey = `pe.recipe.${item.key}`;
+        const translated = t(i18nKey);
+        const base = translated === i18nKey ? item.label : translated;
+        option.textContent = item.source === "user" ? `${base} ${t("pe.recipeUser")}` : base;
+        option.title = item.summary || "";
+        return option;
+    };
+
+    /** The Browse button shows how many you have, and lights up when one is active. */
+    pe.syncRecipeBrowseBtn = () => {
+        if (!pe.recipeBrowseBtn) return;
+        const mine = pe.userRecipes();
+        const active = mine.some((r) => r.key === pe.recipeSelect?.value);
+        pe.recipeBrowseBtn.textContent = mine.length
+            ? `${t("pe.recipeBrowse")} (${mine.length})`
+            : t("pe.recipeBrowse");
+        pe.recipeBrowseBtn.style.background = active ? "#3b82f6" : "#252a34";
+        pe.recipeBrowseBtn.style.color = active ? "#fff" : "#e8ecf4";
+    };
+
+    /** Select a recipe by key, whatever menu it came from. */
+    pe.selectRecipe = (key) => {
+        const value = key || "auto";
+        const option = [...pe.recipeSelect.options].find((o) => o.value === value);
+        if (!option) {
+            // A recipe of your own: the dropdown does not carry it, so it is added on
+            // demand - marked, because it is not one of the pack's shapes.
+            const item = (pe.recipeOptions || []).find((r) => r.key === value);
+            pe.recipeSelect.appendChild(pe.recipeOptionFor(item || { key: value, label: value }));
+        }
+        pe.recipeSelect.value = value;
+        savePeSettings({ h3Recipe: value });
+        pe.closeRecipeMenu();
+        pe.updateRecipeNote();
+    };
+
+    pe.toggleRecipeMenu = () => {
+        if (pe.recipeMenu) {
+            pe.closeRecipeMenu();
+            return;
+        }
+        const menu = el({
+            position: "absolute", top: "100%", left: "0", right: "0", marginTop: "4px",
+            background: "#12151b", border: "1px solid #2a3140", borderRadius: "4px",
+            boxShadow: "0 8px 20px rgba(0,0,0,0.55)", padding: "4px", zIndex: "40",
+            maxHeight: "220px", overflowY: "auto",
+        });
+        const mine = pe.userRecipes();
+        menu.appendChild(el({ fontSize: "9px", color: "#7d8698", padding: "2px 4px 4px" },
+            t("pe.recipeMenuYour", { count: mine.length })));
+        if (!mine.length) {
+            menu.appendChild(el({ fontSize: "9px", color: "#7d8698", padding: "2px 4px", lineHeight: "1.4" },
+                t("pe.recipeMenuEmpty", { path: pe.userRecipesPath || "recipes.json" })));
+        }
+        const active = pe.recipeSelect?.value;
+        for (const item of mine) {
+            const row = el({
+                display: "flex", flexDirection: "column", gap: "2px", padding: "4px 6px",
+                borderRadius: "3px", cursor: "pointer", background: item.key === active ? "#1f2937" : "transparent",
+            });
+            row.appendChild(el({ fontSize: "10px", color: "#e8ecf4" },
+                `${item.key === active ? "\u2713 " : ""}${item.label}`));
+            if (item.summary) {
+                row.appendChild(el({ fontSize: "9px", color: "#7d8698", lineHeight: "1.3" }, item.summary));
+            }
+            row.onmouseenter = () => { row.style.background = "#1f2937"; };
+            row.onmouseleave = () => { row.style.background = item.key === active ? "#1f2937" : "transparent"; };
+            row.onclick = () => pe.selectRecipe(item.key);
+            menu.appendChild(row);
+        }
+        if (pe.userRecipeErrors.length) {
+            menu.appendChild(el({ fontSize: "9px", color: "#f87171", padding: "4px 4px 2px", lineHeight: "1.4" },
+                t("pe.recipeIssues", {
+                    path: pe.userRecipesPath || "recipes.json",
+                    count: pe.userRecipeErrors.length,
+                    problem: pe.userRecipeErrors[0],
+                })));
+        }
+        menu.appendChild(el({ fontSize: "9px", color: "#5f6779", padding: "4px 4px 2px", lineHeight: "1.4" },
+            t("pe.recipeMenuHint", { path: pe.userRecipesPath || "recipes.json" })));
+        recipeRow.appendChild(menu);
+        pe.recipeMenu = menu;
+        document.addEventListener("pointerdown", pe._closeRecipeMenuOnOutside, true);
+    };
 
     // A RefMod window has no <Picture N> slots - its identity is appended after text
     // encoding - so "build from images" has nothing to caption unless the panel can
@@ -843,21 +973,16 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             const keep = pe.recipeSelect.value || "auto";
             while (pe.recipeSelect.options.length > 1) pe.recipeSelect.remove(1);
             for (const item of items) {
-                const option = document.createElement("option");
-                option.value = item.key;
-                // Locale label when one exists, else the pack's own English text
-                // (t() returns the key unchanged when a translation is missing).
-                const i18nKey = `pe.recipe.${item.key}`;
-                const translated = t(i18nKey);
-                const base = translated === i18nKey ? item.label : translated;
-                option.textContent = item.source === "user"
-                    ? `${base} ${t("pe.recipeUser")}`
-                    : base;
-                option.title = item.summary || "";
-                pe.recipeSelect.appendChild(option);
+                if (item.source === "user") continue;   // yours: the Browse menu
+                pe.recipeSelect.appendChild(pe.recipeOptionFor(item));
             }
+            // One of yours that is already selected keeps its place, or a stored custom
+            // would look like Auto the next time the panel opens.
+            const active = items.find((r) => r.key === keep && r.source === "user");
+            if (active) pe.recipeSelect.appendChild(pe.recipeOptionFor(active));
             pe.recipeSelect.value = keep;
             if (pe.recipeSelect.value !== keep) pe.recipeSelect.value = "auto";
+            pe.closeRecipeMenu();
             pe.updateRecipeNote();
         } catch (e) {
             /* the dropdown stays on Auto; enhancement is unaffected */
@@ -896,6 +1021,7 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         }
         pe.recipeNote.textContent = [text, ...extra].filter(Boolean).join("\n");
         pe.recipeNote.style.color = pe.userRecipeErrors.length ? "#f87171" : "#7d8698";
+        pe.syncRecipeBrowseBtn();
     };
 
     const btnRow = el({ display: "flex", gap: "6px", flexDirection: "column" });
@@ -940,6 +1066,7 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
 
     header.onclick = () => {
         pe.open = !pe.open;
+        pe.closeRecipeMenu();
         pe.body.style.display = pe.open ? "flex" : "none";
         pe.arrow.style.transform = pe.open ? "rotate(90deg)" : "";
         editor.updateDomWidgetHeight?.();

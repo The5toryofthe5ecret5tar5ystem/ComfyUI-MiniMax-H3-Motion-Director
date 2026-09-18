@@ -1,8 +1,9 @@
 # Your own prompt recipes
 
 The prompt enhancer has a **Recipe** dropdown that decides the *shape* of the answer it
-asks for. The pack ships nine of them; this folder gives you one starter file per shape
-so you can write your own.
+asks for. The dropdown holds the nine shapes the pack ships; this folder gives you one
+starter file per shape, and your own recipes are loaded from the **Browse...** button
+beside the dropdown.
 
 ## Where your recipes live
 
@@ -27,6 +28,8 @@ Create the file if it is not there yet:
 1. Open the starter file for the shape you want (see the list below).
 2. Copy its single entry into the `recipes` list in your `recipes.json`.
 3. Give it a new `key` and a `label` you will recognise, then edit `block`.
+4. Open the prompt-enhancer panel and press **Browse...** - it lists what the file holds,
+   with its summary and a tick on the active one.
 
 ```json
 {
