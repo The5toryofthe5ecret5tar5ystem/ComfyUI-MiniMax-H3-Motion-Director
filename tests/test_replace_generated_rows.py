@@ -197,6 +197,16 @@ def test_a_generated_row_without_a_length_is_skipped():
     assert plan.segments[0].kind == SEGMENT_KIND_REPLACE
 
 
+def test_a_generated_row_may_carry_its_length_as_frame_count():
+    """The UI writes length and frameCount; a hand-authored row may write one."""
+    plan = _build([
+        _window(0, 240),
+        {"kind": "generate", "start": 240, "frameCount": 240, "prompt": "continues"},
+    ])
+    assert [seg.kind for seg in plan.segments] == [SEGMENT_KIND_REPLACE, SEGMENT_KIND_GENERATE]
+    assert plan.segments[1].frame_count == 243
+
+
 def test_a_generated_row_may_be_first_or_last():
     plan = _build([_generated(0, 243), _window(0, 240)])
     assert [seg.kind for seg in plan.segments] == [SEGMENT_KIND_GENERATE, SEGMENT_KIND_REPLACE]

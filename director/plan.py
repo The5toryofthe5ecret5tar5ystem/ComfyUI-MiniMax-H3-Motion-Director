@@ -52,6 +52,7 @@ from ..lib.segment_kind import (
     GENERATED_SEGMENT_TASK,
     SEGMENT_KIND_GENERATE,
     SEGMENT_KIND_REPLACE,
+    generated_row_length,
     segment_kind,
 )
 
@@ -582,7 +583,9 @@ def _segment_ranges_from_timeline(timeline: dict, total: int) -> list[tuple[int,
                 # A generated row has no source window: its range is simply the
                 # number of frames it renders, so the source total must not clip
                 # it and the editor's list order stays the run/export order.
-                length = max(0, end - start)
+                # generated_row_length also reads frameCount, which the UI writes
+                # next to length and a hand-authored row may carry on its own.
+                length = generated_row_length(raw)
                 if length <= 0:
                     log.warning(
                         "Generated row without a length was skipped; give it a length "
