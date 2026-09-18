@@ -52,10 +52,14 @@ CAPTION_RECIPES = frozenset({
 REPLACE_RECIPES = frozenset({"character_replace", "character_replace_refmod"})
 
 # How much output each caption may produce. The instructions ask for one or two
-# sentences (identity) and one paragraph (action), so this is generous headroom;
-# the original workflow used the same 512.
+# sentences (identity) and one paragraph (action), so this is generous headroom; the
+# original workflow used the same 512.
 IDENTITY_CAPTION_TOKENS = 512
-ACTION_CAPTION_TOKENS = 512
+# The action caption is the long one, and it is the one whose ending matters: at 512 a
+# small model spent the budget on the room and the camera and was cut off mid-word
+# before it ever described what happens - the block then carried a scene and no action
+# at all. The instruction puts the action first, and this leaves room for the rest.
+ACTION_CAPTION_TOKENS = 768
 # Two labelled lines share the budget, so this is deliberately tighter than the
 # identity caption: a wardrobe line that rambles is worse than a short one.
 CHARACTER_CAPTION_TOKENS = 320
@@ -87,8 +91,15 @@ ACTION_INSTRUCTION = """
 Analyze this video for reference-to-video generation. You are writing the
 detailed_description of a video remake.
 
-Write a concise single paragraph covering: the environment and background; camera
-framing, angle and movement; lighting; and the actions being done over time.
+Write one paragraph of at most about 110 words, in this order:
+
+1. THE ACTION, beat by beat, as it happens over time: what moves, in which direction,
+   where it ends up, and how the body is positioned while it happens.
+2. The environment and background.
+3. The camera framing, angle and movement, and the lighting.
+
+The action comes first on purpose. It is the part a written prompt cannot recover,
+and a description that spends its whole length on the room has nothing to remake.
 Refer to the woman as <Subject 1>, and to any other visible person as <Subject 2>
 only if visible.
 
@@ -380,6 +391,11 @@ def _looks_like_transcript(text: str) -> bool:
 def _strip_reasoning(text: str) -> str:
     """Keep the description, drop the narration about producing it."""
     body = " ".join(str(text or "").split())
+    # A caption never carries the block's own note sentence: from that marker on it is
+    # scaffolding the block adds, not something the model was shown.
+    note_at = body.find(_NOTE_MARKER)
+    if note_at >= 0:
+        body = body[:note_at].strip()
     low = body.lower()
     cut = -1
     for phrase in _REASONING_TRANSITIONS:
@@ -434,6 +450,55 @@ _KNOWN_SECTIONS = {
 _MOTION_SECTION_KEYS = ("detailed_description", "summary")
 _HEADING_RE = re.compile(r"^[ \t]*([A-Za-z][A-Za-z_ ]{2,40})[ \t]*:[ \t]*(.*)$")
 
+# The note the pack appends to a replace window's action prose, and the sentence that
+# closes it. Enhancing the same window again feeds both back in, so they are how a
+# previous round is recognised and peeled off.
+_NOTE_MARKER = (
+    "Her own note on the motion of this window, which still frames cannot show:"
+)
+_NOTE_TAIL = "Follow it; never replace what"
+# Code-owned lines of a replace window. They are scaffolding around the text, never
+# the user's words, so they are cut wherever they turn up in a note.
+_WINDOW_BOILERPLATE = (
+    "Her own note on the motion of this window",
+    "[Shot 1] Begin from the opening frame of this window.",
+    "Only <Subject 1> is regenerated:",
+    "The room, props, lighting, camera and audio stay exactly as",
+    "No second person.",
+    "No on-screen text, subtitles or watermarks.",
+)
+
+
+def _strip_window_boilerplate(text: str) -> str:
+    """Drop the block's own sentences from whatever is left of a note."""
+    body = str(text or "")
+    for marker in _WINDOW_BOILERPLATE:
+        at = body.find(marker)
+        if at >= 0:
+            body = body[:at]
+    return body.strip()
+
+
+def _previous_note(text: str) -> str:
+    """The note an earlier run of this window appended, with any nesting peeled off.
+
+    Returns "" when the text carries no note. Peeling is repeated because each round
+    leaves its own note inside the text the next round reads: the innermost text is
+    the one the user actually wrote.
+    """
+    body = str(text or "")
+    peeled = ""
+    for _ in range(6):
+        at = body.find(_NOTE_MARKER)
+        if at < 0:
+            break
+        body = body[at + len(_NOTE_MARKER):]
+        end = body.find(_NOTE_TAIL)
+        if end >= 0:
+            body = body[:end]
+        peeled = body
+    return _strip_window_boilerplate(peeled)
+
 
 def _prompt_sections(text: str) -> dict[str, str]:
     """Split a prompt-box text into ``heading -> body`` on its own heading lines."""
@@ -464,18 +529,34 @@ def _motion_from_prompt(text: str) -> str:
     the copy off mid-sentence. When the box holds a structured prompt, only its own
     description of the action is used, and if it holds nothing about movement the
     note is dropped.
+
+    Enhancing the same window twice feeds the block back in, note and all, so the
+    previous note is peeled out first - otherwise round 2 appends round 1's note
+    inside its own, and round 3 nests that again.
     """
     body = str(text or "").strip()
     if not body:
         return ""
+    peeled = _previous_note(body)
+    return _motion_from_text(peeled if peeled and peeled != body else body)
+
+
+def _motion_from_text(body: str) -> str:
+    """A prompt text's own words about the movement, or "" when it has none.
+
+    The block's own sentences are stripped from whichever branch answers, so a block
+    that came back in without a note of its own contributes nothing rather than
+    feeding its caption in as if it were the user's brief - the next run writes that
+    caption itself.
+    """
     sections = _prompt_sections(body)
     if sections:
         for key in _MOTION_SECTION_KEYS:
             value = sections.get(key, "")
             if value.strip():
-                return value.strip()
+                return _strip_window_boilerplate(value)
         return ""
-    return body
+    return _strip_window_boilerplate(body)
 
 
 def _clean_motion_note(text: str) -> str:
@@ -489,6 +570,10 @@ def _clean_motion_note(text: str) -> str:
     demonstrably show.
     """
     body = _clean_caption(_motion_from_prompt(text))
+    # The sentence it is appended to supplies its own full stop, and the note is
+    # re-read from the assembled block on the next run: leave the period on and the
+    # block grows a ".." every time the same window is enhanced.
+    body = body.rstrip(",;.:")
     if len(body) > MAX_MOTION_NOTE_CHARS:
         body = body[:MAX_MOTION_NOTE_CHARS].rsplit(" ", 1)[0].rstrip(",;.:")
     return body

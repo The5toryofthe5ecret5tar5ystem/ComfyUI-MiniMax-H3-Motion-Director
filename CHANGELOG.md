@@ -59,6 +59,23 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Fixed
 
+- **Enhancing the same replace window twice no longer nests the motion note.** The note
+  is appended to the window's action prose, and the panel writes the assembled block back
+  into the prompt box - so the next run read that note back in, from inside the block and
+  from inside the note. A live run showed round 2 putting round 1's note inside its own,
+  the identity lines dragged along with it and both copies cut off mid-sentence, leaving a
+  block that described the previous block instead of the window. The previous note is now
+  peeled out (however deep the nesting goes) and only the user's own words carry forward;
+  a block that came back without a note contributes nothing rather than echoing its own
+  caption as if it were the user's brief. The note also no longer keeps its trailing full
+  stop, which had been adding a ".." to the block on every round.
+- **The action caption describes the action before anything else.** A live run came back
+  with the room, the bed and the camera and then stopped mid-word ("... the camera holds a
+  static low-angle point-of-"), because the action was listed last and the caption ran out
+  of its 512 tokens before reaching it - so the block carried a scene and no action at
+  all, on a window whose whole point was what the body was doing. The instruction now puts
+  the action first, bounds the answer at about 110 words, and the action caption gets 768
+  tokens.
 - **A caption that was really the model's own notes is no longer pasted into the
   block.** A caption model sometimes answers with a transcript of its reasoning
   ("The user wants... I need to cover... Let me write a single paragraph, no quotes")

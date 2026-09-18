@@ -32,6 +32,7 @@ if "folder_paths" not in sys.modules:
 from mmx_pkg.lib.h3_prompt_caption import (  # noqa: E402
     ACTION_CAPTION_TOKENS,
     AUDIO_LINES,
+    IDENTITY_CAPTION_TOKENS,
     MAX_MOTION_NOTE_CHARS,
     build_from_images,
     build_ref2va_prompt,
@@ -324,8 +325,9 @@ def test_caption_calls_are_capped_so_the_run_stays_short(_server):
         reference_images=["REF1"],
         timeout=10,
     )
-    for body in _Handler.seen:
-        assert body.get("max_tokens") == ACTION_CAPTION_TOKENS
+    caps = {body.get("max_tokens") for body in _Handler.seen}
+    assert caps <= {IDENTITY_CAPTION_TOKENS, ACTION_CAPTION_TOKENS}, caps
+    assert ACTION_CAPTION_TOKENS in caps, "the action caption is the long one"
 
 
 def test_build_from_images_keeps_the_users_motion_note_for_a_replace_window(_server):
@@ -609,7 +611,9 @@ def test_a_structured_prompt_does_not_get_pasted_in_as_a_motion_note():
         "She lies face down and keeps gyrating her hips while the camera holds still.\n"
     )
     note = _clean_motion_note(structured)
-    assert note == "She lies face down and keeps gyrating her hips while the camera holds still."
+    # No trailing full stop: the sentence the note is appended to ends itself, and the
+    # note is read back out of that block on the next run.
+    assert note == "She lies face down and keeps gyrating her hips while the camera holds still"
     assert "<Picture 1>" not in note and "subject_definitions" not in note
 
 
@@ -627,10 +631,91 @@ def test_a_short_note_still_travels():
     from mmx_pkg.lib.h3_prompt_caption import _clean_motion_note
 
     assert _clean_motion_note("she keeps gyrating her hips") == "she keeps gyrating her hips"
+    assert _clean_motion_note("she keeps gyrating her hips.") == "she keeps gyrating her hips"
     assert "gyrating" in build_replace_window_prompt(
         recipe="character_replace",
         identity_caption=IDENTITY,
         action_caption=ACTION,
         motion_note="she keeps gyrating her hips",
     ).text
+
+
+# --- enhancing the same window twice -------------------------------------------
+#
+# A replace window's note is appended to its action prose, and the panel writes the
+# assembled block back into the prompt box. Enhancing that window again therefore
+# feeds the note back in - and a live run showed the result: round 2 put round 1's
+# note inside its own, round 3 nested that again, and the block filled up with copies
+# of the previous block instead of describing the window.
+
+def test_the_note_does_not_nest_when_the_block_comes_back_in():
+    from mmx_pkg.lib.h3_prompt_caption import _clean_motion_note
+
+    brief = "She lies face down, seen from behind, hips gyrating while one arm reaches under her."
+    first = build_replace_window_prompt(
+        recipe="character_replace", identity_caption=IDENTITY,
+        action_caption=ACTION, motion_note=brief, picture_count=2,
+    ).text
+    # The panel puts that block in the prompt box; the next enhance reads it back.
+    second = _clean_motion_note(first)
+    assert second == brief.rstrip("."), second
+    assert second.count("Her own note") == 0, "the marker itself is scaffolding"
+    assert ".." not in first, "the note is appended to a sentence that ends itself"
+
+
+def test_two_rounds_of_nesting_peel_back_to_the_brief():
+    from mmx_pkg.lib.h3_prompt_caption import _clean_motion_note
+
+    brief = "She is on all fours, hips rolling slowly."
+    block = build_replace_window_prompt(
+        recipe="character_replace", identity_caption=IDENTITY,
+        action_caption=ACTION, motion_note=brief,
+    ).text
+    # Round 2's block, then round 3 reading it: the innermost text is still the brief.
+    nested = build_replace_window_prompt(
+        recipe="character_replace", identity_caption=IDENTITY,
+        action_caption="Environment: a room. ", motion_note=block,
+    ).text
+    assert _clean_motion_note(nested) == brief.rstrip(".")
+    assert _clean_motion_note(f"{ACTION} {nested}") == brief.rstrip(".")
+
+
+def test_only_the_users_words_survive_a_block_that_came_back():
+    """A block with no note of its own contributes nothing, not its identity lines."""
+    from mmx_pkg.lib.h3_prompt_caption import _clean_motion_note
+
+    block = build_replace_window_prompt(
+        recipe="character_replace", identity_caption=IDENTITY, action_caption=ACTION,
+        picture_count=2,
+    ).text
+    assert "Her own note" not in block, "no note was passed"
+    assert _clean_motion_note(block) == "", "the block is not a motion brief"
+
+
+def test_a_caption_never_carries_the_blocks_own_note():
+    from mmx_pkg.lib.h3_prompt_caption import _sanitize_caption
+
+    leaked = (
+        "She lies on her front and rolls her hips. "
+        "Her own note on the motion of this window, which still frames cannot show: "
+        "Only <Subject 1> is regenerated: her face comes from the references."
+    )
+    clean, _ = _sanitize_caption(leaked, "English")
+    assert clean == "She lies on her front and rolls her hips."
+
+
+# --- the action caption is the one that must not be cut off ---------------------
+
+
+def test_the_action_instruction_writes_the_action_first():
+    from mmx_pkg.lib.h3_prompt_caption import ACTION_CAPTION_TOKENS, ACTION_INSTRUCTION
+
+    flat = " ".join(ACTION_INSTRUCTION.split())
+    assert "1. THE ACTION" in flat
+    assert flat.index("1. THE ACTION") < flat.index("2. The environment")
+    assert "at most about 110 words" in flat
+    assert ACTION_CAPTION_TOKENS > 512, (
+        "at 512 a small model spent the budget on the room and the camera and was cut "
+        "off before it described the action at all"
+    )
 
