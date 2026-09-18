@@ -773,3 +773,45 @@ pack's own.
 If something in the file is wrong - a duplicate key, a `based_on` that is not a recipe,
 broken JSON - the panel says so under the dropdown instead of silently dropping the
 entry. `recipe_templates/README.md` has the full field reference.
+
+## 24. Story to segments
+
+A multi-segment project is a story spread over N renders, and writing each segment's
+prompt by hand is the slowest part of it. The enhancer panel has a **Story to segments**
+section (open it, it is collapsed by default) that does that step for you:
+
+1. Describe the **whole story in a few sentences** - who, where, and what happens in
+   order. It does not have to be well written; it has to be complete.
+2. Set **how many segments** and **how long each one is**. Each segment is one
+   continuous take, so cuts happen between segments, and the seconds are snapped to
+   H3's frame grid: 7 seconds is 175 frames, 10 segments is about 73 seconds total.
+3. Press **Plan story**. One model call splits the brief into a shared `world`
+   paragraph (the place, the light, her look - stated once) plus one paragraph per
+   segment.
+4. The segments are written into the timeline. If the timeline is empty - or it is a
+   generation timeline - the missing segments are **created** for you at that length;
+   segments that already exist keep their own timing and just receive a prompt. A
+   hand-laid video or Character Replace timeline is never re-timed.
+5. Confirm the follow-up: each segment then goes through the normal enhancement, one
+   prompt per segment, and the **review list** shows every result before anything is
+   applied. Untick what you do not want, **Regenerate** a single segment you do not
+   like (it re-runs just that one, from the same original text), **Regenerate all** if
+   the run came out poorly, then **Apply selected**.
+
+The plan itself follows the rules the rest of the pack enforces, because a screenwriter's
+instincts break them:
+
+- **One take per segment.** The camera holds or moves inside a segment; a cut is a
+  segment boundary.
+- **Every beat changes something** - a position, a possession, a state, a distance
+  closed. A beat where nothing changes is a wasted render.
+- **Each segment ends where the next can start.** Chaining feeds the previous segment's
+  final frames in as the anchor, so a segment ends on a stable pose and the next opens
+  by continuing it. Never mid-air, unless the fall itself is the point.
+- **Her look is stated once**, in the world paragraph and the reference images. It is not
+  repeated inside every segment, where it would compete with the references.
+
+What it does not do: it plans, it does not render - you still queue the segments
+(Selective Run is the cheap way to try one). It also does not see your source video; the
+split is a text task, and `Build from images` is what grounds each segment's prose in
+its own frames.

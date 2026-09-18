@@ -1024,6 +1024,198 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         pe.syncRecipeBrowseBtn();
     };
 
+    // --- Story -> segments ------------------------------------------------------
+    //
+    // A multi-segment project is a story spread over N renders, and until now every
+    // segment prompt was written by hand. One call splits the brief into a shared
+    // world paragraph plus one paragraph per segment; the normal enhance path then
+    // turns each paragraph into a final prompt, which the review list shows before
+    // anything is applied. Nothing here renders anything: it is the authoring step.
+    const storyBox = document.createElement("details");
+    storyBox.style.cssText = "margin-top:2px";
+    const storySummary = el({ fontSize: "10px", color: "#9aa3b5", cursor: "pointer", userSelect: "none" },
+        t("pe.storySummary"), "summary");
+    storySummary.title = t("pe.storyTip");
+    storyBox.appendChild(storySummary);
+
+    const storyBody = el({ display: "flex", flexDirection: "column", gap: "6px", paddingTop: "6px" });
+    pe.storyInput = document.createElement("textarea");
+    pe.storyInput.rows = 3;
+    Object.assign(pe.storyInput.style, {
+        width: "100%", fontSize: "10px", lineHeight: "1.4", resize: "vertical",
+        background: "#12151b", color: "#e8ecf4", border: "1px solid #2a3140", borderRadius: "3px",
+    });
+    pe.storyInput.placeholder = t("pe.storyPlaceholder");
+    swallowKeys(pe.storyInput);
+    storyBody.appendChild(pe.storyInput);
+
+    const storyControls = el({ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" });
+    pe.storySegmentsInput = document.createElement("input");
+    pe.storySegmentsInput.type = "number";
+    pe.storySegmentsInput.min = "1";
+    pe.storySegmentsInput.max = "60";
+    pe.storySegmentsInput.step = "1";
+    pe.storySegmentsInput.value = "10";
+    pe.storySegmentsInput.style.width = "52px";
+    pe.storySegmentsInput.title = t("pe.storySegmentsTip");
+    swallowKeys(pe.storySegmentsInput);
+    pe.storySecondsInput = document.createElement("input");
+    pe.storySecondsInput.type = "number";
+    pe.storySecondsInput.min = "1";
+    pe.storySecondsInput.max = "60";
+    pe.storySecondsInput.step = "0.5";
+    pe.storySecondsInput.value = "7";
+    pe.storySecondsInput.style.width = "52px";
+    pe.storySecondsInput.title = t("pe.storySecondsTip");
+    swallowKeys(pe.storySecondsInput);
+    pe.storyPlanBtn = el({
+        background: "#252a34", color: "#e8ecf4", border: "1px solid #2a3140",
+        borderRadius: "4px", padding: "4px 10px", cursor: "pointer", fontSize: "11px",
+        whiteSpace: "nowrap",
+    }, t("pe.storyPlan"), "button");
+    storyControls.append(
+        pe.storySegmentsInput, el({ fontSize: "10px", color: "#b8c0d0" }, t("pe.storySegments"), "span"),
+        pe.storySecondsInput, el({ fontSize: "10px", color: "#b8c0d0" }, t("pe.storySeconds"), "span"),
+        pe.storyPlanBtn,
+    );
+    storyBody.appendChild(storyControls);
+    pe.storyNote = el({ fontSize: "9px", color: "#7d8698", lineHeight: "1.4", whiteSpace: "pre-line" });
+    storyBody.appendChild(pe.storyNote);
+    storyBox.appendChild(storyBody);
+    pe.body.appendChild(storyBox);
+    pe.storyBox = storyBox;
+
+    /**
+     * Make sure the timeline has ``count`` segments, creating the missing ones.
+     *
+     * Only a generation timeline is grown here: a video or replace timeline is
+     * written by hand, and inventing windows in it would be worse than refusing. An
+     * existing segment keeps its own length - the story fills prompts, it does not
+     * silently re-time a project that was already laid out.
+     */
+    pe.ensureStorySegments = (count, frames) => {
+        const timeline = editor?.timeline;
+        const want = Math.max(1, Math.round(Number(count) || 1));
+        if (!timeline || !Array.isArray(timeline.segments)) {
+            return { created: 0, total: 0, note: "" };
+        }
+        const mayCreate = !timeline.segments.length || !!editor?.isGenMode?.();
+        let created = 0;
+        while (mayCreate && timeline.segments.length < want) {
+            timeline.segments.push({
+                id: `pe_story_${Date.now()}_${timeline.segments.length}`,
+                start: 0,
+                length: frames,
+                frameCount: frames,
+                prompt: "",
+                taskType: "",
+                refs: [],
+                genImage: { imageFile: "" },
+            });
+            created += 1;
+        }
+        if (created) {
+            editor.normalizeGenSegments?.();
+            editor.commit?.(false, { syncTimeline: true });
+        }
+        const total = timeline.segments.length;
+        const note = created
+            ? t("pe.storyCreated", { count: created, frames })
+            : (total < want ? t("pe.storyTooFew", { total, want }) : "");
+        return { created, total, note };
+    };
+
+    /** Write a plan into the timeline: the world paragraph, then one beat per segment. */
+    pe.applyStoryPlan = (plan) => {
+        const beats = Array.isArray(plan?.beats) ? plan.beats : [];
+        const frames = Math.round(Number(plan?.frames) || 0);
+        const world = String(plan?.world || "").trim();
+        const { created, total, note } = pe.ensureStorySegments(beats.length, frames);
+        let filled = 0;
+        for (let index = 0; index < Math.min(beats.length, total); index += 1) {
+            const beat = String(beats[index] || "").trim();
+            if (!beat) continue;
+            // The world paragraph rides with every segment: for a text-to-video story
+            // it is the only place her look and the place are stated, and on a
+            // reference task it costs one sentence and keeps the segments agreeing.
+            pe.setPromptTextForBlock(world ? `${world}\n\n${beat}` : beat, index);
+            filled += 1;
+        }
+        editor.commit?.(false, { syncTimeline: true });
+        const notes = [...(plan?.notes || []), note].filter(Boolean);
+        pe.storyNote.textContent = notes.join(" ");
+        pe.setStatus(
+            t("pe.storyFilled", { filled, segments: beats.length, frames, seconds: plan?.seconds ?? "" }),
+            notes.length ? "info" : "success",
+        );
+        pe._lastStoryPlan = plan;
+        return { filled, created };
+    };
+
+    pe.planStory = async () => {
+        const story = (pe.storyInput?.value || "").trim();
+        if (!story) {
+            pe.setStatus(t("pe.storyNeedText"), "error");
+            return null;
+        }
+        const cfg = pe.getLlmConfig();
+        if (!cfg.model) {
+            pe.setStatus(t("pe.storyNeedModel"), "error");
+            return null;
+        }
+        const segments = Math.max(1, Math.min(60, Math.round(Number(pe.storySegmentsInput?.value) || 10)));
+        const seconds = Math.max(1, Math.min(60, Number(pe.storySecondsInput?.value) || 7));
+        savePeSettings({ storySegments: segments, storySeconds: seconds, storyText: story });
+
+        const label = pe.storyPlanBtn.textContent;
+        pe.storyPlanBtn.disabled = true;
+        pe.storyPlanBtn.textContent = t("pe.storyPlanning");
+        pe.setStatus(t("pe.storyPlanningStatus", { segments }), "loading");
+        try {
+            const resp = await api.fetchApi("/minimax/motion-director/story_plan", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    story,
+                    segments,
+                    seconds,
+                    task_type: editor.getTaskKey?.() || "",
+                    output_language: pe.langSelect?.value || DEFAULT_OUTPUT_LANGUAGE,
+                    ...cfg,
+                }),
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                pe.setStatus(data.error || t("pe.storyFailed"), "error");
+                return null;
+            }
+            pe.applyStoryPlan(data);
+            return data;
+        } catch (error) {
+            pe.setStatus(`${t("pe.storyFailed")} ${error.message || error}`, "error");
+            return null;
+        } finally {
+            pe.storyPlanBtn.disabled = false;
+            pe.storyPlanBtn.textContent = label;
+        }
+    };
+
+    // The planning step is instant next to the enhancement that follows it, and the
+    // review list is where the user wants to end up: fill, then offer the pass that
+    // writes the final prompts.
+    pe.storyPlanBtn.onclick = async () => {
+        const plan = await pe.planStory();
+        if (!plan) return;
+        const filled = (Array.isArray(plan.beats) ? plan.beats : []).filter((beat) => String(beat || "").trim()).length;
+        if (!filled) return;
+        const rows = window.confirm(
+            `${t("pe.storyReviewAsk", { filled })}\n\n${t("pe.storyReviewAsk2")}`,
+        );
+        if (!rows) return;
+        const { runPromptEnhanceBatch } = await import("./minimax_prompt_enhance_batch.mjs");
+        await runPromptEnhanceBatch(editor, pe);
+    };
+
     const btnRow = el({ display: "flex", gap: "6px", flexDirection: "column" });
     const enhanceRow = el({ display: "flex", gap: "6px" });
     pe.enhanceCurrentBtn = el({
@@ -1309,6 +1501,19 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         }
         if (pe.visionFramesInput && stored.visionFrames) {
             pe.visionFramesInput.value = String(clampVisionFrames(stored.visionFrames));
+        }
+        // The story is the user's own prose and the one thing in this panel they will
+        // iterate on, so it is kept between sessions along with its two numbers.
+        if (pe.storyInput) pe.storyInput.value = stored.storyText || "";
+        if (pe.storySegmentsInput && stored.storySegments) {
+            pe.storySegmentsInput.value = String(
+                Math.max(1, Math.min(60, Math.round(Number(stored.storySegments) || 10))),
+            );
+        }
+        if (pe.storySecondsInput && stored.storySeconds) {
+            pe.storySecondsInput.value = String(
+                Math.max(1, Math.min(60, Number(stored.storySeconds) || 7)),
+            );
         }
         if (pe.h3CompactCheck) {
             pe.h3CompactCheck.checked = !!stored.h3Compact;

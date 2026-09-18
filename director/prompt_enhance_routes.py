@@ -797,6 +797,95 @@ async def director_enhance_recipes(request):
     )
 
 
+async def director_story_plan(request):
+    """Split a story brief into one paragraph per segment (a single model call).
+
+    The panel supplies the segment count and the seconds per segment; this route owns
+    the frame arithmetic (17k+5) and the beat rules, so the answer is a plan the
+    timeline can take directly. The per-segment prompts are then produced by the
+    normal enhance path, one final prompt per segment, reviewable before it is applied.
+    """
+    try:
+        data = await request.json()
+    except Exception as exc:
+        return web.json_response({"error": f"Invalid JSON: {exc}"}, status=400)
+
+    story = (data.get("story") or "").strip()
+    if not story:
+        return web.json_response({"error": "Write the story first."}, status=400)
+    try:
+        segments = int(data.get("segments") or 0)
+    except (TypeError, ValueError):
+        segments = 0
+    if segments < 1:
+        return web.json_response(
+            {"error": "How many segments should the story be told in?"}, status=400
+        )
+    try:
+        seconds = float(data.get("seconds") or 0)
+    except (TypeError, ValueError):
+        seconds = 0.0
+    if seconds <= 0:
+        return web.json_response(
+            {"error": "How long is each segment, in seconds?"}, status=400
+        )
+
+    raw_url = data.get("llm_url") or data.get("ollama_url")
+    api_format = infer_api_format(
+        raw_url or "",
+        data.get("api_format") or data.get("llm_api_format") or DEFAULT_API_FORMAT,
+    )
+    url = coerce_llm_url(raw_url, default=default_url_for_format(api_format))
+    model = coerce_llm_model(
+        (data.get("model") or data.get("llm_model") or "").strip(),
+        default=default_model_for_format(api_format),
+    )
+    if not model:
+        return web.json_response({"error": "No model selected"}, status=400)
+
+    from ..lib.h3_story import MAX_SEGMENTS, plan_story
+
+    segments = max(1, min(MAX_SEGMENTS, segments))
+
+    def _run():
+        return plan_story(
+            story=story,
+            segments=segments,
+            seconds=seconds,
+            task_key=resolve_task_key(data.get("task_type") or "default"),
+            url=url,
+            model=model,
+            api_format=api_format,
+            openai_compat_mode=normalize_openai_compat_mode(
+                data.get("openai_compat_mode")
+                or data.get("llm_openai_compat_mode")
+                or DEFAULT_OPENAI_COMPAT_MODE
+            ),
+            api_key=(data.get("api_key") or data.get("llm_api_key") or "").strip(),
+            output_language=(
+                data.get("output_language")
+                or data.get("llm_output_language")
+                or OUTPUT_LANGUAGE_EN
+            ),
+            unload_after=bool(data.get("unload_after") or data.get("llm_unload_after")),
+            timeout=int(data.get("timeout") or 240),
+        )
+
+    plan, err = await asyncio.to_thread(_run)
+    if err:
+        return web.json_response({"error": err}, status=502)
+    return web.json_response(
+        {
+            "world": plan.world,
+            "beats": plan.beats,
+            "segments": plan.segments,
+            "seconds": plan.seconds,
+            "frames": plan.frames,
+            "notes": plan.notes,
+        }
+    )
+
+
 async def director_download_status(request):
     """Progress of the model download the panel is waiting on.
 
@@ -845,5 +934,6 @@ def register_prompt_enhance_routes(routes, register_route) -> None:
     register_route(routes, "POST", "/minimax/motion-director/download_model", director_download_model)
     register_route(routes, "GET", "/minimax/motion-director/download_status", director_download_status)
     register_route(routes, "GET", "/minimax/motion-director/enhance_recipes", director_enhance_recipes)
+    register_route(routes, "POST", "/minimax/motion-director/story_plan", director_story_plan)
     register_route(routes, "GET", "/minimax/motion-director/refmod_list", director_refmod_list)
     log.info("MiniMax H3 Motion Director prompt-enhance HTTP routes registered")

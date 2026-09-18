@@ -7,6 +7,24 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Added
 
+- **Story to segments.** A multi-segment project is a story spread over N renders, and
+  every segment prompt had to be written by hand. The enhancer panel now takes the whole
+  story in a few sentences, a segment count and a seconds-per-segment value, and splits
+  it in one model call into a shared `world` paragraph plus one paragraph per segment -
+  following the rules that make a multi-segment render work: one continuous take per
+  segment, beats that change state, each segment ending on a pose the next one continues
+  from, and the character's look stated once instead of re-described per segment. The
+  segments are created when the timeline is empty or is a generation timeline (a
+  hand-laid video or replace timeline is never re-timed), each segment then goes through
+  the normal enhancement, and the existing review list shows every result before
+  anything is applied.
+- **Regenerate a single prompt, or all of them, in the review list.** A list of ten
+  story prompts is not accepted or rejected as a whole: one segment usually misses, and
+  re-running the batch to fix it costs ten model passes and loses the nine that were
+  fine. Each row has **Regenerate** (re-running from its own original text, task and
+  block, with the settings the batch used) and the footer has **Regenerate all** for
+  rows that are still ticked.
+
 - **Your own prompt recipes, in a file a pack update cannot overwrite.** The recipe
   dropdown was server-owned and closed: the shapes shipped as Python constants, an
   update replaced them, and there was nowhere to put an edit. Recipes of your own now
