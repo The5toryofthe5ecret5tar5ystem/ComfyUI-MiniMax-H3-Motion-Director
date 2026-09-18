@@ -30,6 +30,55 @@ does nothing.
   passes.
 - **`docs/PROMPT_WRITING_GUIDE.md` section 10** documents what polish mode will
   and will not touch, and when to reach for a recipe instead.
+- **Common References are a pool, not a fallback.** A segment's pictures were
+  resolved as *the segment's own, or the shared block* - never both - so a window
+  that carried one reference of its own silently lost the shared identity, and the
+  prompt's `<Picture N>` tags pointed at pictures the render never sent. Both plan
+  builders now run the same compile (`compile_effective_references`): the shared
+  assets this segment keeps, then its own, renumbered densely from `<Picture 1>`,
+  with `useCommonAssets` / `excludedCommonAssetIds` honoured and the official
+  9-picture / 3-video / 3-audio limits enforced with a message that says what to
+  remove. Mentions stored as `{{mmx-ref:...}}` resolve to the segment's own tags on
+  the video timeline too, and an unknown one is left as written rather than killing
+  the render.
+- **Per-window RefMod.** One mod set is harvested from the connected conditioning
+  and appended to every segment, so a mod that belongs to some windows had no way to
+  say so. Each window now carries a `refmod` switch (Replace list, or a segment's
+  context menu), the plan carries `refmodEnabled` and the executor honours it at both
+  conditioning sites - including the five-frame Source Bridge.
+- **A RefMod window can use its pictures too.** The `character replace (RefMod
+  identity)` recipe dropped identity prose because the mod reaches the DiT only and
+  text about her face would fight it. When the window also carries numbered
+  references those are visible to the text encoder as well, so they are captioned
+  and named as the same woman: the mod keeps the detail, the pictures are what the
+  prompt can point at. With no pictures attached the old suppression stays.
+
+### Fixed
+
+- **`Unload model` says what it actually did.** It answered from the enhancer's
+  own model cache, so an empty cache printed "no model was resident" while
+  ComfyUI's render models held the card - true, and read as a lie. The answer now
+  carries the name that was being held, the free-VRAM figure before and after, and
+  a fresh engine snapshot, and the engine note names the state it is in (`no model
+  loaded (12.4 GB VRAM free)` / `CUDA - qwen... loaded`). That blank state was half
+  the confusion: "the enhancer holds nothing" and "the panel is not saying" looked
+  identical.
+- **"Unload the model afterwards" is visible now.** Its effect happens inside the
+  enhancement, in a worker thread, so the panel could only ever say "done" -
+  whether it worked or not. The response reports what the cache holds once the run
+  finishes, and the status line ends with `model unloaded afterwards` or `the model
+  is still resident - unload it manually`.
+- **The Enhance button keeps the panel's language while it runs.** Its in-progress
+  label was a hardcoded Chinese literal, so an English panel showed 扩写中… the
+  moment a run started while the buttons beside it stayed English. The label now
+  comes from the translation table (`Enhancing…` / `扩写中…`), and the button still
+  returns to "Enhance" when the run ends - success or failure.
+- **The caption pass can see the Common References.** In Character Replace the
+  identity lives in the shared block and the windows used to carry none of their
+  own, so collecting vision from the window alone sent no reference image at all and
+  the caption described a character it had never been shown. The enhancer now
+  resolves the same reference list the render does, in the same order, and tells the
+  model the slot each picture gets.
 
 ## v1.8.4 — 2026-09-18
 

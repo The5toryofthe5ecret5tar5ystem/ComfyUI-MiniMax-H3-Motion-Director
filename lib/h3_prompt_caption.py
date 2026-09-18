@@ -240,6 +240,21 @@ _REFMOD_STATIC_LINE = (
     "lighting come from <Video 1> alone."
 )
 
+# Used when a RefMod window ALSO carries numbered reference pictures. The plain
+# replace lines call the pictures the *sole* source of her face and body, which is
+# not true here: the mod carries fine detail through the sampler, the pictures are
+# the same character in a form the text can name. Saying "sole source" on both
+# would put the two references in competition.
+_REFMOD_PICTURE_LINES = (
+    "<Picture 1> shows her face, hair and skin as the character reference has them: "
+    "facial identity, expressions, skin tone and hair. The two agree - never treat "
+    "them as different women. Portrait data only; never import its background, "
+    "framing, angle or lighting.",
+    "<Picture 2> shows her body: build, proportions and skin tone, again agreeing "
+    "with the character reference. Body data only - never import the sheet's grid, "
+    "layout, standing poses or studio light.",
+)
+
 
 def _refmod_subject_line(clue: str = "") -> str:
     """The RefMod subject line, optionally carrying the guide's short clue.
@@ -353,14 +368,24 @@ def build_replace_window_prompt(
     """Assemble the replace window block from the captions.
 
     `recipe` is the resolved recipe key ("character_replace" or
-    "character_replace_refmod"). The RefMod variant deliberately drops the identity
-    caption: the mod reaches the model after text encoding, so prose about her face
-    and hair cannot be grounded in it and only fights the reference. What it does use
-    is `character_caption` - the wardrobe line that must MATCH the mod, plus an
-    optional short clue - because both are grounded in the mod's own images.
+    "character_replace_refmod"). The RefMod variant drops the identity caption while
+    the mod is her ONLY identity source: the mod reaches the model after text
+    encoding, so prose about her face and hair cannot be grounded in it and only
+    fights the reference. What it always uses is `character_caption` - the wardrobe
+    line that must MATCH the mod, plus an optional short clue - because both are
+    grounded in the mod's own images.
+
+    A window may carry numbered reference pictures *as well as* a mod (the shared
+    Common pool plus the window's own). Then the pictures are a second, text-visible
+    view of the same character, so they are named and described after all: the mod
+    keeps carrying her detail through the sampler, the pictures are what the prompt
+    can point at, and the block says they must agree.
     """
     refmod = recipe == "character_replace_refmod"
-    identity = "" if refmod else _clean_caption(identity_caption)
+    picture_count = max(0, int(picture_count or 0))
+    # Identity prose needs something text-visible to be grounded in. For a RefMod
+    # window that is the attached pictures, when there are any.
+    identity = "" if (refmod and picture_count == 0) else _clean_caption(identity_caption)
     action = _clean_caption(action_caption)
     outfit, clue = parse_character_caption(character_caption) if refmod else ("", "")
     skipped: list[str] = []
@@ -374,6 +399,16 @@ def build_replace_window_prompt(
     if refmod:
         lines.append(_refmod_subject_line(clue))
         lines.append(_REFMOD_STATIC_LINE)
+        if picture_count > 0:
+            labels = ", ".join(f"<Picture {i + 1}>" for i in range(picture_count))
+            lines.append(
+                "<Subject 1> also appears in the attached reference pictures "
+                f"({labels}): the same woman as the character reference, never a "
+                "different person and never the woman in the source video."
+            )
+            lines.extend(_REFMOD_PICTURE_LINES[: min(picture_count, len(_REFMOD_PICTURE_LINES))])
+            if identity:
+                lines.append(f"Identity: {identity}")
         if outfit:
             lines.append(
                 f"wardrobe: she wears {outfit}. Dress her in this outfit only - never a "
@@ -404,7 +439,9 @@ def build_replace_window_prompt(
         )
     else:
         tail = (
-            "<Subject 1> is the woman from the attached character reference; she stays "
+            "<Subject 1> is the woman from the attached character reference"
+            + (" and the attached reference pictures" if picture_count > 0 else "")
+            + "; she stays "
             "exactly where the source has her - same position, size in frame, body "
             "language and timing"
         )
@@ -740,6 +777,12 @@ def plan_captions(
         # the part no written prompt can supply.
         return ["frame_span"] if frame_images >= 2 else []
     if recipe == "character_replace_refmod":
+        # The mod reaches the DiT and never the text encoder, so identity prose is
+        # suppressed by default. A window can still carry numbered reference
+        # pictures (the shared Common pool plus its own) - those are text-visible,
+        # so they are captioned too and the block names them as the same woman.
+        if reference_images > 0:
+            needed.append("identity")
         if character_images > 0:
             needed.append("character")
     elif reference_images > 0:

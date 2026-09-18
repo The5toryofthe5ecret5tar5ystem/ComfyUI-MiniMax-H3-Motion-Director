@@ -58,6 +58,25 @@ from .prompt_enhance_media import (
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director")
 
 
+def _engine_state_for(api_format: str) -> dict | None:
+    """Engine/residency snapshot for the panel, local backend only.
+
+    The panel keeps one engine note (which backend loaded, which model is resident,
+    how much VRAM is free). Returning it with the responses that can change it
+    means the note is never stale after an enhancement or an unload - and a stale
+    note is what makes a correct "nothing was resident" read as a lie.
+    """
+    if api_format != API_FORMAT_LOCAL:
+        return None
+    from ..lib.prompt_local_runtime import engine_info
+
+    try:
+        return engine_info()
+    except Exception as exc:  # noqa: BLE001 - reporting must not fail a request
+        log.debug("engine info unavailable: %s", exc)
+        return None
+
+
 def _caption_note_for(caption_result, refmod_info: dict) -> str:
     """What the user should know about a caption-built prompt.
 
@@ -214,6 +233,7 @@ async def director_enhance_prompt(request):
     # tags and claims untouched. It is not a caption request and not a rewrite, so
     # it skips every block below that decides the shape of the answer.
     polish_mode = is_polish_mode(prompt_mode)
+
     audio_policy = str(data.get("audio_policy") or "").strip()
     # RefMod windows have no <Picture N> slots: the identity arrives as latents after
     # text encoding, so the captions must be grounded in the mod itself. The spec is a
@@ -294,6 +314,27 @@ async def director_enhance_prompt(request):
 
     caption_mode_requested = prompt_mode in ("captions", "images", "from_images")
     caption_note = ""
+
+    def _unload_after_report() -> dict | None:
+        """Did "unload the model afterwards" actually leave nothing resident?
+
+        The unload happens inside the enhancement (in the worker thread), so the
+        only honest way to report it is to look at what is left afterwards: an
+        empty cache means it ran, a resident model means it did not. Without this
+        the panel could only say "done" - which is exactly what made a working
+        unload and a broken one indistinguishable to the user.
+        """
+        if not (unload_after and api_format == API_FORMAT_LOCAL):
+            return None
+        from ..lib.prompt_local_runtime import free_vram_gb, resident_info
+
+        left = resident_info() or {}
+        return {
+            "requested": True,
+            "released": not left,
+            "resident_path": str(left.get("model_path") or ""),
+            "free_gb": free_vram_gb(),
+        }
     if caption_mode_requested:
         if resolved_recipe not in CAPTION_RECIPES:
             # t2v has nothing to look at, and i2v/fl2v frames are not sent to the
@@ -356,6 +397,8 @@ async def director_enhance_prompt(request):
                     "prompt_mode": "captions",
                     "refmod": refmod_info,
                     "hide_performer": bool(hide_performer),
+                    "unload_after": _unload_after_report(),
+                    "engine": _engine_state_for(api_format),
                     "note": _caption_note_for(caption_result, refmod_info),
                 })
             return web.json_response(
@@ -434,6 +477,8 @@ async def director_enhance_prompt(request):
         "h3_recipe": resolved_recipe,
         "prompt_mode": "polish" if polish_mode else "rewrite",
         "polish": polish_report or None,
+        "unload_after": _unload_after_report(),
+        "engine": _engine_state_for(api_format),
         "note": note,
     })
 
@@ -486,12 +531,14 @@ async def director_unload_model(request):
         # Deliberately ahead of the model-name guard: handing VRAM back must not
         # depend on the panel still naming a model, and the runtime already knows
         # which one is resident.
-        from ..lib.prompt_local_runtime import resident_info, unload_local_models
+        from ..lib.prompt_local_runtime import free_vram_gb, resident_info, unload_local_models
 
         resident = resident_info() or {}
+        free_before = free_vram_gb()
         # Worker thread: closing a model collects garbage and empties the CUDA cache,
         # and neither belongs on the event loop that is also serving renders.
         released = await asyncio.to_thread(unload_local_models)
+        free_after = free_vram_gb()
         return web.json_response(
             {
                 "status": "unloaded",
@@ -500,6 +547,14 @@ async def director_unload_model(request):
                 # How many resident models were dropped. Zero is a valid answer (the
                 # panel says so instead of claiming it freed memory that was never held).
                 "released": released,
+                # What was actually being held, and what the card looks like now. The
+                # panel needs both to be honest: an empty cache is not the same claim
+                # as "your VRAM is free", and ComfyUI's own render models are a
+                # different thing from this one.
+                "resident_path": str(resident.get("model_path") or ""),
+                "free_gb_before": free_before,
+                "free_gb_after": free_after,
+                "engine": _engine_state_for(api_format),
             }
         )
 

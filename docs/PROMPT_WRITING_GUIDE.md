@@ -68,6 +68,16 @@ taskType, refs, refAudios, refVideos, genImage, contextLink
 Reference slot numbering: `refs[N-1]` is `<Picture N>`, `refAudios[N-1]` is `<Audio N>`,
 `refVideos[N-1]` is `<Video N>`. Hard limits: 9 pictures, 3 videos, 3 audios.
 
+The block is a **pool**, not a fallback: every segment that can consume pictures gets
+the shared assets first (minus the ones you switched off for it), then its own,
+renumbered from `<Picture 1>`. That order is what the mention picker labels show, so
+the tag you insert is the slot the render sends. A segment with references of its own
+therefore keeps them *and* the shared ones; to drop a shared asset from one segment,
+switch it off for that segment (Material Library target "Common References", or
+`useCommonAssets: false` / `excludedCommonAssetIds: [...]` in the segment data).
+Common *videos* are the exception on the video timeline: the source window already is
+`<Video 1>` for v2v/rv2v, so the pool's videos are used by the generation timelines only.
+
 ---
 
 ## 2. Reference slot map (fixed roles)
@@ -321,8 +331,9 @@ Rules for this template:
 ### 6.4 Identity from RefMod instead of Pictures
 
 When the replacement identity is carried by RefMod (`refmod_conditioning` wired on the
-Director) there are no `<Picture N>` slots to define. Swap the two `<Picture N>` lines
-for the subject line plus the static-reference rule, keep everything else:
+Director) and the window carries **no** reference pictures, there are no `<Picture N>`
+slots to define. Swap the two `<Picture N>` lines for the subject line plus the
+static-reference rule, keep everything else:
 
 ```text
 subject_definitions:
@@ -346,6 +357,17 @@ RefMod rules:
 - RefMod refs are appended to `minimax_refs` AFTER text encoding: the text encoder never
   sees the reference. Do not write a `<Picture N>` tag for it (there is none - the
   References audit flags unattached slots) and do not argue with the reference in prose.
+- **A window can carry both.** The shared pool plus the window's own pictures are
+  numbered `<Picture N>` as usual, and both sources are real: the mod reaches the DiT,
+  the pictures are also visible to the text encoder. Then keep the `<Picture N>` lines
+  and the identity line, and say the two agree (`"<Picture 1> shows her face … the two
+  agree - never treat them as different women"`). The enhancer's
+  `character replace (RefMod identity)` recipe does exactly this: it captions the
+  attached references (identity) *and* the mod (wardrobe + clue), so suppressing the
+  identity prose is only the default while the mod is her ONLY identity source.
+- Per-window RefMod: the Director applies the connected mod to every window. Switch it
+  off per window in the Replace list (`refmod`) or from a segment's context menu - the
+  plan carries `refmodEnabled` and the executor honours it per segment.
 - `<Subject 1>` is a narrative handle, not a lookup key; nothing in the prompt resolves
   to a mod.
 - Keep ONE subject in the prose. Additional described people compete with the mod for the

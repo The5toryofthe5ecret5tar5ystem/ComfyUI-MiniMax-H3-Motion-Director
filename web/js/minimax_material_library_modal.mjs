@@ -113,6 +113,19 @@ function currentMode(editor) {
 
 function allowedTypes(mode) { return TYPE_ALLOWED[mode] || new Set(["prompt"]); }
 
+/**
+ * Can this mode apply material to the project-wide Common References?
+ *
+ * Both reference-driven modes can: r2v reads `r2vCommon` outright, and rv2v
+ * (Character Replace) reads it as the fallback for windows that carry no refs of
+ * their own - which is where the replacement identity belongs. The library used
+ * to offer the `common` target for r2v only, so in replace mode the shared block
+ * could not be filled from here either.
+ */
+function supportsCommonTarget(mode) {
+    return mode === "r2v" || mode === "rv2v";
+}
+
 function firstAllowedType(mode) {
     const allowed = allowedTypes(mode);
     return TYPE_ORDER.find((kind) => allowed.has(kind)) || "prompt";
@@ -389,7 +402,7 @@ export function mountMaterialLibrary(editor, node = null) {
             state.target = `mixed:${targetId}`;
         }
         if (!allowedTypes(state.mode).has(state.activeType)) state.activeType = firstAllowedType(state.mode);
-        if (!isMixedEditor(editor) && state.mode === "r2v" && state.target === "common" && state.activeType === "prompt") state.activeType = "image";
+        if (!isMixedEditor(editor) && supportsCommonTarget(state.mode) && state.target === "common" && state.activeType === "prompt") state.activeType = "image";
     };
 
     const allQueues = () => [
@@ -433,7 +446,7 @@ export function mountMaterialLibrary(editor, node = null) {
             tab.className = `mmx-ml-tab${state.activeType === kind ? " active" : ""}`;
             tab.dataset.type = kind;
             tab.textContent = mlT(kind);
-            tab.disabled = !allowed.has(kind) || (state.mode === "r2v" && state.target === "common" && kind === "prompt");
+            tab.disabled = !allowed.has(kind) || (supportsCommonTarget(state.mode) && state.target === "common" && kind === "prompt");
             tab.addEventListener("click", () => {
                 if (tab.disabled) return;
                 state.activeType = kind;
@@ -459,7 +472,7 @@ export function mountMaterialLibrary(editor, node = null) {
         } else if (state.mode === "r2v" || state.mode === "rv2v") {
             const label = document.createElement("span"); label.className = "mmx-ml-context-label"; label.textContent = `${mlT("target")}:`;
             const targets = document.createElement("div"); targets.className = "mmx-ml-targets";
-            if (state.mode === "r2v") addTargetButton(targets, "common", mlT("common"));
+            if (supportsCommonTarget(state.mode)) addTargetButton(targets, "common", mlT("common"));
             (editor.timeline?.segments || []).forEach((_seg, index) => addTargetButton(targets, `segment:${index}`, `S${index + 1}`));
             contextEl.append(label, targets);
             if (state.mode === "rv2v") {
@@ -492,7 +505,7 @@ export function mountMaterialLibrary(editor, node = null) {
         const b = document.createElement("button"); b.type = "button"; b.textContent = label; b.classList.toggle("active", state.target === target);
         b.addEventListener("click", () => {
             markSelectionChanged(); state.target = target;
-            if (state.mode === "r2v" && target === "common" && state.activeType === "prompt") state.activeType = "image";
+            if (supportsCommonTarget(state.mode) && target === "common" && state.activeType === "prompt") state.activeType = "image";
             renderAll();
             void reloadItems();
         });

@@ -169,6 +169,17 @@ def _model_file_gb(path: str) -> float | None:
         return None
 
 
+def free_vram_gb() -> float | None:
+    """Free VRAM in GB, or None when it cannot be read (best effort).
+
+    Public because the panel reports it: "no model is loaded" is only useful
+    beside how much VRAM is actually free, and the same number is what shows an
+    unload did something. Inside ComfyUI's process the CUDA context already
+    exists, so this never pays for creating one.
+    """
+    return _free_vram_gb()
+
+
 def _warn_cpu_engine_once() -> None:
     """One line in the log the first time the engine is found on CPU."""
     global _ENGINE_WARNED
@@ -557,6 +568,10 @@ def engine_info() -> dict:
         "mapped": _mapped_gpu_backends(),
         "doc": LOCAL_SETUP_DOC,
         "doc_url": LOCAL_SETUP_URL,
+        # Sent whether or not a model is resident: "nothing loaded" is a state the
+        # panel has to be able to show, and the free-VRAM figure is the evidence
+        # that an unload (or the absence of one) did what it claims.
+        "free_gb": _free_vram_gb(),
     }
     if active is not None:
         info.update(

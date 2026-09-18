@@ -245,8 +245,63 @@ def test_plan_needs_the_character_shots_for_a_refmod_window():
     ]
     assert plan_captions("character_replace_refmod", source_frames=6) == ["action"]
     assert plan_captions("character_replace_refmod", character_images=2) == ["character"]
+    # Pictures attached to the window are captionable even on a mod window: the mod
+    # reaches the DiT only, the pictures are also visible to the text encoder.
+    assert plan_captions(
+        "character_replace_refmod", reference_images=2, character_images=2, source_frames=6
+    ) == ["identity", "character", "action"]
     # Without either, there is nothing to look at and the caller gets a message.
     assert plan_captions("character_replace_refmod") == []
+
+
+def test_refmod_window_with_reference_pictures_names_and_describes_them():
+    """Mod + numbered pictures: both are the same character and both are described.
+
+    The mod still carries her detail through the sampler, so the block keeps saying
+    that; the pictures are what the prompt can point at, so they get their slots and
+    the identity caption instead of being sent but never mentioned.
+    """
+    result = build_replace_window_prompt(
+        recipe="character_replace_refmod",
+        identity_caption="She has long dark hair and a soft jawline.",
+        character_caption="OUTFIT: a forest-green tunic CLUE: the green-skinned elf",
+        action_caption="She crosses the room and sits down.",
+        picture_count=2,
+    )
+    assert "<Picture 1> shows her face" in result.text
+    assert "<Picture 2> shows her body" in result.text
+    assert "also appears in the attached reference pictures" in result.text
+    assert "never a " in result.text and "different person" in result.text
+    assert "Identity: She has long dark hair and a soft jawline." in result.text
+    assert "the two agree" in result.text.lower()
+    # The mod keeps its own lines: this is not a description of the mod.
+    assert "wardrobe: she wears a forest-green tunic" in result.text
+    assert "<Subject 1> is the green-skinned elf carried by the attached character reference" in result.text
+    assert "and the attached reference pictures" in result.text, "the closing line names both"
+
+
+def test_refmod_window_with_pictures_but_no_identity_caption_omits_the_line():
+    result = build_replace_window_prompt(
+        recipe="character_replace_refmod",
+        character_caption="OUTFIT: a tunic CLUE: the elf",
+        action_caption="She sits.",
+        picture_count=1,
+    )
+    assert "<Picture 1> shows her face" in result.text
+    assert "Identity:" not in result.text, "no caption, no invented identity line"
+
+
+def test_refmod_window_without_pictures_keeps_the_suppression():
+    """The old shape has to survive: a mod alone must not invite appearance prose."""
+    assert plan_captions("character_replace_refmod", source_frames=6) == ["action"]
+    result = build_replace_window_prompt(
+        recipe="character_replace_refmod",
+        identity_caption="She has long dark hair.",
+        character_caption="OUTFIT: a tunic CLUE: the elf",
+        action_caption="She sits.",
+    )
+    assert "Identity:" not in result.text
+    assert "<Picture 1>" not in result.text
 
 
 def test_plan_leaves_the_other_recipes_alone():

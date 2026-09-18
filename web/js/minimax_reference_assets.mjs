@@ -397,6 +397,40 @@ export function effectiveReferenceAssets(globalBlock, segment) {
     return [...pictures, ...videos, ...audios];
 }
 
+/**
+ * The reference pictures a segment renders with, in the order the render sends them.
+ *
+ * Mirrors `compile_effective_references` (director/effective_refs.py) and the engine's
+ * per-segment resolution in both plan builders: the selected Common pictures first,
+ * then the segment's own, renumbered from zero. The rule used to be either/or - the
+ * segment's list if it had one, otherwise the whole shared block - which silently
+ * dropped the shared identity from any window that carried a reference of its own and
+ * left the prompt's `<Picture N>` tags pointing at pictures the render never sent.
+ *
+ * Vision has to ask the same question as the render, or the caption describes a
+ * character it was never shown.
+ *
+ * @param {object|null} commonBlock `timeline.r2vCommon`
+ * @param {object|null} segment     the segment (window) being resolved
+ * @param {object} [options]
+ * @param {boolean} [options.taskUsesReferences] false for t2v / i2v / v2v / ...
+ * @returns {Array<{item: object, index: number, tag: string}>} 0-based `index` is
+ *   the slot number the render gives this picture.
+ */
+export function effectivePictureRefs(commonBlock, segment, options = {}) {
+    const own = Array.isArray(segment?.refs) ? segment.refs : [];
+    if (options.taskUsesReferences === false) {
+        return own.map((item, index) => ({ item, index, tag: `<Picture ${index + 1}>` }));
+    }
+    return effectiveReferenceAssets(commonBlock, segment)
+        .filter((asset) => asset.kind === "picture")
+        .map((asset, index) => ({
+            item: asset.item,
+            index,
+            tag: asset.effectiveTag || `<Picture ${index + 1}>`,
+        }));
+}
+
 export function referenceAssetStates(commonBlock, segment) {
     const authoring = authoringReferenceAssets(commonBlock, segment);
     const effectiveByKey = new Map(

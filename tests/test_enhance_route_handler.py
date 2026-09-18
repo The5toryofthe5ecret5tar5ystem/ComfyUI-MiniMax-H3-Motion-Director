@@ -317,6 +317,67 @@ def test_a_plain_openai_server_still_reports_that_it_cannot_unload(monkeypatch):
     assert "does not support" in body["error"]
 
 
+def test_local_unload_reports_what_it_held_and_what_is_free(monkeypatch):
+    """An empty cache and "your VRAM is free" are different claims.
+
+    The panel has to tell them apart: ComfyUI's own render models dominate the card,
+    so a message that only says "nothing was resident" reads as a lie while 20 GB
+    are in use. The answer carries the name that was held, what the card looked
+    like before and after, and a fresh engine snapshot for the panel's note.
+    """
+    import mmx_pkg.lib.prompt_local_runtime as local_runtime
+
+    frees = iter([1.5, 12.5])
+    monkeypatch.setattr(local_runtime, "resident_info", lambda: {"model_path": "/models/LLM/qwen.gguf"})
+    monkeypatch.setattr(local_runtime, "unload_local_models", lambda: 1)
+    monkeypatch.setattr(local_runtime, "free_vram_gb", lambda: next(frees, 12.5))
+    monkeypatch.setattr(local_runtime, "engine_info", lambda: {"gpu": None, "free_gb": 12.5})
+
+    status, body = _call_unload({"api_format": "Local (ComfyUI)", "model": "qwen"})
+
+    assert status == 200, body
+    assert body["released"] == 1
+    assert body["resident_path"] == "/models/LLM/qwen.gguf"
+    assert body["free_gb_before"] == 1.5
+    assert body["free_gb_after"] == 12.5
+    assert body["engine"] == {"gpu": None, "free_gb": 12.5}
+
+
+def test_an_enhancement_reports_what_the_post_run_unload_left(monkeypatch):
+    """"Unload the model afterwards" has to be visible, or a working checkbox and
+    a broken one look identical."""
+    import mmx_pkg.lib.prompt_local_runtime as local_runtime
+
+    monkeypatch.setattr(routes, "enhance_prompt_sync", lambda **kw: ("text", None))
+    monkeypatch.setattr(local_runtime, "free_vram_gb", lambda: 1.0)
+    monkeypatch.setattr(local_runtime, "engine_info", lambda: {"free_gb": 1.0})
+
+    # A model is still in the cache after the run: the checkbox did not take effect.
+    monkeypatch.setattr(local_runtime, "resident_info", lambda: {"model_path": "/models/LLM/qwen.gguf"})
+    status, body = _call(_base(api_format="Local (ComfyUI)", llm_unload_after=True))
+    assert status == 200, body
+    assert body["unload_after"]["requested"] is True
+    assert body["unload_after"]["released"] is False
+    assert body["unload_after"]["resident_path"].endswith("qwen.gguf")
+    assert body["engine"] is not None, "the panel's engine note is refreshed with the run"
+
+    # Nothing left: it did.
+    monkeypatch.setattr(local_runtime, "resident_info", lambda: {})
+    status, body = _call(_base(api_format="Local (ComfyUI)", llm_unload_after=True))
+    assert body["unload_after"]["released"] is True
+    assert body["unload_after"]["resident_path"] == ""
+
+
+def test_no_unload_report_without_the_checkbox(monkeypatch):
+    monkeypatch.setattr(routes, "enhance_prompt_sync", lambda **kw: ("text", None))
+    status, body = _call(_base(api_format="Local (ComfyUI)"))
+    assert body["unload_after"] is None
+    # A remote backend has no engine to report on.
+    status, body = _call(_base(llm_unload_after=True))
+    assert body["unload_after"] is None
+    assert body["engine"] is None
+
+
 # --- polish mode (wording only) ------------------------------------------------
 
 

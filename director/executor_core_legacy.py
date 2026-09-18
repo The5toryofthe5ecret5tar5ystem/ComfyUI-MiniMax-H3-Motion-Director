@@ -26,6 +26,7 @@ from ..lib.task_modes import SUPPORTED_TASK_KEYS
 from ..nodes.conditioning import (
     append_minimax_keyframe_anchors,
     append_refmod_references,
+    refmod_refs_for_segment,
     run_minimax_conditioning,
 )
 from ..patches import motion_context_patch_status
@@ -1306,7 +1307,7 @@ def execute_director_plan_core(
         )
         # RefMod references are appended after the native refs so the payload
         # order matches what RefMod's step curve expects.
-        positive = append_refmod_references(positive, refmod_refs)
+        positive = append_refmod_references(positive, refmod_refs_for_segment(refmod_refs, seg))
 
         if replace_active and replace_state is not None and not replace_render_anchor:
             if visible_clip_frames is None:
@@ -2421,7 +2422,7 @@ def execute_director_plan_core(
             positive, vae=vae, first_frame=first_anchor, last_frame=last_anchor,
             frame_count=5, width=bridge_width, height=bridge_height,
         )
-        positive = append_refmod_references(positive, refmod_refs)
+        positive = append_refmod_references(positive, refmod_refs_for_segment(refmod_refs, right))
         if clear_vram_between_segments:
             _record_vram_report(cleanup_segment_vram(enabled=True, unload_models=True))
         try:

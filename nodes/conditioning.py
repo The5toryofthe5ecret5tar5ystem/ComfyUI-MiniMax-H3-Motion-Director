@@ -133,6 +133,20 @@ def harvest_refmod_refs(conditioning) -> list:
     return blocks
 
 
+def refmod_refs_for_segment(refmod_refs, segment) -> list:
+    """The RefMod blocks this segment opted into.
+
+    The Director harvests one set of RefMod blocks from the connected conditioning
+    and appends them to every segment, so a mod that belongs to some windows and not
+    others had no way to say so. A segment can switch it off (``refmodEnabled`` in
+    the timeline data); missing or unreadable means on, which is what every project
+    saved before the switch expects.
+    """
+    if not refmod_refs:
+        return []
+    return list(refmod_refs) if getattr(segment, "refmod_enabled", True) else []
+
+
 def refmod_digest(blocks) -> str:
     """Stable identity for a set of harvested RefMod blocks.
 

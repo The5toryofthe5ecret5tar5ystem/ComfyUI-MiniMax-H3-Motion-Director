@@ -10,7 +10,7 @@
 import { api } from "../../scripts/api.js";
 import { resolveTaskKey, taskUsesReferenceImages, taskUsesReferenceVideo } from "./minimax_gen_timeline.js";
 import { stripFl2vPromptBody } from "./minimax_fl2v.js";
-// Panel copy follows the Director's UI locale. These strings used to be
+import { effectivePictureRefs } from "./minimax_reference_assets.mjs";// Panel copy follows the Director's UI locale. These strings used to be
 // hardcoded Chinese, so switching the interface to English left this whole panel
 // untranslated.
 import { t } from "./minimax_i18n.js";
@@ -280,7 +280,14 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             : (result.promptMode === "polish"
                 ? `${t("pe.statusPolished")}${result.note ? ` ${result.note}` : ""}`
                 : (result.note ? ` ${result.note}` : ""));
-        pe.setStatus(formatEnhanceSuccessStatus(taskKey, result) + modeNote, "success");
+        // "Unload the model afterwards" used to be invisible: the checkbox could be
+        // working or failing and the panel said the same thing either way. The
+        // server now reports what is left in the cache after the run.
+        const unloaded = result.unloadAfter;
+        const unloadNote = unloaded?.requested
+            ? (unloaded.released ? t("pe.statusUnloadAfterDone") : t("pe.statusUnloadAfterFailed"))
+            : "";
+        pe.setStatus(formatEnhanceSuccessStatus(taskKey, result) + modeNote + unloadNote, "success");
     };
 
     pe.setEnhanceLoading = (loading, activeBtn = null, label = t("pe.statusEnhancing")) => {
@@ -907,15 +914,24 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             withLink = true;
         } else if (engine.gpu === true) {
             text = t("pe.engineGpu", { backend: String(engine.backend || "").toUpperCase() });
+            // Naming the file is the only way the panel can answer "is the model
+            // still loaded?" - the same question the Unload button is asked.
+            if (engine.model) text += t("pe.engineResident", { name: engine.model });
             color = STATUS_COLORS.success;
         } else if (engine.gpu === false || !(engine.shipped || []).length) {
             text = t("pe.engineCpu");
             color = "#fbbf24";
             withLink = true;
         } else {
-            // GPU build present but no load has happened yet: nothing to claim.
-            note.style.display = "none";
-            return;
+            // A GPU build that has not loaded anything yet. Staying silent here was
+            // the problem: "the enhancer holds no model" and "the panel is not
+            // saying" looked identical, so the Unload button's "nothing was
+            // resident" read as a lie. Say the state, with the number behind it.
+            const free = Number(engine.free_gb);
+            text = Number.isFinite(free)
+                ? t("pe.engineIdleFree", { free: free.toFixed(1) })
+                : t("pe.engineIdle");
+            color = "#7d8698";
         }
         note.replaceChildren();
         note.appendChild(el({}, text, "span"));
@@ -1307,13 +1323,21 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             if (data.frames?.length) { sourceCount = data.frames.length; images.push(...data.frames); }
         }
         const global = editor.timeline.global || {};
-        const refsBlock = block || global;
-        if (taskUsesReferenceImages(taskKey) && refsBlock?.refs?.length) {
-            const sortedRefs = [...refsBlock.refs]
-                .filter((r) => r.imageFile || r.imageB64)
-                .sort((a, b) => Number(a.index ?? a.slot ?? 0) - Number(b.index ?? b.slot ?? 0));
-            for (const ref of sortedRefs) {
-                const slot = Number(ref.index ?? ref.slot ?? 0);
+        // Vision has to look at the pictures the render will use, in the order the
+        // render sends them: the selected Common references, then this segment's own.
+        // In Character Replace the identity lives in Common References and the
+        // windows carry none of their own, so looking at the segment alone sent zero
+        // reference images and the caption pass described a character it had never
+        // seen. The slot list handed to the model comes from the same list, so
+        // "image0" in the prompt and in the render mean the same picture.
+        const pictureRefs = effectivePictureRefs(
+            editor.timeline.r2vCommon || {},
+            block || global,
+            { taskUsesReferences: taskUsesReferenceImages(taskKey) },
+        );
+        const refsBlock = { ...(block || global), refs: pictureRefs.map((entry) => entry.item) };
+        if (taskUsesReferenceImages(taskKey) && pictureRefs.length) {
+            for (const { item: ref, index: slot } of pictureRefs) {
                 if (ref.imageFile) {
                     const b64 = await fetchImageB64(ref.imageFile);
                     if (b64) { images.push(b64); refCount += 1; refSlots.push(slot); }
@@ -1616,6 +1640,12 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         });
         let data = {};
         try { data = await resp.json(); } catch { data = {}; }
+        if (data.engine) {
+            // A run can load a model (or unload one afterwards); keep the engine
+            // note telling the truth about what is resident right now.
+            pe._engineInfo = data.engine;
+            pe.updateEngineNote();
+        }
         return {
             ok: resp.ok && !!data.response,
             text: data.response || "",
@@ -1631,6 +1661,9 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             promptMode: data.prompt_mode || "rewrite",
             note: data.note || "",
             polish: data.polish || null,
+            // What the server found after the run's own unload, when the checkbox
+            // asked for one: {requested, released, resident_path, free_gb}.
+            unloadAfter: data.unload_after || null,
             refmod: data.refmod || null,
             vision: { images, sourceCount, refCount },
         };
@@ -1776,11 +1809,32 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
                 }),
             });
             const data = await resp.json();
+            if (data.engine) {
+                // The unload just changed the engine state; refresh the note from
+                // the server's answer instead of leaving it describing the past.
+                pe._engineInfo = data.engine;
+                pe.updateEngineNote();
+            }
             if (resp.ok && data.status === "unloaded") {
-                // The local backend answers with how many resident models it dropped.
-                // Zero is a real answer, and "unloaded" would overstate it.
+                // The backend answers with what it dropped and what the card looks
+                // like now. Both halves matter: an empty cache is not the same claim
+                // as "your VRAM is free", and ComfyUI's own render models are a
+                // different thing from this one.
+                const free = Number(data.free_gb_after);
+                const before = Number(data.free_gb_before);
                 if (data.released === 0) {
-                    pe.setStatus(t("pe.statusNothingToUnload", { provider: data.provider || "Local (ComfyUI)" }), "success");
+                    pe.setStatus(
+                        Number.isFinite(free)
+                            ? t("pe.statusNothingToUnload", { provider: data.provider || "Local (ComfyUI)", free: free.toFixed(1) })
+                            : t("pe.statusNothingToUnloadPlain", { provider: data.provider || "Local (ComfyUI)" }),
+                        "success",
+                    );
+                } else if (Number.isFinite(free) && Number.isFinite(before)) {
+                    pe.setStatus(t("pe.statusUnloadedFreed", {
+                        provider: data.provider || "LLM",
+                        before: before.toFixed(1),
+                        after: free.toFixed(1),
+                    }), "success");
                 } else {
                     pe.setStatus(t("pe.statusUnloaded", { provider: data.provider || "LLM" }), "success");
                 }
@@ -1842,7 +1896,7 @@ export function registerDirectorPromptEnhancerEvents(findDirectorNode) {
 setTimeout(async () => {
     if (globalThis.__MMX_MOTION_DIRECTOR_EXTENSION_REGISTERED__) return;
     try {
-        await import("./minimax_timeline.js?boot=director_ui_recovery_v16");
+        await import("./minimax_timeline.js?boot=director_ui_recovery_v18");
         if (!globalThis.__MMX_MOTION_DIRECTOR_EXTENSION_REGISTERED__) {
             throw new Error("Director extension did not register after recovery import.");
         }

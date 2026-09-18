@@ -174,11 +174,33 @@ def compile_semantic_prompt(
     return SEMANTIC_TOKEN_RE.sub(replace, text)
 
 
+def resolve_semantic_tokens(
+    prompt: str | None,
+    tags: Mapping[tuple[str, str], str],
+) -> str:
+    """Resolve the semantic tokens that this segment can, keep the rest as written.
+
+    ``compile_semantic_prompt`` raises on an unknown or disabled asset, which is
+    right for the prompt-batch builder: it owns the whole prompt and can demand a
+    fix before the render. The video timeline cannot make that demand - its prompts
+    can outlive the asset pool, and a render should not die because a mention lost
+    its file - so unknown tokens are left alone rather than guessed at, while known
+    ones become this segment's official tag so the numbering matches the
+    references that will actually be sent.
+    """
+    def replace(match: re.Match[str]) -> str:
+        key = (match.group(1).lower(), match.group(2))
+        return tags.get(key) or match.group(0)
+
+    return SEMANTIC_TOKEN_RE.sub(replace, str(prompt or ""))
+
+
 __all__ = [
     "EffectiveReferences",
     "SEMANTIC_TOKEN_RE",
     "SemanticReferenceError",
     "compile_effective_references",
     "compile_semantic_prompt",
+    "resolve_semantic_tokens",
     "semantic_reference_token",
 ]

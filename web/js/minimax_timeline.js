@@ -146,7 +146,7 @@ import {
 import {
     mountR2vCommonToggle,
     syncR2vCommonToggleForTask,
-} from "./minimax_r2v_common_ui.mjs?boot=postprocess_output_v5";
+} from "./minimax_r2v_common_ui.mjs?boot=postprocess_output_v8";
 import {
     carrySegmentContent,
     contentSourceForWindow,
@@ -750,12 +750,14 @@ function openContinuityStrategyMenu(event, pos, node) {
 
 function openSegmentContextLinkMenu(event, editor, index) {
     const regroundOn = Boolean(editor.getSegmentReground?.(index));
+    const refmodOn = editor.getSegmentRefmod?.(index) !== false;
     const options = [
         { label: `${t("contextLink.visual")} + ${t("contextLink.audio")}`, visual: true, audio: true },
         { label: t("contextLink.visual"), visual: true, audio: false },
         { label: t("contextLink.audio"), visual: false, audio: true },
         { label: "×", visual: false, audio: false },
         { label: regroundOn ? "⟳ Re-ground (ON)" : "⟳ Re-ground", regroundToggle: true },
+        { label: refmodOn ? "RefMod (ON)" : "RefMod (OFF)", refmodToggle: true },
     ];
     const choose = (value) => {
         const option = typeof value === "string"
@@ -764,6 +766,10 @@ function openSegmentContextLinkMenu(event, editor, index) {
         if (!option) return;
         if (option.regroundToggle) {
             editor.toggleSegmentReground?.(index);
+            return;
+        }
+        if (option.refmodToggle) {
+            editor.toggleSegmentRefmod?.(index);
             return;
         }
         editor.setSegmentContextChannels(index, option);
@@ -3441,6 +3447,16 @@ function installReplaceWindowsMode(ed) {
         contInput.checked = cfg.continuity !== false;
         contInput.title = contLbl.title;
         line2.append(contLbl, contInput);
+        // One RefMod set is appended to every segment's conditioning, so a mod that
+        // belongs to some windows and not others needs a per-window switch.
+        const refmodLbl = document.createElement("span");
+        refmodLbl.textContent = "refmod";
+        refmodLbl.title = "Use the connected RefMod on this window. Off: this window renders without the mod (the mod otherwise applies to every window).";
+        const refmodInput = document.createElement("input");
+        refmodInput.type = "checkbox";
+        refmodInput.checked = seg.refmodEnabled !== false;
+        refmodInput.title = refmodLbl.title;
+        line2.append(refmodLbl, refmodInput);
         const testBtn = mkSmallButton("Test mask");
         testBtn.title = "Run SAM3 on this window now and show the subject mask on the Mask check card (no video render). Uses the current SAM3 prompt, lead and window range.";
         const pickBtn = mkSmallButton("Pick subject");
@@ -3459,7 +3475,7 @@ function installReplaceWindowsMode(ed) {
         line2.append(pickBtn, testBtn, testStatus);
         line1.append(handle, enabled, label, gotoBtn, startLbl, startInput, btnS, endLbl, endInput, btnE, lenSpan, del);
         row.append(line1, line2, pickArea, testImg);
-        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, contInput, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost } });
+        cfgFields.set(row, { segId: seg.id, inputs: { enabled, startInput, endInput, gotoBtn, btnS, btnE, lenSpan, kindSel, renderSel, dirInput, dirWrap, promptInput, promptWrap, growInput, featherInput, leadInput, policy, contInput, refmodInput, testBtn, testStatus, testImg, pickBtn, pickArea, pickCanvasHost } });
         return row;
     }
 
@@ -3488,6 +3504,7 @@ function installReplaceWindowsMode(ed) {
         if (active !== inp.leadInput) inp.leadInput.value = String(cfg.lead);
         if (active !== inp.policy) inp.policy.value = cfg.audio_policy;
         inp.contInput.checked = cfg.continuity !== false;
+        inp.refmodInput.checked = seg.refmodEnabled !== false;
         if (inp.testBtn) inp.testBtn.style.display = sam3Kind ? "" : "none";
         if (inp.pickBtn) inp.pickBtn.style.display = sam3Kind ? "" : "none";
         inp.enabled.checked = cfg.enabled;
@@ -3520,6 +3537,12 @@ function installReplaceWindowsMode(ed) {
         };
         inp.startInput.addEventListener("change", () => applyBounds());
         inp.endInput.addEventListener("change", () => applyBounds());
+        inp.refmodInput.addEventListener("change", () => {
+            const seg = getSeg();
+            if (!seg) return;
+            seg.refmodEnabled = !!inp.refmodInput.checked;
+            commitLight();
+        });
         inp.dirInput.addEventListener("change", () => {
             const seg = getSeg();
             if (!seg) return;
@@ -4040,12 +4063,67 @@ function installReplaceWindowsMode(ed) {
                 });
             }
             const label = row.querySelector("span");
-            if (label) label.textContent = "W" + (i + 1);
+            if (label) {
+                label.textContent = "W" + (i + 1);
+                // Selecting a segment happens on the canvas in every other mode, and
+                // Replace hides the canvas - so the prompt box, the reference slots
+                // and every other panel that follows the selection stayed on window 1
+                // while the user worked down the list. The row (and its W label) now
+                // selects the window they belong to.
+                label.style.cursor = "pointer";
+                label.title = t("replace.rowSelectTitle");
+                label.addEventListener("click", (ev) => {
+                    stopDomEvent(ev);
+                    selectRow(seg.id);
+                });
+            }
+            row.dataset.replaceRow = String(seg.id);
+            row.title = t("replace.rowSelectTitle");
+            row.addEventListener("click", (ev) => {
+                // Clicks on the row's own controls stay theirs; everything else is
+                // "show me this window".
+                if (ev.target.closest?.("input, button, select, textarea, a")) return;
+                selectRow(seg.id);
+            });
             bindRow(row);
             syncRowValues(row, replaceConfigFromSeg(seg), seg, fps);
             rowsEl.append(row);
         });
+        markSelectedRow();
     }
+
+    /** Select the segment a replace row stands for, the way a canvas click would. */
+    function selectRow(segId) {
+        const segs = ed.timeline?.segments || [];
+        const idx = segs.findIndex((s) => String(s.id) === String(segId));
+        if (idx < 0) return;
+        if (ed.selectedIndex !== idx) {
+            ed.selectedIndex = idx;
+            // updateSelectionUI is what re-points the prompt box, the negative
+            // prompt, the reference/audio slots and the segment label at the new
+            // segment; without it the switch would only move a highlight.
+            ed.updateSelectionUI?.();
+            ed.scheduleRender?.();
+        }
+        markSelectedRow();
+    }
+
+    /** Outline the row for the segment everything else is currently pointed at. */
+    function markSelectedRow() {
+        const segs = ed.timeline?.segments || [];
+        if (!segs.length) return;
+        const idx = clamp(Number(ed.selectedIndex) || 0, 0, segs.length - 1);
+        const selectedId = String(segs[idx]?.id ?? "");
+        for (const row of rowsEl.children) {
+            const isSelected = row.dataset?.replaceRow != null
+                && String(row.dataset.replaceRow) === selectedId;
+            row.style.borderColor = isSelected ? "#4fff8f" : "#27452f";
+            row.style.background = isSelected ? "#12271a" : "#101a12";
+        }
+    }
+    // The canvas, the batch cards and this list all change the same selection, so
+    // the highlight is refreshed from the one place they all funnel through.
+    ed._replaceMarkSelectedRow = markSelectedRow;
 
     function setReplaceMode(on) {
         if (on === !!ed.timeline?.replaceMode) return;
@@ -4590,6 +4668,18 @@ class MiniMaxH3MotionDirectorEditor {
 
     getSegmentReground(index) {
         return Boolean(this.timeline.segments?.[index]?.reground);
+    }
+
+    getSegmentRefmod(index) {
+        return this.timeline.segments?.[index]?.refmodEnabled !== false;
+    }
+
+    toggleSegmentRefmod(index) {
+        const seg = this.timeline.segments?.[index];
+        if (!seg) return;
+        seg.refmodEnabled = seg.refmodEnabled === false;
+        if (this.timeline.shots?.[index]) this.timeline.shots[index].refmodEnabled = seg.refmodEnabled;
+        this._commitContextLinkChange();
     }
 
     toggleSegmentReground(index) {
@@ -10098,7 +10188,12 @@ class MiniMaxH3MotionDirectorEditor {
         // run on the button the user actually pressed.
         const buttons = [...this.root.querySelectorAll('[data-a="enhance-prompt"]')];
         const labels = buttons.map((btn) => btn.textContent);
-        buttons.forEach((btn) => { btn.disabled = true; btn.textContent = "扩写中…"; });
+        // Follow the pack's UI language. This used to be a hardcoded Chinese
+        // literal, so an English panel flashed Chinese the moment a run started
+        // while the neighbouring buttons (translated through data-i18n) stayed
+        // English.
+        const loadingLabel = t("pe.statusEnhancing") || "Enhancing…";
+        buttons.forEach((btn) => { btn.disabled = true; btn.textContent = loadingLabel; });
         try {
             await pe.enhancePrompt(mode);
         } finally {
@@ -12992,6 +13087,9 @@ class MiniMaxH3MotionDirectorEditor {
 
     updateSelectionUI() {
         if (this.isMixedMode()) return;
+        // The replace window list is the only segment picker while the canvas is
+        // hidden, so it follows the selection from wherever it changed.
+        this._replaceMarkSelectedRow?.();
         this.timeline.global = this.timeline.global || { taskType: "", prompt: "", refs: [] };
         if (this.globalTask) this.globalTask.value = this.timeline.global.taskType || "";
         if (this.globalPrompt) {

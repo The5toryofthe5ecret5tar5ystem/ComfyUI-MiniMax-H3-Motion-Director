@@ -52,9 +52,23 @@ export function syncR2vCommonToggle(button, options = {}) {
     button.removeAttribute?.("data-i18n-title");
 }
 
+/**
+ * Visibility for the output-bar Common References button.
+ *
+ * Shown for every task whose segments can consume the shared block, not just the
+ * one that reads it first. `r2v` resolves its references from `r2vCommon`
+ * outright; `rv2v` (Character Replace) reads the same block as each window's
+ * fallback when the window carries none of its own - which is exactly where the
+ * replacement identity is supposed to live. Hiding it there left the replace
+ * setup checklist ("N picture(s), M audio in Common References. Add the
+ * replacement face + full-body sheet there.") pointing at a button the mode did
+ * not show, so the shared refs could only be reached by switching the task
+ * dropdown to r2v and back.
+ */
 export function syncR2vCommonToggleForTask(button, options = {}) {
+    const task = String(options.taskKey || "").toLowerCase();
     syncR2vCommonToggle(button, {
         ...options,
-        visible: String(options.taskKey || "").toLowerCase() === "r2v",
+        visible: task === "r2v" || task === "rv2v",
     });
 }

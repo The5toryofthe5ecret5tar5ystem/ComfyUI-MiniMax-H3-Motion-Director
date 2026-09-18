@@ -37,9 +37,12 @@ from ..lib.video_io import (
     video_clips_from_timeline,
 )
 from .gen_timeline import (
+    _assert_effective_ref_limits,
+    _raw_asset_id,
     build_gen_director_plan,
     is_gen_timeline,
 )
+from .effective_refs import compile_effective_references, resolve_semantic_tokens
 from .replace_engine import snap_window_length
 from .replace_spec import ReplaceSpec, parse_replace_spec
 from .context_links import ContextLink, parse_context_link
@@ -112,6 +115,11 @@ class SegmentPlan:
     # Character Replace (masked, background-true) spec for this segment, when
     # it is a replace window on the shared source video.
     replace: ReplaceSpec | None = None
+    # Per-segment RefMod switch. The harvested RefMod blocks are appended to every
+    # segment's conditioning, so a window the mod is not meant for had no way to
+    # opt out. Declared last: the field list is long and other builders construct
+    # this dataclass by keyword.
+    refmod_enabled: bool = True
 
     @property
     def frame_count(self) -> int:
@@ -284,6 +292,100 @@ def _fallback_common_refs(timeline: dict, seg_task_key: str, key: str) -> list[d
     if key == "refAudios" and seg_task_key not in {"r2v", "rv2v"}:
         return []
     return _r2v_common_list(timeline, key)
+
+
+# Tasks whose segments render with numbered reference pictures. Mirrors the
+# frontend's ``taskUsesReferenceImages``; the set is disjoint from
+# CONTEXT_REFERENCE_EXCLUDED_KEYS, so the two rules can never both apply.
+REFERENCE_PICTURE_TASKS = frozenset({"r2v", "r2i", "rv2v", "vrc2v", "vi2v"})
+
+
+def parse_refmod_enabled(seg_data: dict | None) -> bool:
+    """Per-segment RefMod switch (default on).
+
+    Accepts the flat field the Director UI writes and a nested spec, so a plan file
+    from either style behaves the same. Anything unreadable means "on": that is the
+    pre-existing behaviour for every project saved before the switch existed.
+    """
+    data = seg_data if isinstance(seg_data, dict) else {}
+    spec = data.get("refmod")
+    if isinstance(spec, dict):
+        value = spec.get("enabled", spec.get("use"))
+        if value is not None:
+            return bool(value)
+    for key in ("refmodEnabled", "refmod_enabled", "useRefmod", "use_refmod"):
+        if key in data:
+            return bool(data[key])
+    return True
+
+
+def merge_common_references(
+    timeline: dict,
+    seg_data: dict,
+    seg_task_key: str,
+    *,
+    pictures: list[SegmentRef],
+    audios: list[SegmentRefAudio],
+    videos: list | None = None,
+    video_audios: list | None = None,
+    segment_index: int = 0,
+) -> tuple[list[SegmentRef], list[SegmentRefAudio], list, list, dict[tuple[str, str], str]]:
+    """Attach the shared Common References to a segment, the way every builder does.
+
+    The shared block is a *pool*, not a fallback: the assets this segment keeps come
+    first, then the segment's own, renumbered from zero so ``<Picture N>`` means the
+    same thing to the prompt, the mention picker and the render. Picking one list or
+    the other - the rule this replaces - silently dropped the shared identity from
+    every window that carried a reference of its own, and left the prompt's tags
+    pointing at pictures the render never sent.
+
+    Common *videos* are deliberately not merged here. On the video timeline the
+    source window already occupies ``<Video 1>`` for v2v/rv2v and there is no
+    per-segment ref-video rack, so pulling the pool's videos in would either collide
+    with the source or add references nothing on this timeline can address.
+
+    Returns ``(pictures, audios, videos, video_audios, tags)``.
+    """
+    common_pictures_raw = _r2v_common_list(timeline, "refs")
+    common_audios_raw = _r2v_common_list(timeline, "refAudios")
+    all_common_ids = {
+        _raw_asset_id(item, kind, position)
+        for kind, items in (("picture", common_pictures_raw), ("audio", common_audios_raw))
+        for position, item in enumerate(items)
+        if isinstance(item, dict)
+    }
+    excluded_common_ids = {
+        str(value)
+        for value in (
+            seg_data.get("excludedCommonAssetIds")
+            or seg_data.get("excluded_common_asset_ids")
+            or []
+        )
+    }
+    selected_common_ids = (
+        all_common_ids - excluded_common_ids
+        if bool(seg_data.get("useCommonAssets", seg_data.get("use_common_assets", True)))
+        else set()
+    )
+    effective = compile_effective_references(
+        common_pictures=_load_refs(common_pictures_raw),
+        common_audios=segment_ref_audios_for_context(
+            seg_task_key, _load_ref_audios(common_audios_raw)
+        ),
+        selected_common_asset_ids=selected_common_ids,
+        local_pictures=list(pictures or []),
+        local_audios=list(audios or []),
+        local_videos=list(videos or []),
+        local_video_audios=list(video_audios or []),
+    )
+    _assert_effective_ref_limits(effective, segment_index=segment_index)
+    return (
+        effective.pictures,
+        effective.audios,
+        effective.videos,
+        effective.video_audios,
+        dict(effective.tags),
+    )
 
 
 def _load_refs(ref_list: list[dict]) -> list[SegmentRef]:
@@ -755,15 +857,40 @@ def build_director_plan(
             seg_ref_video = dict(seg_data.get("referenceVideo") or seg_data.get("reference_video") or {})
 
         seg_task_key = resolve_task_key(seg_task)
-        # Unify the two plan builders: the prompt-batch builder resolves an empty
-        # segment reference set from the Common References (r2vCommon), so do the
-        # same on the video timeline - identical projects must behave identically.
-        # A segment's own refs still win when it has any.
-        if not seg_refs:
-            seg_refs = _load_refs(_fallback_common_refs(timeline, seg_task_key, "refs"))
-        if not seg_ref_audios:
-            seg_ref_audios = _load_ref_audios(
-                _fallback_common_refs(timeline, seg_task_key, "refAudios"))
+        reference_tags: dict[tuple[str, str], str] = {}
+        merged_common = False
+        if not use_global and seg_task_key in REFERENCE_PICTURE_TASKS:
+            # Same compile the prompt-batch builder uses, so one rule decides what a
+            # segment renders with whatever timeline mode it is on. The old fallback
+            # below stays for the tasks outside this set (ads2v and friends).
+            (
+                seg_refs,
+                seg_ref_audios,
+                _unused_movies,
+                _unused_movie_audios,
+                reference_tags,
+            ) = merge_common_references(
+                timeline,
+                seg_data,
+                seg_task_key,
+                pictures=seg_refs,
+                audios=seg_ref_audios,
+                segment_index=idx,
+            )
+            merged_common = True
+            # Mentions are stored as {{mmx-ref:<kind>:<asset id>}} and mean different
+            # slots on different segments. Resolve the ones this segment can.
+            seg_prompt = resolve_semantic_tokens(seg_prompt, reference_tags)
+        if not merged_common:
+            # Unify the two plan builders: the prompt-batch builder resolves an empty
+            # segment reference set from the Common References (r2vCommon), so do the
+            # same on the video timeline - identical projects must behave identically.
+            # A segment's own refs still win when it has any.
+            if not seg_refs:
+                seg_refs = _load_refs(_fallback_common_refs(timeline, seg_task_key, "refs"))
+            if not seg_ref_audios:
+                seg_ref_audios = _load_ref_audios(
+                    _fallback_common_refs(timeline, seg_task_key, "refAudios"))
         seg_refs = segment_refs_for_context(seg_task_key, seg_refs)
         seg_ref_audios = segment_ref_audios_for_context(seg_task_key, seg_ref_audios)
         ref_start = start if continuous_ref and seg_task_key == "ads2v" else 0
@@ -797,6 +924,8 @@ def build_director_plan(
                 context_link=parse_context_link(seg_data, idx),
                 reground=bool(seg_data.get("reground") or seg_data.get("regroundSegment") or False),
                 replace=replace_spec_for_seg,
+                reference_tags=reference_tags,
+                refmod_enabled=parse_refmod_enabled(seg_data),
             )
         )
 

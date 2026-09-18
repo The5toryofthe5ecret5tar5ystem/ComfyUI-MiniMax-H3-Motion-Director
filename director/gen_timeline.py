@@ -390,6 +390,7 @@ def build_gen_director_plan(
         _resume_from_index,
         _run_selection_enabled,
         _resolve_export_mode,
+        parse_refmod_enabled,
         segment_ref_audios_for_context,
         segment_refs_for_context,
     )
@@ -660,6 +661,7 @@ def build_gen_director_plan(
                 reference_tags=reference_tags,
                 context_link=parse_context_link(seg_data, idx),
                 reground=bool(seg_data.get("reground") or seg_data.get("regroundSegment") or False),
+                refmod_enabled=parse_refmod_enabled(seg_data),
             )
         )
 

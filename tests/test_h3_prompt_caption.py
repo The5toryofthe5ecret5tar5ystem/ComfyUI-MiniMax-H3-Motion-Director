@@ -61,9 +61,17 @@ def test_plan_captions_for_reference_segments_and_source_edits():
     assert plan_captions("source_edit", source_frames=0, reference_images=0) == []
 
 
-def test_plan_captions_skips_identity_for_refmod():
-    """A mod carries the identity; captioning her appearance would work against it."""
-    assert plan_captions("character_replace_refmod", source_frames=3, reference_images=2) == ["action"]
+def test_plan_captions_for_a_refmod_window():
+    """A mod carries the identity, so there is nothing to caption from text alone.
+
+    A window can carry numbered reference pictures *as well* - the shared Common
+    pool plus its own - and those are text-visible, so they are captioned and the
+    assembled block names them as the same woman.
+    """
+    assert plan_captions("character_replace_refmod", source_frames=3) == ["action"]
+    assert plan_captions(
+        "character_replace_refmod", source_frames=3, reference_images=2
+    ) == ["identity", "action"]
 
 
 def test_plan_captions_ignores_recipes_it_cannot_assemble():
@@ -110,26 +118,31 @@ def test_picture_lines_only_for_attached_references():
 
 
 def test_refmod_block_never_includes_appearance_prose():
+    # No numbered pictures attached: the mod is her only identity source, so there is
+    # nothing text-visible to ground appearance prose in and it is left out. With
+    # pictures attached it is included instead - see
+    # test_refmod_character.py::test_refmod_window_with_reference_pictures_names_and_describes_them.
     result = build_replace_window_prompt(
         recipe="character_replace_refmod",
         identity_caption=IDENTITY,
         action_caption=ACTION,
         audio_policy="source",
-        picture_count=2,
     )
     flat = " ".join(result.text.split())
     assert IDENTITY not in flat, "the mod's identity must not be described in prose"
     assert "Identity:" not in flat
     assert "carried by the attached character reference" in flat
     assert "not described in this text" in flat
-    # The plan never asks for an identity caption on a RefMod window (pinned in
-    # test_refmod_character.py). What `skipped` reports here is what the window could
-    # not be given: with no RefMod character supplied, the wardrobe line and the clue
-    # are both absent - and the wardrobe line is the one the guide says must match the
-    # reference, so it is reported rather than quietly dropped.
+    # The plan asks for an identity caption on a mod window only when the window
+    # carries pictures of its own (pinned in test_refmod_character.py). What
+    # `skipped` reports here is what the window could not be given: with no RefMod
+    # character supplied, the wardrobe line and the clue are both absent - and the
+    # wardrobe line is the one the guide says must match the reference, so it is
+    # reported rather than quietly dropped.
     assert result.skipped == ["wardrobe", "clue"]
     assert "wardrobe:" not in flat
     assert ACTION in flat, "the action caption is still used"
+    assert "<Picture 1>" not in flat, "no pictures, no picture lines"
 
 
 def test_audio_policy_is_stated_not_guessed():
@@ -258,7 +271,6 @@ def test_refmod_only_runs_one_call(_server):
         model="test-model",
         api_format=API_FORMAT_OPENAI_COMPAT,
         source_images=["SRC1", "SRC2"],
-        reference_images=["REF1", "REF2"],
         timeout=10,
     )
     assert err is None, err
@@ -266,6 +278,28 @@ def test_refmod_only_runs_one_call(_server):
     assert all("SRC" in url for url in _image_urls(_Handler.seen[0]))
     assert "ACTION-CAPTION" in result.text
     assert "IDENTITY-CAPTION" not in result.text
+
+
+def test_refmod_with_reference_pictures_captions_them_too(_server):
+    """Mod + pictures: the pictures are text-visible, so they are described as well."""
+    result, err = build_from_images(
+        recipe="character_replace_refmod",
+        url=_server,
+        model="test-model",
+        api_format=API_FORMAT_OPENAI_COMPAT,
+        source_images=["SRC1"],
+        reference_images=["REF1", "REF2"],
+        timeout=10,
+    )
+    assert err is None, err
+    assert len(_Handler.seen) == 2, "identity from the attached pictures, then action"
+    identity_call, action_call = _Handler.seen
+    assert all("REF" in url for url in _image_urls(identity_call)), (
+        "the identity caption sees the references, never the source frames"
+    )
+    assert all("SRC" in url for url in _image_urls(action_call))
+    assert "IDENTITY-CAPTION" in result.text
+    assert "ACTION-CAPTION" in result.text
 
 
 def test_missing_images_is_reported_not_guessed(_server):
