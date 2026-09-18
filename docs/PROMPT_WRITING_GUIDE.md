@@ -271,6 +271,16 @@ Prefer **`anchor`** for character replacement (it is the recipe proven in CGlide
 
 The replace window's `prompt` is a normal r2v block (sections 3-5) with these additions:
 
+**Your own text counts.** In `Build from images` mode the block is assembled by code:
+the environment, the camera and the pose come from a caption of this window's frames,
+and the identity comes from the references. What a caption of stills *cannot* see is
+motion that leaves no visible difference between frames - a slow hip roll, a grind, a
+tremble. Whatever is in the prompt box is therefore carried into the block as a note
+after the action sentence (*"Her own note on the motion of this window, which still
+frames cannot show: …. Follow it; never replace what <Video 1> does, and never invent
+a different action."*), so write the motion there. Leave it empty and the block is
+built exactly as before.
+
 - The replacement subject's `<Picture N>` refs define the NEW identity (face + charsheet).
 - The prompt must NOT describe the source performer - describe the new subject doing the
   action, and describe the background as "the room exactly as in the source video".

@@ -60,6 +60,16 @@ const collect = functionBody(src, "pe.collectVisionImagesForBlock = async (block
 assert.match(collect, /const window = segmentWindowSeconds\(block, editor\);/, "the window is computed");
 assert.match(collect, /\.\.\.window,/, "and sent with the extract request");
 
+// From four frames on, each moment travels as a near-duplicate pair: a single still
+// cannot show movement, and the pair at least shows which limb travels and which way.
+assert.match(src, /const MIN_PAIR_FRAMES = 4;/);
+assert.match(src, /const MOTION_PAIR_GAP_FRAMES = 2;/);
+assert.match(
+    collect,
+    /pair_gap_frames: visionFrames >= MIN_PAIR_FRAMES \? MOTION_PAIR_GAP_FRAMES : 0,/,
+    "pairs are requested only when there are frames to spare",
+);
+
 // --- the count is the user's --------------------------------------------------
 
 assert.match(src, /const DEFAULT_VISION_FRAMES = 3;/);
@@ -151,3 +161,9 @@ assert.match(src, /t\("pe\.statusVisionIssues", \{ count: visionIssues\.length \
 for (const key of ["pe.visionFrames", "pe.visionFramesTip", "pe.statusVisionIssues"]) {
     assert.equal((i18n.match(new RegExp(`"${key}":`, "g")) || []).length, 2, `${key} needs one string per locale`);
 }
+// The tooltip is where the limits are actually explained, so the two things a user
+// has to know live there: pairs need four frames, and a slow cyclic motion is
+// invisible to the caption however many frames it gets.
+assert.match(i18n, /pe\.visionFramesTip": ".*near-duplicate pair/s, "the pair rule is documented");
+assert.match(i18n, /pe\.visionFramesTip": ".*运动对/s, "and in the Chinese panel too");
+assert.match(i18n, /pe\.visionFramesTip": ".*motion note/s, "the note explains where a slow motion has to be written");

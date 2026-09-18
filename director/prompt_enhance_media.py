@@ -679,6 +679,10 @@ def _extract_frames_at(video_path: str, stamps: list[float]) -> list[str]:
     return frames
 
 
+# Movement pairs need two frames per moment, so a set this small keeps its spread.
+MIN_PAIR_FRAMES = 4
+
+
 def window_sample_stamps(
     *,
     num_frames: int,
@@ -687,6 +691,7 @@ def window_sample_stamps(
     total_frames: int = 0,
     start_sec: float | None = None,
     end_sec: float | None = None,
+    pair_gap_frames: int = 0,
 ) -> tuple[list[float], bool]:
     """Timestamps for ``num_frames`` samples, optionally inside one time window.
 
@@ -697,10 +702,14 @@ def window_sample_stamps(
     window in the project).
 
     Inside a window the samples stay strictly interior - the first and last frame
-    belong to the neighbouring windows - while the stamp shape matches the whole-file
-    case so a caption sees the same kind of spread. A window that is unusable
-    (negative, empty, or shorter than a frame) falls back to the whole file, which is
-    also what a caller with no window gets.
+    belong to the neighbouring windows. With ``pair_gap_frames`` (and enough frames
+    to spare) each moment becomes a *pair*: one frame, then another a few frames
+    later. A caption of stills cannot see motion that leaves no visible difference
+    between them, and a near-duplicate pair is the only version of "what moves" that
+    three or four JPEGs can carry - which limb travelled, and which way.
+
+    A window that is unusable (negative, empty, or shorter than a frame) falls back
+    to the whole file, which is also what a caller with no window gets.
     """
     count = max(1, int(num_frames or 1))
     span_start = max(0.0, float(start_sec or 0.0))
@@ -710,7 +719,20 @@ def window_sample_stamps(
 
     if span_end > span_start:
         span = span_end - span_start
-        stamps = [span_start + span * (i + 1) / (count + 1) for i in range(count)]
+        rate = fps if fps > 0 else 24.0
+        gap = max(0.0, float(pair_gap_frames or 0)) / rate
+        if gap > 0 and count >= MIN_PAIR_FRAMES:
+            anchors = max(1, (count + 1) // 2)
+            stamps: list[float] = []
+            for i in range(anchors):
+                anchor = span_start + span * (i + 1) / (anchors + 1)
+                stamps.append(anchor)
+                twin = anchor + gap
+                if twin < span_end:
+                    stamps.append(twin)
+            stamps = stamps[:count]
+        else:
+            stamps = [span_start + span * (i + 1) / (count + 1) for i in range(count)]
         if duration > 0:
             stamps = [min(stamp, max(duration - 0.05, 0.0)) for stamp in stamps]
         return [max(0.0, stamp) for stamp in stamps], True
@@ -739,12 +761,15 @@ def extract_input_video_frames_b64(
     num_frames: int = 3,
     start_sec: float | None = None,
     end_sec: float | None = None,
+    pair_gap_frames: int = 0,
 ) -> tuple[list[str], str | None]:
     """Extract uniformly sampled JPEG base64 frames from a file in ComfyUI input/.
 
     ``start_sec``/``end_sec`` restrict the samples to one segment's window, which is
     what a Character Replace window needs: its action caption must describe the slice
     being replaced, not three moments from somewhere else in the source.
+    ``pair_gap_frames`` turns each moment into a near-duplicate pair, the only way a
+    set of stills can show movement (see ``window_sample_stamps``).
     """
     if not filename:
         return [], "No filename"
@@ -777,6 +802,7 @@ def extract_input_video_frames_b64(
                 total_frames=total_frames,
                 start_sec=start_sec,
                 end_sec=end_sec,
+                pair_gap_frames=pair_gap_frames,
             )
             if in_window:
                 log.info(
@@ -819,6 +845,7 @@ def extract_input_video_frames_b64(
             total_frames=total_frames,
             start_sec=start_sec,
             end_sec=end_sec,
+            pair_gap_frames=pair_gap_frames,
         )
         if in_window:
             # The index scan has no timestamps, so turn the window stamps back into

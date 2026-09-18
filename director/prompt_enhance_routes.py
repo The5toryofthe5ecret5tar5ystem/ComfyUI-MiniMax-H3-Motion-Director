@@ -50,6 +50,7 @@ from ..lib.prompt_enhancer import (
 )
 from ..lib.task_prompts import resolve_task_key
 from .prompt_enhance_media import (
+    MIN_PAIR_FRAMES,
     extract_input_video_frames_b64,
     is_replace_task_prompt,
     load_input_image_b64,
@@ -484,6 +485,8 @@ async def director_enhance_prompt(request):
 
 
 MAX_VISION_FRAMES = 5
+# A pair is one frame plus another a few frames later; more than this is a clip.
+MAX_PAIR_GAP_FRAMES = 8
 
 
 def _as_seconds(value) -> float | None:
@@ -510,20 +513,25 @@ async def director_extract_frames(request):
     # slice being rendered, not three moments from elsewhere in the source.
     start_sec = _as_seconds(data.get("start_sec", data.get("startSec")))
     end_sec = _as_seconds(data.get("end_sec", data.get("endSec")))
+    pair_gap_frames = min(max(int(data.get("pair_gap_frames") or 0), 0), MAX_PAIR_GAP_FRAMES)
     frames, err = extract_input_video_frames_b64(
         filename,
         subfolder=subfolder,
         num_frames=num_frames,
         start_sec=start_sec,
         end_sec=end_sec,
+        pair_gap_frames=pair_gap_frames,
     )
     if err:
         status = 404 if "not found" in err.lower() else 500
         return web.json_response({"error": err}, status=status)
+    in_window = bool(start_sec is not None and end_sec is not None and end_sec > start_sec)
     return web.json_response({
         "frames": frames,
         "num_frames": len(frames),
-        "in_window": bool(start_sec is not None and end_sec is not None and end_sec > start_sec),
+        "in_window": in_window,
+        # Whether the samples came as movement pairs, for the panel's own logging.
+        "pairs": bool(in_window and pair_gap_frames > 0 and num_frames >= MIN_PAIR_FRAMES),
     })
 
 

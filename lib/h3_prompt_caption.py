@@ -62,6 +62,9 @@ CHARACTER_CAPTION_TOKENS = 320
 FRAME_CAPTION_TOKENS = 512
 # A clue longer than this is a description, and the guide forbids one.
 MAX_CLUE_WORDS = 6
+# How much of the user's own note is carried into the block. Long enough for a few
+# sentences about the motion, short enough that it cannot crowd out the invariants.
+MAX_MOTION_NOTE_CHARS = 700
 
 IDENTITY_INSTRUCTION = """
 Analyze this reference image for identity-preserving video generation.
@@ -87,6 +90,13 @@ Write a concise single paragraph covering: the environment and background; camer
 framing, angle and movement; lighting; and the actions being done over time.
 Refer to the woman as <Subject 1>, and to any other visible person as <Subject 2>
 only if visible.
+
+Some of the attached frames are near-duplicates a moment apart (a movement pair):
+when two images are almost identical, describe the SMALL movement that difference
+shows - which limb travels and in which direction - rather than a new pose. A
+movement that leaves no visible difference between frames (a slow rhythmic roll,
+for example) is genuinely invisible to you: say what the pose is doing and leave
+the motion of it to the writer.
 
 Do NOT describe the subjects' appearance or clothing - another part of the prompt
 carries that. Do NOT infer things that are not clearly visible; describe only what
@@ -297,6 +307,21 @@ def _clean_caption(text: str) -> str:
     return body.strip()
 
 
+def _clean_motion_note(text: str) -> str:
+    """The user's own note on the motion, as one line, bounded.
+
+    A window's action prose used to be the caption's alone, so anything the user
+    typed about the motion was thrown away - and a caption of three stills cannot
+    see a movement that leaves no visible difference between them (a hip roll, a slow
+    grind). Whatever is in the prompt box is the only source for that, so it is
+    carried into the block as a note on top of what the frames demonstrably show.
+    """
+    body = _clean_caption(text)
+    if len(body) > MAX_MOTION_NOTE_CHARS:
+        body = body[:MAX_MOTION_NOTE_CHARS].rsplit(" ", 1)[0].rstrip(",;.:")
+    return body
+
+
 def _language_note(output_language: str) -> str:
     if normalize_output_language(output_language) == "zh":
         return (
@@ -361,6 +386,7 @@ def build_replace_window_prompt(
     identity_caption: str = "",
     action_caption: str = "",
     character_caption: str = "",
+    motion_note: str = "",
     audio_policy: str = "source",
     picture_count: int = 0,
     output_language: str = OUTPUT_LANGUAGE_EN,
@@ -380,6 +406,13 @@ def build_replace_window_prompt(
     view of the same character, so they are named and described after all: the mod
     keeps carrying her detail through the sampler, the pictures are what the prompt
     can point at, and the block says they must agree.
+
+    `motion_note` is the user's own prompt text. The action prose is the caption's -
+    what the attached frames demonstrably show - but a caption of stills cannot see
+    motion that leaves no visible difference between them, and this window's motion
+    is the one thing the user knows and the images do not. The note is therefore
+    *added*: it never overwrites the source description and cannot introduce a
+    different action.
     """
     refmod = recipe == "character_replace_refmod"
     picture_count = max(0, int(picture_count or 0))
@@ -387,6 +420,7 @@ def build_replace_window_prompt(
     # window that is the attached pictures, when there are any.
     identity = "" if (refmod and picture_count == 0) else _clean_caption(identity_caption)
     action = _clean_caption(action_caption)
+    motion = _clean_motion_note(motion_note)
     outfit, clue = parse_character_caption(character_caption) if refmod else ("", "")
     skipped: list[str] = []
     if refmod:
@@ -432,6 +466,15 @@ def build_replace_window_prompt(
     lines.extend(["", "summary:", _SUMMARY_LINE])
 
     body = [f"[Shot 1] Begin from the opening frame of this window. {action}"]
+    if motion:
+        # Additive, never a replacement: the caption says what the frames show, the
+        # note says what moves. Both are about THIS window, so neither can invent a
+        # different event.
+        body.append(
+            "Her own note on the motion of this window, which still frames cannot "
+            f"show: {motion}. Follow it; never replace what <Video 1> does, and never "
+            "invent a different action."
+        )
     if not refmod:
         body.append(
             "Only <Subject 1> is regenerated: her face, hair, skin and body come from "
@@ -712,6 +755,9 @@ def _assemble_for_recipe(
             identity_caption=captions.get("identity", ""),
             action_caption=captions.get("action", ""),
             character_caption=captions.get("character", ""),
+            # The user's own text: a replace window used to drop it entirely, which
+            # left the motion to a caption of stills that cannot see motion.
+            motion_note=user_prompt,
             audio_policy=audio_policy,
             picture_count=picture_count,
             output_language=output_language,

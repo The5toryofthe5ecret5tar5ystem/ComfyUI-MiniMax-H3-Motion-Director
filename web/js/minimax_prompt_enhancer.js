@@ -211,6 +211,11 @@ async function fetchImageB64(imageFile, ref = {}) {
 /** How many frames of the segment's own slice the model may look at, if unset. */
 const DEFAULT_VISION_FRAMES = 3;
 const MAX_VISION_FRAMES = 5;
+// From this many frames on, each moment is sampled as a near-duplicate pair: the
+// caption cannot see movement in a single still, and a twin frame a few frames later
+// is the only thing a set of JPEGs can carry about which limb travels and which way.
+const MIN_PAIR_FRAMES = 4;
+const MOTION_PAIR_GAP_FRAMES = 2;
 
 function clampVisionFrames(value, fallback = DEFAULT_VISION_FRAMES) {
     const count = Math.round(Number(value));
@@ -1408,6 +1413,8 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
                     filename: videoFile,
                     subfolder: video.subfolder || "",
                     num_frames: visionFrames,
+                    // Enough frames to spare: sample movement pairs inside the window.
+                    pair_gap_frames: visionFrames >= MIN_PAIR_FRAMES ? MOTION_PAIR_GAP_FRAMES : 0,
                     ...window,
                 }),
             });

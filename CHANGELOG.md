@@ -18,6 +18,19 @@ Notable changes in this fork. Older releases are tagged in git and published on 
   Ollama). It sits next to the other enhancer options, persists per browser, and also
   caps how many frames of the RefMod character are decoded for the wardrobe line
   (`refmod_frames`). An inserted reference clip keeps its own smaller count.
+- **From four frames on, they are sampled as movement pairs.** Each moment becomes a
+  near-duplicate pair (two frames a few frames apart), because a set of stills is the
+  only thing a vision model gets and a single frame says nothing about what moves. It
+  at least shows which limb travels and which way; a slow cyclic motion leaves no
+  visible difference between any number of stills, and belongs in the prompt.
+- **A Character Replace window keeps your own words.** The action prose of a replace
+  block came from the caption alone, so anything typed about the motion was dropped -
+  and the caption cannot see a movement that leaves no difference between frames. The
+  prompt box's text now travels into the block as a note after the action sentence:
+  *"Her own note on the motion of this window, which still frames cannot show: <your
+  text>. Follow it; never replace what <Video 1> does, and never invent a different
+  action."* The caption stays the description of what the frames demonstrably show,
+  and the note only adds to it.
 
 ### Fixed
 

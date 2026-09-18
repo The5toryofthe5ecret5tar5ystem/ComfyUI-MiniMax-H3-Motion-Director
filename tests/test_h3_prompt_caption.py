@@ -32,6 +32,7 @@ if "folder_paths" not in sys.modules:
 from mmx_pkg.lib.h3_prompt_caption import (  # noqa: E402
     ACTION_CAPTION_TOKENS,
     AUDIO_LINES,
+    MAX_MOTION_NOTE_CHARS,
     build_from_images,
     build_ref2va_prompt,
     build_replace_window_prompt,
@@ -115,6 +116,60 @@ def test_picture_lines_only_for_attached_references():
     ).text
     assert "<Picture 1>" in one and "<Picture 2>" not in one
     assert "<Picture 1>" in two and "<Picture 2>" in two
+
+
+def test_a_replace_window_carries_the_users_own_motion_note():
+    """The action prose used to be the caption's alone, and a caption of stills
+    cannot see motion that leaves no visible difference between them."""
+    result = build_replace_window_prompt(
+        recipe="character_replace",
+        identity_caption=IDENTITY,
+        action_caption=ACTION,
+        motion_note="She lies face down and keeps gyrating her hips.",
+        picture_count=2,
+    )
+    flat = " ".join(result.text.split())
+    assert "keeps gyrating her hips" in flat
+    assert "own note on the motion" in flat
+    assert "never replace what <Video 1> does" in flat
+    assert "never invent a different action" in flat
+    assert ACTION in flat, "the caption still describes what the frames show"
+    assert result.action == ACTION, "the note does not become the action caption"
+
+
+def test_a_replace_window_without_a_note_has_no_note_sentence():
+    result = build_replace_window_prompt(
+        recipe="character_replace",
+        identity_caption=IDENTITY,
+        action_caption=ACTION,
+        picture_count=1,
+    )
+    assert "own note on the motion" not in result.text
+
+
+def test_the_motion_note_is_one_line_and_bounded():
+    result = build_replace_window_prompt(
+        recipe="character_replace",
+        action_caption=ACTION,
+        motion_note='She rolls her hips.\n\n# marked "up" ' + ("and again " * 200),
+        picture_count=1,
+    )
+    note = result.text.split("which still frames cannot show: ", 1)[1].split(". Follow it;", 1)[0]
+    assert "\n" not in note
+    assert "marked up" in note, "markdown and quotes are stripped"
+    assert len(note) <= MAX_MOTION_NOTE_CHARS, "bounded, so it cannot crowd the block"
+
+
+def test_a_refmod_window_keeps_the_note_too():
+    result = build_replace_window_prompt(
+        recipe="character_replace_refmod",
+        action_caption=ACTION,
+        character_caption="OUTFIT: a tunic CLUE: the elf",
+        motion_note="Her hips never stop moving.",
+    )
+    flat = " ".join(result.text.split())
+    assert "Her hips never stop moving." in flat
+    assert "wardrobe: she wears a tunic" in flat
 
 
 def test_refmod_block_never_includes_appearance_prose():
@@ -262,6 +317,23 @@ def test_caption_calls_are_capped_so_the_run_stays_short(_server):
     )
     for body in _Handler.seen:
         assert body.get("max_tokens") == ACTION_CAPTION_TOKENS
+
+
+def test_build_from_images_keeps_the_users_motion_note_for_a_replace_window(_server):
+    """End to end: the text in the prompt box reaches the assembled block."""
+    result, err = build_from_images(
+        recipe="character_replace",
+        url=_server,
+        model="test-model",
+        api_format=API_FORMAT_OPENAI_COMPAT,
+        user_prompt="She lies face down and keeps gyrating her hips.",
+        source_images=["SRC1"],
+        reference_images=["REF1", "REF2"],
+        timeout=10,
+    )
+    assert err is None, err
+    assert "keeps gyrating her hips" in result.text
+    assert "IDENTITY-CAPTION" in result.text, "the reference caption is still there"
 
 
 def test_refmod_only_runs_one_call(_server):

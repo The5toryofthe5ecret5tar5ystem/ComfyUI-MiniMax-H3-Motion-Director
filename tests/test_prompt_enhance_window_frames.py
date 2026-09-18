@@ -86,6 +86,64 @@ def test_one_frame_is_still_the_middle_of_the_window():
     assert stamps == pytest.approx([5.0])
 
 
+# --- movement pairs ---------------------------------------------------------
+
+
+def test_pairs_are_two_frames_a_moment_apart_inside_the_window():
+    stamps, in_window = media.window_sample_stamps(
+        num_frames=4,
+        fps=24.0,
+        duration=100.0,
+        total_frames=2400,
+        start_sec=10.0,
+        end_sec=20.0,
+        pair_gap_frames=2,
+    )
+    assert in_window is True
+    assert len(stamps) == 4
+    assert all(10.0 < stamp < 20.0 for stamp in stamps)
+    assert stamps == sorted(stamps)
+    gap = 2 / 24.0
+    assert stamps[1] - stamps[0] == pytest.approx(gap), "the first moment is a pair"
+    assert stamps[3] - stamps[2] == pytest.approx(gap), "so is the second"
+    assert stamps[2] - stamps[1] > gap, "and the two moments stay apart"
+
+
+def test_pairs_are_skipped_when_there_are_too_few_frames_to_pair():
+    stamps, _ = media.window_sample_stamps(
+        num_frames=3, fps=24.0, duration=100.0, total_frames=2400,
+        start_sec=10.0, end_sec=20.0, pair_gap_frames=2,
+    )
+    assert len(stamps) == 3
+    assert stamps[1] - stamps[0] > 2 / 24.0, "still the wider spread"
+
+
+def test_an_odd_pair_count_keeps_the_last_frame_single():
+    stamps, _ = media.window_sample_stamps(
+        num_frames=5, fps=24.0, duration=100.0, total_frames=2400,
+        start_sec=10.0, end_sec=20.0, pair_gap_frames=2,
+    )
+    assert len(stamps) == 5
+    assert all(10.0 < stamp < 20.0 for stamp in stamps)
+
+
+def test_a_twin_never_falls_outside_the_window():
+    stamps, in_window = media.window_sample_stamps(
+        num_frames=4, fps=24.0, duration=100.0, total_frames=2400,
+        start_sec=99.0, end_sec=99.05, pair_gap_frames=2,
+    )
+    assert in_window is True
+    assert all(99.0 < stamp <= 99.05 for stamp in stamps), stamps
+
+
+def test_no_pairs_without_a_window():
+    stamps, in_window = media.window_sample_stamps(
+        num_frames=4, fps=24.0, duration=100.0, total_frames=2400, pair_gap_frames=2
+    )
+    assert in_window is False
+    assert len(stamps) == 4
+
+
 # --- the ffmpeg path --------------------------------------------------------
 
 
@@ -189,6 +247,9 @@ def test_the_route_accepts_a_window_and_an_image_location():
     assert "start_sec=start_sec," in text and "end_sec=end_sec," in text
     assert 'kind=data.get("type") or data.get("kind") or "input",' in text
     assert "num_frames = min(max(int(data.get(\"num_frames\") or 3), 1), MAX_VISION_FRAMES)" in text
+    assert 'pair_gap_frames = min(max(int(data.get("pair_gap_frames") or 0), 0), MAX_PAIR_GAP_FRAMES)' in text
+    assert "pair_gap_frames=pair_gap_frames," in text
+    assert '"pairs": bool(in_window and pair_gap_frames > 0 and num_frames >= MIN_PAIR_FRAMES),' in text
 
 
 def test_a_junk_timestamp_is_treated_as_no_window():
