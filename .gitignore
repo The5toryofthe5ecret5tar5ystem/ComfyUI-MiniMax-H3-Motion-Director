@@ -24,3 +24,7 @@ package-lock.json
 # Machine-generated UI validation report (produced by local playwright/puppeteer
 # runs against a dev ComfyUI instance, e.g. "LIVE UI VALIDATED" dumps)
 artifacts/live_ui_report.json
+
+# QA readiness sweep output (scripts/qa_readiness.py). Regenerate with `npm run qa`.
+artifacts/qa_readiness_report.json
+artifacts/qa_readiness_report.md

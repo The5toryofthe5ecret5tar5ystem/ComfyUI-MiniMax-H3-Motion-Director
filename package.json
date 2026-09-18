@@ -3,7 +3,10 @@
   "type": "module",
   "scripts": {
     "test": "node scripts/run_js_tests.mjs",
-    "test:js": "node scripts/run_js_tests.mjs"
+    "test:js": "node scripts/run_js_tests.mjs",
+    "qa": "python scripts/qa_readiness.py",
+    "qa:live": "python scripts/qa_readiness.py --live",
+    "qa:fast": "python scripts/qa_readiness.py --fast"
   },
   "devDependencies": {
     "jsdom": "^25.0.1"
