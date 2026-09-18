@@ -315,3 +315,110 @@ def test_a_plain_openai_server_still_reports_that_it_cannot_unload(monkeypatch):
     )
     assert status == 400
     assert "does not support" in body["error"]
+
+
+# --- polish mode (wording only) ------------------------------------------------
+
+
+def _polish_enhancer(seen: dict, *, report_patch: dict | None = None, text: str = "polished prompt"):
+    """A stand-in for enhance_prompt_sync that records the call and fills the report.
+
+    The real function writes the structure check into the dict the route hands it,
+    so the stand-in has to do the same for the response fields to be exercised.
+    """
+
+    def fake(**kwargs):
+        seen.update(kwargs)
+        report = kwargs.get("polish_report")
+        if report is not None:
+            report.update(
+                {
+                    "ok": True,
+                    "retried": False,
+                    "missing_tags": [],
+                    "added_tags": [],
+                    "chars_before": 120,
+                    "chars_after": 118,
+                }
+            )
+            report.update(report_patch or {})
+        return text, None
+
+    return fake
+
+
+def test_polish_mode_reaches_the_enhancer_and_is_echoed(monkeypatch):
+    """`prompt_mode: polish` is the wording-only contract, end to end.
+
+    If the route quietly dropped the flag the request would be a rewrite: the
+    answer would come back reshaped, and the panel would say it kept the user's
+    structure while the model was free to rebuild it.
+    """
+    seen: dict = {}
+    monkeypatch.setattr(routes, "enhance_prompt_sync", _polish_enhancer(seen))
+
+    status, body = _call(_base(prompt_mode="polish"))
+
+    assert status == 200, body
+    assert seen["prompt_mode"] == "polish", "the mode travels to the enhancer"
+    assert "polish_report" in seen, "and the structure check has somewhere to report"
+    assert body["prompt_mode"] == "polish"
+    assert body["polish"]["chars_after"] == 118
+    assert body["response"] == "polished prompt"
+
+
+def test_the_polish_aliases_are_accepted(monkeypatch):
+    seen: dict = {}
+    monkeypatch.setattr(routes, "enhance_prompt_sync", _polish_enhancer(seen))
+    status, body = _call(_base(prompt_mode="Polishing"))
+    # "polishing" is not an alias: it must keep the rewrite path rather than
+    # silently promising a structure the server is not protecting.
+    assert body["prompt_mode"] == "rewrite"
+    seen.clear()
+    monkeypatch.setattr(routes, "enhance_prompt_sync", _polish_enhancer(seen))
+    status, body = _call(_base(prompt_mode="wording_only"))
+    assert status == 200
+    assert seen["prompt_mode"] == "polish"
+    assert body["prompt_mode"] == "polish"
+
+
+def test_a_polish_warning_reaches_the_panel_note(monkeypatch):
+    """The note is the only place a changed structure becomes visible before a
+    render, so it has to survive the response builder."""
+    seen: dict = {}
+    monkeypatch.setattr(
+        routes,
+        "enhance_prompt_sync",
+        _polish_enhancer(
+            seen,
+            report_patch={
+                "ok": False,
+                "retried": True,
+                "missing_tags": ["<picture 1>"],
+                "note": "The structure check found changes: tags that disappeared: <picture 1>.",
+            },
+        ),
+    )
+    status, body = _call(_base(prompt_mode="polish"))
+    assert status == 200
+    assert "picture 1" in body["note"]
+    assert body["polish"]["ok"] is False
+
+
+def test_polish_never_enters_the_caption_path(monkeypatch):
+    """Images are ignored by design: looking at them invites new appearance prose,
+    which is the opposite of "reword what I wrote"."""
+    import mmx_pkg.lib.h3_prompt_caption as caption_module
+
+    called: list = []
+    monkeypatch.setattr(caption_module, "build_from_images", lambda **kw: called.append(kw))
+    seen: dict = {}
+    monkeypatch.setattr(routes, "enhance_prompt_sync", _polish_enhancer(seen))
+
+    status, body = _call(
+        _base(prompt_mode="polish", images=["frame-one"], source_count=1, ref_slots=[1])
+    )
+
+    assert status == 200, body
+    assert called == [], "the caption builder is not a polish path"
+    assert seen["prompt_mode"] == "polish"

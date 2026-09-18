@@ -44,6 +44,14 @@ from .prompt_enhance_templates import (
     resolve_enhance_template,
     patch_rv2v_vision_intro,
 )
+from .h3_prompt_polish import (
+    build_polish_retry_message,
+    build_polish_system_prompt,
+    build_polish_user_message,
+    is_polish_mode,
+    polish_note,
+    verify_polish,
+)
 from .h3_prompt_recipes import resolve_recipe
 from .h3_prompt_rules import build_h3_enhance_rules, h3_rules_enabled
 from .task_prompts import resolve_task_key
@@ -537,6 +545,36 @@ def _parse_enhanced_text(raw: str) -> str:
     return _sanitize_enhanced_prompt(text)
 
 
+def _parse_polished_text(raw: str, original: str) -> str:
+    """Parse a wording pass without touching the prompt's layout.
+
+    `_parse_enhanced_text` ends in `_sanitize_enhanced_prompt`, which collapses
+    whitespace runs and rewrites slot wording. That is right for a rewrite (the
+    answer is prose) and fatal here: every heading lives on its own line, so a
+    collapsed answer loses the structure this mode exists to protect - the
+    headings stop being headings and the structure check fails on text that is
+    otherwise correct.
+
+    The only unwrapping a polish pass needs is the reasoning wrapper and a stray
+    code fence around the whole prompt, plus a dropped-in line of preamble. The
+    preamble is removed by anchoring on the prompt's own first line, which the
+    contract requires to come back unchanged - so nothing that belongs to the
+    answer can be cut by accident.
+    """
+    text = _strip_think_blocks((raw or "").strip())
+    if not text:
+        return ""
+    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*?)\n?```$", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    anchor = next((line.strip() for line in str(original or "").splitlines() if line.strip()), "")
+    if anchor and not text.startswith(anchor):
+        index = text.find("\n" + anchor)
+        if index > 0:
+            text = text[index + 1 :]
+    return text.strip()
+
+
 def _parse_replace_structured(raw: str) -> dict | None:
     """Parse split-field replace JSON (frame_subject + imageN_target)."""
     text = _normalize_llm_json_text(_strip_think_blocks((raw or "").strip()))
@@ -639,6 +677,8 @@ def enhance_prompt_sync(
     audio_policy: str = "",
     max_tokens: int | None = None,
     timeout: int = 120,
+    prompt_mode: str = "rewrite",
+    polish_report: dict | None = None,
 ) -> tuple[str | None, str | None]:
     """Rewrite `user_prompt` for `task_type`; returns (text, error_message).
 
@@ -648,10 +688,20 @@ def enhance_prompt_sync(
     carry events. Off by default so callers that do not ask for it see no change.
     `h3_rules_compact` swaps that contract for the condensed version - much less
     prefill, fewer explanations.
+
+    `prompt_mode="polish"` is the wording-only path (see `h3_prompt_polish`): the
+    prompt goes to the model verbatim, no template or recipe decides its shape, no
+    rules or directives are attached and no images are sent - and the answer is
+    checked against the original's tags, headings and beat markers. The check's
+    outcome is written into `polish_report` when the caller passes a dict.
     """
     prompt = (user_prompt or "").strip()
     if not prompt or not (model or "").strip():
         return None, "Empty prompt or model"
+
+    # Wording only: keep the user's text as the thing being edited, never as a
+    # request to be reshaped. Every block below that decides a *shape* is skipped.
+    polish_mode = is_polish_mode(prompt_mode)
 
     base_url = coerce_llm_url(url, default=default_url_for_format(api_format))
     api_format = infer_api_format(base_url, api_format)
@@ -665,7 +715,9 @@ def enhance_prompt_sync(
     slots = list(ref_slots or [])
     user_slots = parse_user_reference_slots(prompt)
     replace_task = is_replace_task_prompt(prompt)
-    vision_images = list(images_b64 or [])
+    # Nothing is attached in polish mode: a reference image is an invitation to
+    # write new appearance prose, which is the opposite of "reword what I wrote".
+    vision_images = [] if polish_mode else list(images_b64 or [])
 
     if vision_images and user_slots and slots:
         vision_images, slots, src_count = filter_vision_for_user_slots(
@@ -683,18 +735,19 @@ def enhance_prompt_sync(
 
     task_key = resolve_task_key(task_type)
     use_replace_structured = (
-        replace_task
+        not polish_mode
+        and replace_task
         and src_count > 0
         and bool(directive_slots)
         and task_key in ("rv2v", "vrc2v")
         and bool(vision_images)
         and not (custom_template or "").strip()
     )
-    feature_enhance = is_character_feature_enhance_enabled(
+    feature_enhance = not polish_mode and is_character_feature_enhance_enabled(
         character_feature_enhance,
         character_detail_level=character_detail_level,
     )
-    template = resolve_enhance_template(
+    template = "" if polish_mode else resolve_enhance_template(
         task_key,
         custom_template=custom_template,
         output_language=output_language,
@@ -715,11 +768,14 @@ def enhance_prompt_sync(
     ref_count = image_num if image_num is not None else max(1, len(vision_images or images_b64 or []))
     if directive_slots and slots:
         ref_count = len(slots) if slots else ref_count
-    formatted = format_enhance_user_content(
-        template,
-        user_prompt=prompt,
-        image_num=ref_count,
-    )
+    if polish_mode:
+        formatted = build_polish_user_message(prompt, output_language)
+    else:
+        formatted = format_enhance_user_content(
+            template,
+            user_prompt=prompt,
+            image_num=ref_count,
+        )
 
     preamble = ""
     if vision_images and (src_count > 0 or slots):
@@ -762,13 +818,13 @@ def enhance_prompt_sync(
             output_language=output_language,
             character_feature_enhance=feature_enhance,
         )
-    elif replace_task and src_count > 0 and directive_slots:
+    elif replace_task and src_count > 0 and directive_slots and not polish_mode:
         preamble += build_replace_source_target_directive(
             directive_slots,
             source_count=src_count,
             output_language=output_language,
         )
-    if directive_slots and not use_replace_structured:
+    if directive_slots and not use_replace_structured and not polish_mode:
         preamble += build_user_image_directive(
             directive_slots,
             output_language,
@@ -796,12 +852,16 @@ def enhance_prompt_sync(
     if api_format == API_FORMAT_OLLAMA and "qwen" in model.lower() and not detailed_mode:
         formatted = f"{formatted}\n/no_think"
 
-    system_prompt = resolve_enhance_system_prompt(
-        task_key,
-        custom_template=custom_template,
-        output_language=output_language,
+    system_prompt = (
+        build_polish_system_prompt(output_language)
+        if polish_mode
+        else resolve_enhance_system_prompt(
+            task_key,
+            custom_template=custom_template,
+            output_language=output_language,
+        )
     )
-    if normalize_output_language(output_language) == "zh":
+    if normalize_output_language(output_language) == "zh" and not polish_mode:
         if replace_task and src_count > 0 and slots:
             system_prompt += (
                 " 替换任务：「将视频中…」只写源视频 frame 附件里待替换对象的现行外观；"
@@ -823,7 +883,10 @@ def enhance_prompt_sync(
             " Character feature enhance: long character appearance from reference image is required."
         )
 
-    if h3_rules_enabled(h3_rules):
+    # The engine contract describes how a segment prompt is *written*, which is a
+    # different job from editing the wording of one that already follows it - and
+    # the full ruleset invites a restructure the user asked not to have.
+    if h3_rules_enabled(h3_rules) and not polish_mode:
         rules = build_h3_enhance_rules(
             task_key,
             output_language=output_language,
@@ -1052,8 +1115,15 @@ def enhance_prompt_sync(
     last_err: str | None = None
     last_measured = 0
     last_unit = "han"
-    max_passes = 3 if detailed_mode else (2 if use_replace_structured else 1)
-    num_predict = 4096 if (detailed_mode or use_replace_structured) else None
+    if polish_mode:
+        # One pass, plus one retry when the structure check says something moved.
+        max_passes = 2
+        # The answer is about as long as the input, and twice the character count
+        # is a generous token budget for any script (English is ~4 chars/token).
+        num_predict = max(768, min(4096, len(prompt) // 2))
+    else:
+        max_passes = 3 if detailed_mode else (2 if use_replace_structured else 1)
+        num_predict = 4096 if (detailed_mode or use_replace_structured) else None
     if max_tokens:
         # Callers that know exactly how much output they need (the caption path
         # asks for "one or two sentences") cap it here instead of paying for a
@@ -1077,6 +1147,9 @@ def enhance_prompt_sync(
                 pass
         return result, error
 
+    # Lives outside the loop: the retry verdict is about the whole enhancement,
+    # and the pass that succeeds builds its own fresh report.
+    polish_retried = False
     for enhance_pass in range(max_passes):
         pass_temperature = 0.7 if enhance_pass == 0 else min(0.85 + enhance_pass * 0.05, 0.95)
         result, last_err = _invoke_llm(
@@ -1095,6 +1168,11 @@ def enhance_prompt_sync(
 
         raw = _extract_llm_raw(result, api_format)
         parsed = ""
+        if polish_mode:
+            # Layout is the deliverable here, so the answer is taken as written
+            # (see _parse_polished_text) rather than passed through the rewrite
+            # sanitiser, which would collapse every heading onto one line.
+            parsed = _parse_polished_text(raw, prompt)
         if use_replace_structured:
             structured = _parse_replace_structured(raw)
             if structured:
@@ -1131,6 +1209,45 @@ def enhance_prompt_sync(
                 )
                 return _finish(None, hint)
             return _finish(None, f"LLM 返回无法解析（前 120 字）：{(raw or '')[:120]}")
+
+        if polish_mode:
+            # Mechanical check against what the user wrote: the model's word about
+            # having "kept the structure" is not evidence, and a dropped <Picture N>
+            # is a render the user pays for before noticing.
+            report = verify_polish(prompt, parsed)
+            if not report.ok and enhance_pass + 1 < max_passes:
+                log.warning(
+                    "Prompt polish changed the structure (%s); retrying with the "
+                    "changes named",
+                    report.summary(),
+                )
+                polish_retried = True
+                chat_prompt = build_polish_retry_message(prompt, report, output_language)
+                continue
+            report.retried = polish_retried
+            note = polish_note(report, chars_before=len(prompt), chars_after=len(parsed))
+            if polish_report is not None:
+                # The route turns this into the panel's note, so the wording of the
+                # warning lives in one place (h3_prompt_polish) rather than in the
+                # response builder too.
+                polish_report.clear()
+                polish_report.update(
+                    report.as_dict(
+                        chars_before=len(prompt),
+                        chars_after=len(parsed),
+                    )
+                )
+                if note:
+                    polish_report["note"] = note
+            if note:
+                log.warning("Prompt polish: %s", note)
+            else:
+                log.info(
+                    "Prompt polish: %d -> %d characters, structure and tags intact",
+                    len(prompt),
+                    len(parsed),
+                )
+            return _finish(parsed, None)
 
         parsed = ensure_user_reference_tags(parsed, user_slots or directive_slots)
         # The detailed gate has to measure the language the answer is written in.

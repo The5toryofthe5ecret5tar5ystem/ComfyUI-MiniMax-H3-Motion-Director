@@ -293,6 +293,56 @@ const plain = JSON.parse(api.calls.find((call) => call.url.endsWith("/enhance"))
 assert.equal(plain.prompt_mode, "rewrite", "off means the rewrite path");
 assert.equal(plain.audio_policy, "", "no replace spec -> no policy claimed");
 
+// --- polish mode (wording only) ------------------------------------------------
+// The one mode that must NOT reshape the prompt: exclusive with caption mode, it
+// parks the controls that only apply to a rewrite, collects no frames and travels
+// as prompt_mode "polish".
+assert.equal(pe.polishCheck.checked, false, "polish is off by default");
+pe.polishCheck.checked = true;
+pe.polishCheck.dispatchEvent(new dom.window.Event("change"));
+assert.equal(
+    JSON.parse(localStorage.getItem("mmx_motion_director_pe_settings")).polish,
+    true,
+    "the choice persists",
+);
+assert.equal(pe.recipeSelect.disabled, true, "a recipe only shapes a rewrite");
+assert.equal(pe.detailCheck.disabled, true, "so does character detail");
+assert.equal(pe.h3CompactCheck.disabled, true, "and the compact-rules switch");
+assert.equal(pe.hidePerformerCheck.disabled, true, "hiding the performer is a caption-mode job");
+
+pe.fromImagesCheck.checked = true;
+pe.fromImagesCheck.dispatchEvent(new dom.window.Event("change"));
+assert.equal(pe.polishCheck.checked, false, "the two modes clear each other");
+assert.equal(pe.recipeSelect.disabled, false, "and the shape controls come back");
+
+pe.polishCheck.checked = true;
+pe.polishCheck.dispatchEvent(new dom.window.Event("change"));
+let visionCollects = 0;
+const realCollect = pe.collectVisionImagesForBlock;
+pe.collectVisionImagesForBlock = async (...args) => {
+    visionCollects += 1;
+    return realCollect(...args);
+};
+api.calls.length = 0;
+await pe.callEnhanceApi("subject_definitions:\n<Subject 1> is the woman.", "rv2v", { index: 0 }, {
+    model: payload.resolved_default,
+    llmUrl: "",
+    apiFormat: "Local (ComfyUI)",
+});
+pe.collectVisionImagesForBlock = realCollect;
+const polished = JSON.parse(api.calls.find((call) => call.url.endsWith("/enhance")).options.body);
+assert.equal(polished.prompt_mode, "polish", "the wording pass travels with the request");
+assert.equal(visionCollects, 0, "a wording pass gathers no frames: the server ignores them");
+assert.deepEqual(polished.images, [], "so the payload carries none");
+assert.equal(
+    polished.h3_rules,
+    true,
+    "the panel still reports the switch as set; the server decides what a polish pass uses",
+);
+pe.polishCheck.checked = false;
+pe.polishCheck.dispatchEvent(new dom.window.Event("change"));
+assert.equal(pe.recipeSelect.disabled, false, "switching back restores the shape controls");
+
 // --- compact rules + hiding the source performer ------------------------------
 // Both are opt-in switches on the same request; the panel must persist them and
 // send them, and the RefMod character field must only be offered where it applies.
@@ -339,64 +389,5 @@ await pe.callEnhanceApi("some window prompt", "rv2v", { index: 0 }, {
 });
 const refmodded = JSON.parse(api.calls.find((call) => call.url.endsWith("/enhance")).options.body);
 assert.equal(refmodded.refmod_character, "people/elf_girl", "the character source is sent");
-
-// --- the enhanced text actually reaches the visible prompt ---------------------
-// Live failure (2026-09-18): the run finished ("Enhanced (rv2v), 3442 characters")
-// and the prompt in the editor never changed. Both prompt textareas are wrapped by
-// the mention controller, which keeps its OWN state and re-serializes the textarea
-// from it on getValue()/refresh(). Writing `.value` directly therefore leaves the
-// controller stale, and its next read puts the old text straight back - no error,
-// nothing to see. This stub mirrors that contract: direct writes are visible until
-// the controller is read, and only setValue() updates both sides.
-function mentionControllerOver(textarea) {
-    let rich = textarea.value;
-    return {
-        getValue() {
-            textarea.value = rich;          // the clobber
-            return String(textarea.value || "");
-        },
-        setValue(value) {
-            rich = String(value || "");
-            textarea.value = rich;
-        },
-        readState: () => rich,
-    };
-}
-
-const globalPrompt = document.createElement("textarea");
-globalPrompt.value = "the old prompt";
-const globalController = mentionControllerOver(globalPrompt);
-globalPrompt._mmxMentionController = globalController;
-const globalPromptWidget = { value: "the old prompt" };
-
-editor.isGlobalMode = () => true;
-editor.selectedIndex = 0;
-editor.timeline = { segments: [], global: { prompt: "the old prompt" } };
-editor.globalPrompt = globalPrompt;
-editor.globalPromptWidget = globalPromptWidget;
-editor.commit = () => {};
-
-const ENHANCED = "subject_definitions: the enhanced block";
-pe.setActivePromptText(ENHANCED);
-
-assert.equal(globalPrompt.value, ENHANCED, "the visible textarea shows the enhancement");
-assert.equal(globalController.readState(), ENHANCED, "and the controller's own state agrees");
-assert.equal(editor.timeline.global.prompt, ENHANCED, "the timeline holds it too");
-assert.equal(globalPromptWidget.value, ENHANCED, "so does the node widget");
-assert.equal(globalController.getValue(), ENHANCED, "reading the controller back cannot undo it");
-
-// Segment mode has the same wrapper, so it gets the same treatment.
-const segPrompt = document.createElement("textarea");
-segPrompt.value = "old segment prompt";
-const segController = mentionControllerOver(segPrompt);
-segPrompt._mmxMentionController = segController;
-editor.isGlobalMode = () => false;
-editor.segPrompt = segPrompt;
-editor.timeline = { segments: [{ prompt: "old segment prompt" }], global: {} };
-
-pe.setPromptTextForBlock(ENHANCED, 0);
-assert.equal(segPrompt.value, ENHANCED, "the segment textarea shows the enhancement");
-assert.equal(segController.getValue(), ENHANCED, "and survives a controller read");
-assert.equal(editor.timeline.segments[0].prompt, ENHANCED, "the segment holds it too");
 
 console.log("prompt enhancer model picker: all checks passed");

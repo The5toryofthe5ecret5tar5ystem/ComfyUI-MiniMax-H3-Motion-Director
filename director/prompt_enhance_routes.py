@@ -17,6 +17,7 @@ from pathlib import Path
 from aiohttp import web
 
 from ..lib.h3_prompt_caption import CAPTION_RECIPES
+from ..lib.h3_prompt_polish import is_polish_mode
 from ..lib.h3_prompt_recipes import recipe_options, resolve_recipe
 from ..lib.h3_prompt_rules import h3_rules_enabled
 from ..lib.prompt_enhance_templates import (
@@ -209,6 +210,10 @@ async def director_enhance_prompt(request):
         h3_rules_compact = data.get("llm_h3_rules_compact")
     h3_recipe = str(data.get("h3_recipe") or data.get("llm_h3_recipe") or "").strip()
     prompt_mode = str(data.get("prompt_mode") or "rewrite").strip().lower()
+    # Wording only: the user's own prompt comes back reworded, with its headings,
+    # tags and claims untouched. It is not a caption request and not a rewrite, so
+    # it skips every block below that decides the shape of the answer.
+    polish_mode = is_polish_mode(prompt_mode)
     audio_policy = str(data.get("audio_policy") or "").strip()
     # RefMod windows have no <Picture N> slots: the identity arrives as latents after
     # text encoding, so the captions must be grounded in the mod itself. The spec is a
@@ -362,6 +367,8 @@ async def director_enhance_prompt(request):
     # llama.cpp for local). Local generation runs for tens of seconds, so it goes
     # to a worker thread: on the event loop it would freeze the whole ComfyUI UI
     # for the duration.
+    polish_report: dict = {}
+
     def _enhance():
         return enhance_prompt_sync(
             task_type=task_type,
@@ -384,6 +391,8 @@ async def director_enhance_prompt(request):
             h3_recipe=resolved_recipe,
             h3_rules_compact=h3_rules_compact,
             audio_policy=audio_policy,
+            prompt_mode="polish" if polish_mode else "rewrite",
+            polish_report=polish_report,
         )
 
     try:
@@ -409,6 +418,9 @@ async def director_enhance_prompt(request):
     # panel from calling a 2000-character English answer "short".
     detailed_zh = normalize_output_language(output_language) == "zh"
     detail_measure = han_count if detailed_zh else len(text.strip())
+    # The wording pass reports what its structure check found - nothing when the
+    # tags and headings survived, a warning when they did not.
+    note = str(polish_report.get("note") or caption_note) if polish_mode else caption_note
     return web.json_response({
         "response": text,
         "han_count": han_count,
@@ -420,8 +432,9 @@ async def director_enhance_prompt(request):
         "h3_rules": h3_rules_enabled(h3_rules),
         "h3_rules_compact": h3_rules_enabled(h3_rules) and h3_rules_enabled(h3_rules_compact),
         "h3_recipe": resolved_recipe,
-        "prompt_mode": "rewrite",
-        "note": caption_note,
+        "prompt_mode": "polish" if polish_mode else "rewrite",
+        "polish": polish_report or None,
+        "note": note,
     })
 
 

@@ -3,6 +3,34 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## Unreleased
+
+The prompt enhancer can now improve a prompt without rebuilding it. Every other
+path decides the *shape* of the answer - MiniMax's official template, a recipe, or
+the block caption mode assembles from images - which is what you want when the
+prompt is a note to yourself and exactly what you do not want when it already
+follows the guide: the tags are bindings, the `Camera:` / `Scene:` / `Audio:`
+lines are engine controls, and a rewrite that renames a slot or restates the
+wardrobe costs a render.
+
+`Polish wording only` keeps the prompt and edits only the prose. It goes to the
+model verbatim - no template, no recipe, no engine rules and no reference images -
+and the answer is *checked* rather than trusted: the tag, heading and `[Shot N]`
+inventory of both texts is compared, and a dropped or invented tag earns one retry
+that names it. If the structure still differs the text comes back anyway, with a
+warning in the status line, because a usable polish plus a note beats a click that
+does nothing.
+
+### Changed
+
+- **`Polish wording only` is a third prompt mode.** It is exclusive with `Build
+  from images`, parks the controls that only shape a rewrite (recipe, compact
+  rules, character detail, hide-the-performer), collects no frames at all, and
+  reports `wording polished, structure and tags kept` when the structure check
+  passes.
+- **`docs/PROMPT_WRITING_GUIDE.md` section 10** documents what polish mode will
+  and will not touch, and when to reach for a recipe instead.
+
 ## v1.8.4 — 2026-09-18
 
 The prompt enhancer now runs entirely inside ComfyUI. It loads a GGUF model from

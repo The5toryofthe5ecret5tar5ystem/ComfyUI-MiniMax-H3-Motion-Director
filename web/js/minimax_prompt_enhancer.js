@@ -277,7 +277,9 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
     pe.reportEnhanceResult = (taskKey, result) => {
         const modeNote = result.promptMode === "captions"
             ? t("pe.statusBuiltFromImages")
-            : (result.note ? ` ${result.note}` : "");
+            : (result.promptMode === "polish"
+                ? `${t("pe.statusPolished")}${result.note ? ` ${result.note}` : ""}`
+                : (result.note ? ` ${result.note}` : ""));
         pe.setStatus(formatEnhanceSuccessStatus(taskKey, result) + modeNote, "success");
     };
 
@@ -565,6 +567,35 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
     compactItem.appendChild(compactLabel);
     optionsRow.appendChild(compactItem);
 
+    // Wording only: the user already has a prompt that works and wants it phrased
+    // better. Every other switch on this panel changes the *shape* of the answer
+    // (recipe, detail, captions), which is the opposite of the request - so this
+    // one is exclusive with "build from images" and parks the shape controls.
+    const POLISH_TIP = t("pe.polishTip");
+    const polishItem = el({ cursor: "help" });
+    polishItem.className = "minimax-pe-check-item";
+    polishItem.title = POLISH_TIP;
+    pe.polishCheck = document.createElement("input");
+    pe.polishCheck.type = "checkbox";
+    pe.polishCheck.checked = false;
+    pe.polishCheck.title = POLISH_TIP;
+    pe.polishCheck.onchange = () => {
+        if (pe.polishCheck.checked && pe.fromImagesCheck) pe.fromImagesCheck.checked = false;
+        savePeSettings({ polish: !!pe.polishCheck.checked, fromImages: !!pe.fromImagesCheck?.checked });
+        pe.updateModeRows();
+        pe.setStatus(
+            t("pe.statusPolishMode", {
+                state: pe.polishCheck.checked ? t("pe.h3RulesOn") : t("pe.h3RulesOff"),
+            }),
+            "info",
+        );
+    };
+    polishItem.appendChild(pe.polishCheck);
+    const polishLabel = el({ cursor: "help" }, t("pe.polish"), "span");
+    polishLabel.title = POLISH_TIP;
+    polishItem.appendChild(polishLabel);
+    optionsRow.appendChild(polishItem);
+
     // Port of the Character Remake workflow: two vision captions (identity from the
     // reference images, action from the source frames) assembled into the block by
     // the pack itself. Structure stops being the model's job, which is what made
@@ -578,7 +609,9 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
     pe.fromImagesCheck.checked = false;
     pe.fromImagesCheck.title = IMAGES_TIP;
     pe.fromImagesCheck.onchange = () => {
-        savePeSettings({ fromImages: !!pe.fromImagesCheck.checked });
+        if (pe.fromImagesCheck.checked && pe.polishCheck) pe.polishCheck.checked = false;
+        savePeSettings({ fromImages: !!pe.fromImagesCheck.checked, polish: !!pe.polishCheck?.checked });
+        pe.updateModeRows();
         pe.setStatus(
             t("pe.statusFromImages", {
                 state: pe.fromImagesCheck.checked ? t("pe.h3RulesOn") : t("pe.h3RulesOff"),
@@ -904,6 +937,34 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         note.style.display = "";
     };
 
+    /**
+     * The prompt mode this request will use.
+     *
+     * Polish wins over captions when both are somehow set: the two checkboxes
+     * clear each other on change, and "keep my wording" is the safer of the two
+     * to honour if a stored profile predates the exclusivity.
+     */
+    pe.resolvePromptMode = () => {
+        if (pe.polishCheck?.checked) return "polish";
+        if (pe.fromImagesCheck?.checked) return "captions";
+        return "rewrite";
+    };
+
+    /**
+     * Park the controls that only shape a *rewritten* prompt.
+     *
+     * They are disabled rather than hidden: a value the user set earlier is still
+     * there when they switch back, and a greyed control explains why a recipe has
+     * no effect better than a control that vanished.
+     */
+    pe.updateModeRows = () => {
+        const polish = !!pe.polishCheck?.checked;
+        for (const control of [pe.recipeSelect, pe.h3CompactCheck, pe.detailCheck, pe.hidePerformerCheck]) {
+            if (control) control.disabled = polish;
+        }
+        if (pe.recipeNote) pe.recipeNote.style.opacity = polish ? "0.45" : "1";
+    };
+
     pe.supportsUnload = () => {
         const fmt = pe.apiSelect.value;
         // Local models are resident in ComfyUI's process, so unloading is
@@ -931,6 +992,7 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         }
         if (pe.unloadWrap) pe.unloadWrap.style.display = supportsUnload ? "flex" : "none";
         if (pe.unloadBtnRow) pe.unloadBtnRow.style.display = supportsUnload ? "flex" : "none";
+        pe.updateModeRows?.();
         // The unload labels no longer vary by backend: one wording each is set at
         // creation time, and the active backend is already visible in the API
         // dropdown. Nothing here to re-word per format.
@@ -972,6 +1034,13 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         }
         if (pe.fromImagesCheck) {
             pe.fromImagesCheck.checked = !!stored.fromImages;
+        }
+        if (pe.polishCheck) {
+            pe.polishCheck.checked = !!stored.polish;
+            // A stored profile saved before the two modes were exclusive can hold
+            // both; polish is the narrower promise, so it keeps the slot.
+            if (pe.polishCheck.checked && pe.fromImagesCheck) pe.fromImagesCheck.checked = false;
+            pe.updateModeRows?.();
         }
         if (pe.h3CompactCheck) {
             pe.h3CompactCheck.checked = !!stored.h3Compact;
@@ -1504,15 +1573,17 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
         // saves the model from guessing between "keep the source track" (no <d>
         // lines) and "generate the audio" (full cue block).
         const audioPolicy = String(block?.replace?.audio_policy || "").trim();
+        const promptMode = pe.resolvePromptMode();
         // Fetch the model before paying for vision frame extraction.
         if (!(await pe.ensureLocalModel(cfg.model))) {
             return null;
         }
         // Batch runs set skipVision: gathering reference frames per block is slow
         // and would dominate a multi-segment run. Single-prompt enhancement keeps
-        // the full vision path.
+        // the full vision path. A wording pass never needs them at all - the server
+        // ignores the payload, so collecting it would only cost time and memory.
         try {
-            if (!cfg?.skipVision) {
+            if (!cfg?.skipVision && promptMode !== "polish") {
                 ({
                     images, refCount, sourceCount, refSlots, refVideoCount, frameImages,
                 } = await pe.collectVisionImagesForBlock(block, taskKey));
@@ -1536,7 +1607,7 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
                     hide_performer: !!pe.hidePerformerCheck?.checked,
                     frame_images: frameImages,
                     h3_recipe: pe.recipeSelect?.value || "auto",
-                    prompt_mode: pe.fromImagesCheck?.checked ? "captions" : "rewrite",
+                    prompt_mode: promptMode,
                     audio_policy: audioPolicy,
                     // Only meaningful for the RefMod recipe, and only a hint: the
                     // server resolves it and says so in the note when it cannot.
@@ -1554,10 +1625,12 @@ export function mountPromptEnhancerPanel(editor, parentEl) {
             detailTargetHan: data.detail_target_han,
             detailMeasure: data.detail_measure,
             detailUnit: data.detail_unit,
-            // "captions" when the pack assembled the block from image captions, plus
-            // any explanation for why a requested mode was not used.
+            // "captions" when the pack assembled the block from image captions,
+            // "polish" when only the wording was touched, plus any explanation for
+            // why a requested mode was not used.
             promptMode: data.prompt_mode || "rewrite",
             note: data.note || "",
+            polish: data.polish || null,
             refmod: data.refmod || null,
             vision: { images, sourceCount, refCount },
         };

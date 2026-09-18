@@ -406,3 +406,40 @@ RefMod rules:
 - Continuity = Motion Context, not `<Picture 0>`; shot 1 uses the "opening frame"
   opener, shots 2+ use "continue the POV directly".
 - Keep the three `timeline_data` copies in sync.
+
+## 10. Polish mode: improve the wording without losing the structure
+
+The enhancer's other modes decide the shape of the answer - MiniMax's official
+template, a recipe, or the block caption mode assembles from images. That is what
+you want when the prompt is a note to yourself. It is the opposite of what you
+want when the prompt already follows this guide, because here the tags are
+bindings (`<Subject 1>` is the identity slot, `<Video 1>` the source window), the
+`Camera:` / `Scene:` / `Audio:` lines are engine controls, and a "helpful" rewrite
+that renames a slot or restates the wardrobe costs a render.
+
+**`Polish wording only`** keeps what you wrote and edits only the prose:
+
+- Every heading line comes back as it was, in the same order (`subject_definitions:`,
+  `summary:`, `detailed_description:`, and any other).
+- Every angle-bracket tag comes back exactly (`<Subject 1>`, `<Picture 2>`,
+  `<Video 1>`, `<d>...</d>`), and so does every `[Shot N]` marker. Counts matter:
+  a tag used twice must stay twice.
+- Every claim survives: who does what and in what order, camera, lighting, scene,
+  wardrobe, audio policy, and every prohibition. Nothing may be softened, and no
+  negative may be turned into a positive.
+- Nothing is added: no new sections, sentences, subjects, actions or props, and
+  the length stays within about 10% of the original.
+- The text is not translated, and the prompt is sent **without** the reference
+  images - looking at them only invites new appearance prose.
+
+It is checked, not trusted. After the model answers, the prompt's tag, heading and
+marker inventory is compared with the one you sent. If something was dropped or
+invented, the request is retried once with the specific change named; if it still
+differs, you get the text anyway with a warning in the status line, so you can
+decide before rendering. A clean pass says nothing, because nothing happened to
+your structure.
+
+Use it when the prompt is right and the sentences are clumsy. Use the recipe or
+caption modes when the prompt is *missing* something the engine contract wants -
+the rules are not attached in polish mode, precisely so the answer cannot grow a
+new section you did not ask for.
