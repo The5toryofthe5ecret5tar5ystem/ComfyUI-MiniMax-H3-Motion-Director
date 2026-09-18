@@ -34,6 +34,20 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Fixed
 
+- **A stale cached module could kill the prompt enhancer in silence.** ComfyUI's
+  cache rule covers paths ending in `.js` (and `.css`), so the pack's `.mjs` modules
+  were left to the browser's own freshness heuristics: a copy cached before an export
+  was added stayed in use, a freshly served `.js` entry then failed to *link* against
+  it ("does not provide an export named ..."), and the enhancer - imported lazily,
+  inside a `.catch` that only wrote to the console - never mounted. Both the Enhance
+  and the Settings button stayed on screen and did nothing when clicked, on every
+  reload, until the cache was cleared by hand. Three layers now cover it:
+  the shared module is imported under a version token
+  (`minimax_reference_assets.mjs?boot=reference_assets_v2`) so a browser holding the
+  old URL is made to ask for the new one, the pack serves its own `.mjs` files with
+  `Cache-Control: no-store` (the rule the core already applies to `.js`, installed at
+  startup from `director/web_cache.py`), and a panel that fails to load says so on the
+  button that was pressed instead of returning silently.
 - **A reference picture in a folder could not be read.** The panel asked for the file
   name alone, so a picture in a subfolder - or one in outputs - came back "not found"
   and the caption silently lost it. A slot's `subfolder` and `type` now travel with

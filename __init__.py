@@ -96,5 +96,19 @@ else:
     except Exception as _route_exc:  # pragma: no cover - ComfyUI startup only
         _log.warning("Motion Director HTTP routes failed to load: %s", _route_exc)
 
+    # Browser cache headers for the pack's .mjs modules. ComfyUI's cache rule
+    # covers .js and .css paths only, so a stale cached .mjs can shadow a fresh
+    # .js importer and break a lazily loaded panel with nothing in the UI to
+    # show for it.
+    try:
+        from .director.web_cache import install_module_cache_headers
+
+        if not install_module_cache_headers():
+            _log.warning(
+                "Frontend module cache headers deferred because PromptServer is not ready."
+            )
+    except Exception as _cache_exc:  # pragma: no cover - ComfyUI startup only
+        _log.warning("Frontend module cache headers failed to load: %s", _cache_exc)
+
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

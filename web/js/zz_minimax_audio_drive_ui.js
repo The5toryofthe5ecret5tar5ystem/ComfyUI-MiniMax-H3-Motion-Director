@@ -5,7 +5,7 @@ import {
     effectiveReferenceAssets,
     ensureR2vReferenceAssetSchema,
     ensureReferenceAssetSchema,
-} from "./minimax_reference_assets.mjs";
+} from "./minimax_reference_assets.mjs?boot=reference_assets_v2";
 import {
     AUDIO_ROLE_AUDIO_DRIVE,
     AUDIO_ROLE_REFERENCE,

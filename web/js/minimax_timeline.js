@@ -138,7 +138,7 @@ import {
     ensureR2vReferenceAssetSchema,
     ensureReferenceAssetSchema,
     resolveReferenceAssetId,
-} from "./minimax_reference_assets.mjs";
+} from "./minimax_reference_assets.mjs?boot=reference_assets_v2";
 import {
     restoreBatchTaskWorkspace,
     stashBatchTaskWorkspace,
@@ -10174,20 +10174,48 @@ class MiniMaxH3MotionDirectorEditor {
             })().catch((error) => {
                 console.error("[MiniMax H3] prompt enhancer failed to load:", error);
                 this._enhancerPanelPromise = null;
+                // Kept so the click handlers can say what happened. Returning
+                // null alone made both buttons do nothing at all, which reads as
+                // a dead UI: a stale cached .mjs breaks the import link here
+                // ("does not provide an export named ...") with nothing on
+                // screen to show for it.
+                this._enhancerLoadError = error?.message || String(error || "");
                 return null;
             });
         }
         return this._enhancerPanelPromise;
     }
 
+    /**
+     * Say that the enhancer could not load, on the button that was pressed.
+     *
+     * A bare `return` here is indistinguishable from a broken button, and the
+     * console is not where a user looks. The label restores itself so the
+     * button stays usable after a transient failure.
+     */
+    _flashEnhancerUnavailable(buttons, labels = null) {
+        const message = t("pe.statusEnhancerUnavailable");
+        buttons.forEach((btn, index) => {
+            btn.disabled = true;
+            btn.textContent = message;
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = labels ? labels[index] : btn.textContent;
+            }, 6000);
+        });
+    }
+
     async _enhanceActivePrompt(mode) {
-        const pe = await this._ensureEnhancerPanel();
-        if (!pe) return;
         // The panel's own status line lives inside the settings overlay, so when
         // that is closed a click would otherwise show nothing at all. Reflect the
         // run on the button the user actually pressed.
         const buttons = [...this.root.querySelectorAll('[data-a="enhance-prompt"]')];
         const labels = buttons.map((btn) => btn.textContent);
+        const pe = await this._ensureEnhancerPanel();
+        if (!pe) {
+            this._flashEnhancerUnavailable(buttons, labels);
+            return;
+        }
         // Follow the pack's UI language. This used to be a hardcoded Chinese
         // literal, so an English panel flashed Chinese the moment a run started
         // while the neighbouring buttons (translated through data-i18n) stayed
@@ -10206,14 +10234,22 @@ class MiniMaxH3MotionDirectorEditor {
 
     async _enhanceAllPrompts() {
         const pe = await this._ensureEnhancerPanel();
-        if (!pe) return;
+        if (!pe) {
+            const buttons = [...this.root.querySelectorAll('[data-a="enhance-all"]')];
+            this._flashEnhancerUnavailable(buttons, buttons.map((btn) => btn.textContent));
+            return;
+        }
         const { runPromptEnhanceBatch } = await import("./minimax_prompt_enhance_batch.mjs");
         await runPromptEnhanceBatch(this, pe);
     }
 
     async _toggleEnhanceSettings() {
         const pe = await this._ensureEnhancerPanel();
-        if (!pe) return;
+        if (!pe) {
+            const buttons = [...this.root.querySelectorAll('[data-a="enhance-settings"]')];
+            this._flashEnhancerUnavailable(buttons, buttons.map((btn) => btn.textContent));
+            return;
+        }
         const overlay = this._enhancerOverlay;
         if (!overlay) return;
         overlay.hidden = !overlay.hidden;

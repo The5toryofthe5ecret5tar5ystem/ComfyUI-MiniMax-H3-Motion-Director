@@ -45,7 +45,7 @@ import {
     replaceReferenceAssetAtSlot,
     resolveReferenceAssetId,
     setCommonAssetEnabled,
-} from "./minimax_reference_assets.mjs";
+} from "./minimax_reference_assets.mjs?boot=reference_assets_v2";
 import { syncR2vCommonToggleForTask } from "./minimax_r2v_common_ui.mjs?boot=postprocess_output_v8";
 import {
     formatR2vAssetStatusLabel,

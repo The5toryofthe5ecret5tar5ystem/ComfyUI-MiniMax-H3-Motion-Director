@@ -695,3 +695,30 @@ Before a long generation, verify:
 - Expensive upscale/Face Refine is postponed until first-pass content is worth keeping.
 
 That check prevents the most common avoidable reruns in long projects.
+
+## 22. When a button does nothing at all
+
+The frontend is a set of ES modules that the browser loads and keeps. ComfyUI
+sends `Cache-Control: no-store` for `.js` files but not for `.mjs` ones, so a
+browser that is holding an old copy of a `.mjs` module can keep using it after
+an update - including a copy that is missing something the new code imports. A
+panel loaded on demand then fails to start, and the button that opens it looks
+alive but does nothing.
+
+What to do, in order:
+
+1. **Reload the page** (F5). This is enough for the prompt enhancer and the other
+   panels whose modules are now imported under a version token: the new token
+   makes the browser ask for the file again.
+2. **Hard refresh** (Ctrl+Shift+R, or Cmd+Shift+R on macOS) if a panel is still
+   dead. That bypasses the browser cache for every file, not just the ones with
+   a new URL.
+3. **Restart ComfyUI** once after updating the pack. The pack asks its own server
+   to serve its `.mjs` files with `Cache-Control: no-store` too (the same rule
+   the core applies to `.js`), which is what stops this from happening again -
+   and that rule is installed at startup.
+
+A panel that cannot load now says so on the button you pressed instead of
+failing quietly. The browser console (`F12`) has the reason; a line like
+*"does not provide an export named ..."* means the browser used a stale module
+file, and step 2 or 3 above is the fix.

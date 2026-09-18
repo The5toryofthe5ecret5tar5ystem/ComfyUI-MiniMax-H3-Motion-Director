@@ -8,7 +8,7 @@ import {
 } from "./minimax_gen_timeline.js";
 import { normalizeImageBatchSegments } from "./minimax_image_batch.js";
 import { newFl2vShot, syncFl2vFromShots } from "./minimax_fl2v.js";
-import { ensureR2vReferenceAssetSchema, ensureReferenceAssetSchema } from "./minimax_reference_assets.mjs";
+import { ensureR2vReferenceAssetSchema, ensureReferenceAssetSchema } from "./minimax_reference_assets.mjs?boot=reference_assets_v2";
 import {
     createMaterialLibraryState,
     ensureMaterialLibraryMode,

@@ -10,7 +10,12 @@
 import { api } from "../../scripts/api.js";
 import { resolveTaskKey, taskUsesReferenceImages, taskUsesReferenceVideo } from "./minimax_gen_timeline.js";
 import { stripFl2vPromptBody } from "./minimax_fl2v.js";
-import { effectivePictureRefs } from "./minimax_reference_assets.mjs";// Panel copy follows the Director's UI locale. These strings used to be
+// Versioned import: ComfyUI's cache rule covers .js paths only, so an unversioned
+// .mjs can be answered from the browser cache long after it changed, and the
+// enhancer then fails to link ("does not provide an export named ...") in a way
+// that leaves both its buttons silently dead.
+import { effectivePictureRefs } from "./minimax_reference_assets.mjs?boot=reference_assets_v2";
+// Panel copy follows the Director's UI locale. These strings used to be
 // hardcoded Chinese, so switching the interface to English left this whole panel
 // untranslated.
 import { t } from "./minimax_i18n.js";

@@ -21,7 +21,7 @@ import {
     referenceAssetStates,
     SEMANTIC_REFERENCE_RE,
     semanticReferenceToken,
-} from "./minimax_reference_assets.mjs";
+} from "./minimax_reference_assets.mjs?boot=reference_assets_v2";
 import { t } from "./minimax_i18n.js";
 import {
     activateMentionItem,
