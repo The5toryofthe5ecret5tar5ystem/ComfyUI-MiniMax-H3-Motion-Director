@@ -61,10 +61,23 @@ const MENTION_STYLES = `
 
 let stylesInjected = false;
 
+const MENTION_STYLE_ID = "mmx-mention-styles";
+
+/**
+ * Inject the mention popup stylesheet once per document.
+ *
+ * The module-local flag alone is not enough to guarantee that: ESM keys modules
+ * by full URL, so importing this file under two different `?boot=` tokens (or
+ * once tokenised and once not) yields two independent instances, each with its
+ * own `stylesInjected` starting at false. Keying off the element id makes the
+ * injection idempotent no matter how many instances exist.
+ */
 function injectStyles() {
     if (stylesInjected) return;
     stylesInjected = true;
+    if (document.getElementById(MENTION_STYLE_ID)) return;
     const el = document.createElement("style");
+    el.id = MENTION_STYLE_ID;
     el.textContent = MENTION_STYLES;
     document.head.appendChild(el);
 }

@@ -1,0 +1,121 @@
+{
+  "_comment": [
+    "Curated local prompt-enhancer models, fetched on demand into",
+    "models/LLM/MiniMaxH3-PromptEnhancer/.",
+    "",
+    "Sizes are the published file sizes and are used for the pre-download",
+    "confirmation and the VRAM hint, so they are approximate by design.",
+    "vram_gb is a working figure for weights plus a modest KV cache.",
+    "",
+    "The default is the largest quant that still fits a 16 GB card with headroom;",
+    "everything else is opt-in from the dropdown. Anything the user already has",
+    "under models/LLM is discovered separately and does not need a manifest entry."
+  ],
+  "default": "qwen3.8-27b-abl-ud-q3-k-xl",
+  "models": [
+    {
+      "id": "qwen3.8-27b-abl-ud-iq3-xxs",
+      "label": "Qwen3.8 27B abliterated - IQ3_XXS (11.0 GB)",
+      "repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "filename": "Huihui-Qwen3.8-27B-abliterated-UD-IQ3_XXS.gguf",
+      "size_bytes": 11020000000,
+      "vision": true,
+      "mmproj_repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "mmproj_filename": "mmproj-model-bf16.gguf",
+      "mmproj_size_bytes": 930000000,
+      "vram_gb": 13.0,
+      "note": "lowest VRAM of the 27B quants; quality drops noticeably below Q4"
+    },
+    {
+      "id": "qwen3.8-27b-abl-ud-q3-k-xl",
+      "label": "Qwen3.8 27B abliterated - Q3_K_XL (13.3 GB) - recommended",
+      "repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "filename": "Huihui-Qwen3.8-27B-abliterated-UD-Q3_K_XL.gguf",
+      "size_bytes": 13330000000,
+      "vision": true,
+      "mmproj_repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "mmproj_filename": "mmproj-model-bf16.gguf",
+      "mmproj_size_bytes": 930000000,
+      "vram_gb": 15.0,
+      "note": "default: best quality that fits a 16 GB card with headroom"
+    },
+    {
+      "id": "qwen3.8-27b-abl-q3-k",
+      "label": "Qwen3.8 27B abliterated - Q3_K (13.5 GB)",
+      "repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "filename": "Huihui-Qwen3.8-27B-abliterated-Q3_K.gguf",
+      "size_bytes": 13500000000,
+      "vision": true,
+      "mmproj_repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "mmproj_filename": "mmproj-model-bf16.gguf",
+      "mmproj_size_bytes": 930000000,
+      "vram_gb": 15.0,
+      "note": "plain K-quant equivalent of the default"
+    },
+    {
+      "id": "qwen3.8-27b-abl-ud-iq4-xs",
+      "label": "Qwen3.8 27B abliterated - IQ4_XS (14.4 GB)",
+      "repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "filename": "Huihui-Qwen3.8-27B-abliterated-UD-IQ4_XS.gguf",
+      "size_bytes": 14400000000,
+      "vision": true,
+      "mmproj_repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "mmproj_filename": "mmproj-model-bf16.gguf",
+      "mmproj_size_bytes": 930000000,
+      "vram_gb": 16.0,
+      "note": "better fidelity, but leaves little room for context on a 16 GB card"
+    },
+    {
+      "id": "qwen3.8-27b-abl-ud-q4-k-m",
+      "label": "Qwen3.8 27B abliterated - Q4_K_M (16.6 GB)",
+      "repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "filename": "Huihui-Qwen3.8-27B-abliterated-UD-DW-Q4_K_M.gguf",
+      "size_bytes": 16550000000,
+      "vision": true,
+      "mmproj_repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "mmproj_filename": "mmproj-model-bf16.gguf",
+      "mmproj_size_bytes": 930000000,
+      "vram_gb": 18.5,
+      "note": "the usual quality sweet spot, but needs a 24 GB card"
+    },
+    {
+      "id": "qwen3.8-27b-abl-ud-q4-k-xl",
+      "label": "Qwen3.8 27B abliterated - Q4_K_XL (17.4 GB)",
+      "repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "filename": "Huihui-Qwen3.8-27B-abliterated-UD-Q4_K_XL.gguf",
+      "size_bytes": 17380000000,
+      "vision": true,
+      "mmproj_repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "mmproj_filename": "mmproj-model-bf16.gguf",
+      "mmproj_size_bytes": 930000000,
+      "vram_gb": 19.5,
+      "note": "24 GB card"
+    },
+    {
+      "id": "qwen3.8-27b-abl-q5-k",
+      "label": "Qwen3.8 27B abliterated - Q5_K (19.5 GB)",
+      "repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "filename": "Huihui-Qwen3.8-27B-abliterated-Q5_K.gguf",
+      "size_bytes": 19540000000,
+      "vision": true,
+      "mmproj_repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "mmproj_filename": "mmproj-model-bf16.gguf",
+      "mmproj_size_bytes": 930000000,
+      "vram_gb": 21.5,
+      "note": "24 GB card, tight"
+    },
+    {
+      "id": "qwen3.8-27b-abl-q6-k",
+      "label": "Qwen3.8 27B abliterated - Q6_K (22.4 GB)",
+      "repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "filename": "Huihui-Qwen3.8-27B-abliterated-Q6_K.gguf",
+      "size_bytes": 22430000000,
+      "vision": true,
+      "mmproj_repo_id": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+      "mmproj_filename": "mmproj-model-bf16.gguf",
+      "mmproj_size_bytes": 930000000,
+      "vram_gb": 24.0,
+      "note": "near-lossless; needs essentially a free 24 GB card"
+    }
+  ]
+}

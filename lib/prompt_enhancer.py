@@ -15,6 +15,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from ..director.prompt_enhance_media import (
     _normalize_reference_tags,
@@ -43,6 +44,8 @@ from .prompt_enhance_templates import (
     resolve_enhance_template,
     patch_rv2v_vision_intro,
 )
+from .h3_prompt_recipes import resolve_recipe
+from .h3_prompt_rules import build_h3_enhance_rules, h3_rules_enabled
 from .task_prompts import resolve_task_key
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.prompt_enhancer")
@@ -55,8 +58,16 @@ DEFAULT_OPENAI_COMPAT_URL = "http://127.0.0.1:8080/v1"
 API_FORMAT_OLLAMA = "Ollama"
 API_FORMAT_ZHIPU = "智谱 GLM"
 API_FORMAT_OPENAI_COMPAT = "OpenAI Compatible"
+# Runs a GGUF model from ComfyUI's own models/LLM tree in-process via llama.cpp.
+# No server, no API key, no network: the model is one the user already has.
+API_FORMAT_LOCAL = "Local (ComfyUI)"
 _LEGACY_OPENAI_FORMAT = "OpenAI / vLLM"
-DEFAULT_API_FORMAT = API_FORMAT_OLLAMA
+# Local is the default because it needs nothing beyond ComfyUI itself. The remote
+# formats remain selectable for users who prefer an external server.
+DEFAULT_API_FORMAT = API_FORMAT_LOCAL
+# Local mode has no URL; this placeholder keeps the URL plumbing shape intact
+# without implying a network hop that does not happen.
+DEFAULT_LOCAL_URL = "local://comfyui"
 OPENAI_COMPAT_MODE_STANDARD = "标准"
 OPENAI_COMPAT_MODE_LLAMA_SWAP = "llama-swap"
 DEFAULT_OPENAI_COMPAT_MODE = OPENAI_COMPAT_MODE_STANDARD
@@ -109,6 +120,19 @@ def default_url_for_format(api_format: str) -> str:
 def default_model_for_format(api_format: str) -> str:
     if api_format == API_FORMAT_ZHIPU:
         return DEFAULT_ZHIPU_MODEL
+    if api_format == API_FORMAT_LOCAL:
+        # Resolve against what is actually installed rather than naming a file
+        # that may never have been downloaded - the failure mode that made the
+        # old hardcoded "qwen3.5" default useless.
+        try:
+            from .prompt_local_models import DEFAULT_MODEL_ID, build_catalog
+
+            resolved = build_catalog().resolve_default()
+            if resolved is not None:
+                return resolved.id
+            return DEFAULT_MODEL_ID
+        except Exception:  # noqa: BLE001 - catalog unavailable; keep the UI working
+            return "local"
     return DEFAULT_OLLAMA_MODEL
 
 
@@ -152,6 +176,11 @@ def zhipu_base(url: str) -> str:
 
 
 def llm_chat_endpoint(url: str, api_format: str) -> str:
+    # Local inference never reaches this: the format is dispatched before any
+    # request is built. Returning a labelled placeholder keeps callers that log
+    # the endpoint from printing something misleading.
+    if api_format == API_FORMAT_LOCAL:
+        return "local://comfyui/chat/completions"
     if api_format == API_FORMAT_OLLAMA:
         return f"{ollama_native_base(url)}/api/chat"
     if api_format == API_FORMAT_ZHIPU:
@@ -164,12 +193,18 @@ def llm_models_endpoint(url: str, api_format: str) -> str:
         return f"{ollama_native_base(url)}/api/tags"
     if api_format == API_FORMAT_ZHIPU:
         return f"{zhipu_base(url)}/models"
+    if api_format == API_FORMAT_LOCAL:
+        return "local://comfyui/models"
     return f"{openai_compat_base(url)}/models"
 
 
 def infer_api_format(url: str, explicit: str = DEFAULT_API_FORMAT) -> str:
     if explicit == _LEGACY_OPENAI_FORMAT:
         explicit = API_FORMAT_OPENAI_COMPAT
+    # Local must win outright: a stored llm_url from a previous Ollama setup would
+    # otherwise drag the user back onto that server via the URL sniffing below.
+    if explicit == API_FORMAT_LOCAL:
+        return API_FORMAT_LOCAL
     if explicit in (API_FORMAT_OLLAMA, API_FORMAT_ZHIPU, API_FORMAT_OPENAI_COMPAT):
         return explicit
     base = coerce_llm_url(url)
@@ -598,9 +633,22 @@ def enhance_prompt_sync(
     ref_slots: list[int] | None = None,
     vision_ref_video_count: int = 0,
     unload_after: bool = False,
+    h3_rules: bool | str | None = False,
+    h3_recipe: str = "",
+    h3_rules_compact: bool | str | None = False,
+    audio_policy: str = "",
+    max_tokens: int | None = None,
     timeout: int = 120,
 ) -> tuple[str | None, str | None]:
-    """Rewrite `user_prompt` for `task_type`; returns (text, error_message)."""
+    """Rewrite `user_prompt` for `task_type`; returns (text, error_message).
+
+    `h3_rules` adds the Motion Director's engine contract to the system prompt (see
+    `h3_prompt_rules`): a general-purpose model has no way to know that slot tags
+    are bindings, that `<d>` opens a spoken block, or that repeated lines must not
+    carry events. Off by default so callers that do not ask for it see no change.
+    `h3_rules_compact` swaps that contract for the condensed version - much less
+    prefill, fewer explanations.
+    """
     prompt = (user_prompt or "").strip()
     if not prompt or not (model or "").strip():
         return None, "Empty prompt or model"
@@ -681,11 +729,31 @@ def enhance_prompt_sync(
             ref_video_count=vision_ref_video_count,
             output_language=output_language,
         )
-    detail_directive = build_character_detail_directive(
-        feature_enhance,
-        output_language=output_language,
+    # "Character feature enhance" asks for a long appearance description built from
+    # the reference image. With RefMod identity that is exactly what must NOT be
+    # written: the mod is appended after text encoding, so prose about her face and
+    # hair cannot be grounded in it and fights the reference. The two instructions
+    # cannot both be obeyed, and following the detail directive costs a 4096-token
+    # budget and up to three passes - so it is dropped for that recipe.
+    recipe_key = resolve_recipe(
+        h3_recipe,
         task_key=task_key,
+        has_source=src_count > 0,
+        replace=replace_task,
     )
+    detail_blocked = recipe_key == "character_replace_refmod" and feature_enhance
+    if detail_blocked:
+        log.info(
+            "Prompt enhance: character feature enhance skipped - the RefMod recipe "
+            "forbids appearance prose (the reference carries identity, not the text)."
+        )
+    detail_directive = ""
+    if not detail_blocked:
+        detail_directive = build_character_detail_directive(
+            feature_enhance,
+            output_language=output_language,
+            task_key=task_key,
+        )
     if detail_directive:
         preamble += detail_directive
     if use_replace_structured:
@@ -755,6 +823,110 @@ def enhance_prompt_sync(
             " Character feature enhance: long character appearance from reference image is required."
         )
 
+    if h3_rules_enabled(h3_rules):
+        rules = build_h3_enhance_rules(
+            task_key,
+            output_language=output_language,
+            has_source=src_count > 0,
+            structured=use_replace_structured,
+            recipe=h3_recipe,
+            replace=replace_task,
+            audio_policy=audio_policy,
+            compact=h3_rules_enabled(h3_rules_compact),
+        )
+        if rules:
+            system_prompt = f"{system_prompt}\n\n{rules}".strip() if system_prompt else rules
+            log.info(
+                "Prompt enhance: H3 engine rules attached (%s, %d chars, source=%s, "
+                "structured=%s, recipe=%s, %s)",
+                task_key,
+                len(rules),
+                src_count > 0,
+                use_replace_structured,
+                h3_recipe or "auto",
+                "compact" if h3_rules_enabled(h3_rules_compact) else "full",
+            )
+
+    def _run_local_chat(
+        prompt_text: str,
+        vision_images: list[str] | None,
+        *,
+        num_predict: int,
+        temperature: float,
+        num_ctx: int,
+    ) -> tuple[dict | None, str | None]:
+        """Run the enhancement on an in-process GGUF model.
+
+        Returns the same OpenAI-shaped envelope the HTTP paths return, so the
+        parsing below is shared rather than duplicated for the local case.
+        """
+        from .prompt_local_models import build_catalog, find_vision_projector, resolve_local_model
+        from .prompt_local_runtime import LOCAL_SETUP_DOC, generate as local_generate, runtime_available
+
+        runtime_ok, runtime_note = runtime_available()
+        if not runtime_ok:
+            # Say what to do about it, not just what failed. The alternatives are
+            # already selectable in the panel, so name them.
+            return None, (
+                f"llama.cpp is not available for ComfyUI's Python ({runtime_note}). "
+                f"Install llama-cpp-python (see {LOCAL_SETUP_DOC}), or switch the "
+                "API dropdown to Ollama / OpenAI Compatible / Zhipu."
+            )
+
+        entry = resolve_local_model(model)
+        if entry is None or not entry.installed:
+            # Say what *is* usable. "Model not found" alone leaves the user
+            # guessing at a name they have to invent.
+            try:
+                installed = build_catalog().installed()
+            except Exception:  # noqa: BLE001
+                installed = []
+            if installed:
+                names = ", ".join(m.label for m in installed[:5])
+                return None, (
+                    f"Local model {model!r} is not on disk. Available locally: {names} "
+                    "- pick one from the list in the panel."
+                )
+            return None, (
+                "No local prompt-enhancer model found. Put a GGUF file under "
+                "ComfyUI's models/LLM folder, or choose a model in the panel to download."
+            )
+
+        model_path = Path(entry.path)
+        mmproj = find_vision_projector(model_path) if entry.vision else None
+        if vision_images and mmproj is None:
+            # Text-only fallback is better than failing: the prompt still gets
+            # enhanced, it just cannot see the reference images.
+            log.warning(
+                "Prompt enhance: %s has no vision projector, ignoring %d reference image(s).",
+                model_path.name,
+                len(vision_images or []),
+            )
+
+        text_prompt = prompt_text
+        if "qwen" in model_path.name.lower() and not detailed_mode:
+            text_prompt = f"{prompt_text}\n/no_think"
+
+        # num_ctx is intentionally not forwarded: the local runtime owns context
+        # sizing (and lowers it as part of its VRAM ladder), so a value tuned for
+        # a remote server would only fight that.
+        text, err = local_generate(
+            str(model_path),
+            system_prompt=system_prompt,
+            user_prompt=text_prompt,
+            images_b64=vision_images if mmproj is not None else None,
+            mmproj_path=str(mmproj) if mmproj is not None else None,
+            max_tokens=num_predict,
+            temperature=temperature,
+        )
+        if err:
+            return None, err
+        # Deliberately no unload here: this runs once per retry pass, so
+        # unloading in this function dropped a resident model between passes and
+        # made every retry re-load the GGUF and rebuild the vision handler.
+        # enhance_prompt_sync unloads once, when the whole enhancement is done.
+        return {"choices": [{"message": {"content": text or ""}}]}, None
+
     def _run_chat(
         vision_images: list[str] | None,
         *,
@@ -763,6 +935,14 @@ def enhance_prompt_sync(
         temperature: float = 0.7,
         num_predict: int | None = None,
     ) -> tuple[dict | None, str | None]:
+        if api_format == API_FORMAT_LOCAL:
+            return _run_local_chat(
+                prompt_text,
+                vision_images,
+                num_predict=num_predict or (4096 if detailed_mode else 2048),
+                temperature=temperature,
+                num_ctx=num_ctx,
+            )
         if api_format == API_FORMAT_OLLAMA and "qwen" in model.lower():
             user_content = f"{prompt_text}\n/no_think"
         else:
@@ -870,9 +1050,33 @@ def enhance_prompt_sync(
 
     chat_prompt = formatted
     last_err: str | None = None
-    last_han = 0
+    last_measured = 0
+    last_unit = "han"
     max_passes = 3 if detailed_mode else (2 if use_replace_structured else 1)
     num_predict = 4096 if (detailed_mode or use_replace_structured) else None
+    if max_tokens:
+        # Callers that know exactly how much output they need (the caption path
+        # asks for "one or two sentences") cap it here instead of paying for a
+        # 2000-token answer on a partially offloaded model.
+        num_predict = int(max_tokens)
+        max_passes = 1
+
+    def _finish(result, error):
+        """End the enhancement and honor "unload afterwards" exactly once.
+
+        The retry loop calls the model up to three times; the unload belongs at
+        the end of the whole enhancement, not after each pass - unloading per
+        pass reloaded the GGUF for every retry.
+        """
+        if unload_after and api_format == API_FORMAT_LOCAL:
+            try:
+                from .prompt_local_runtime import unload_local_models
+
+                unload_local_models()
+            except Exception:  # noqa: BLE001 - freeing VRAM is best effort
+                pass
+        return result, error
+
     for enhance_pass in range(max_passes):
         pass_temperature = 0.7 if enhance_pass == 0 else min(0.85 + enhance_pass * 0.05, 0.95)
         result, last_err = _invoke_llm(
@@ -882,12 +1086,12 @@ def enhance_prompt_sync(
         )
         if result is None:
             log.warning("Prompt enhance failed (%s): %s", task_key, last_err)
-            return None, last_err
+            return _finish(None, last_err)
 
         if isinstance(result, dict) and result.get("error"):
             err = result["error"]
             err_msg = err.get("message") if isinstance(err, dict) else str(err)
-            return None, f"LLM API error: {err_msg}"
+            return _finish(None, f"LLM API error: {err_msg}")
 
         raw = _extract_llm_raw(result, api_format)
         parsed = ""
@@ -925,34 +1129,49 @@ def enhance_prompt_sync(
                     "LLM 返回内容为空。"
                     "若使用 qwen3 等思考模型，请升级 Ollama 或换用 glm-4-flash / qwen2.5 等非思考模型。"
                 )
-                return None, hint
-            return None, f"LLM 返回无法解析（前 120 字）：{(raw or '')[:120]}"
+                return _finish(None, hint)
+            return _finish(None, f"LLM 返回无法解析（前 120 字）：{(raw or '')[:120]}")
 
         parsed = ensure_user_reference_tags(parsed, user_slots or directive_slots)
-        han = count_han_chars(parsed)
-        last_han = han
+        # The detailed gate has to measure the language the answer is written in.
+        # Counting han unconditionally made it impossible to pass with English
+        # output (every English answer reports 0 han), so the panel burned all
+        # three generations and then returned the text anyway.
+        detailed_zh = normalize_output_language(output_language) == "zh"
+        measured = count_han_chars(parsed) if detailed_zh else len(parsed.strip())
+        measured_unit = "han" if detailed_zh else "chars"
+        last_measured = measured
+        last_unit = measured_unit
         if detailed_mode:
-            log.info("Prompt enhance result (%s pass %d): %d han", task_key, enhance_pass + 1, han)
+            log.info(
+                "Prompt enhance result (%s pass %d): %d %s",
+                task_key,
+                enhance_pass + 1,
+                measured,
+                measured_unit,
+            )
 
-        if detailed_mode and han < DETAILED_MIN_TOTAL_HAN and enhance_pass + 1 < max_passes:
+        if detailed_mode and measured < DETAILED_MIN_TOTAL_HAN and enhance_pass + 1 < max_passes:
             log.warning(
-                "Detailed enhance too short (%d < %d han), retrying (pass %d/%d)",
-                han,
+                "Detailed enhance too short (%d < %d %s), retrying (pass %d/%d)",
+                measured,
                 DETAILED_MIN_TOTAL_HAN,
+                measured_unit,
                 enhance_pass + 1,
                 max_passes,
             )
             chat_prompt = formatted + build_detailed_retry_suffix(
-                current_han=han,
+                current_han=measured,
                 output_language=output_language,
             )
             continue
 
-        if detailed_mode and han < DETAILED_MIN_TOTAL_HAN:
+        if detailed_mode and measured < DETAILED_MIN_TOTAL_HAN:
             log.warning(
-                "Detailed enhance still below target (%d < %d han)",
-                han,
+                "Detailed enhance still below target (%d < %d %s)",
+                measured,
                 DETAILED_MIN_TOTAL_HAN,
+                measured_unit,
             )
         if (
             unload_after
@@ -967,9 +1186,9 @@ def enhance_prompt_sync(
             )
             if unload_err:
                 log.warning("llama-swap unload failed after enhance: %s", unload_err)
-        return parsed, None
+        return _finish(parsed, None)
 
-    return None, last_err or f"LLM enhance failed (last {last_han} han)"
+    return _finish(None, last_err or f"LLM enhance failed (last {last_measured} {last_unit})")
 
 
 async def list_llm_models(

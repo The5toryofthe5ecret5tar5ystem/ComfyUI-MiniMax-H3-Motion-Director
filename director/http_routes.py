@@ -22,6 +22,7 @@ from server import PromptServer
 from .face_refine_validation import compatible_sam_models
 from .director_presets_routes import register_director_preset_routes
 from .material_library_routes import register_material_library_routes
+from .prompt_enhance_routes import register_prompt_enhance_routes
 from .video_export import (
     FINAL_VIDEO_REGISTRY,
     FinalVideoUnavailable,
@@ -675,6 +676,10 @@ def register_routes() -> bool:
     _register_route(routes, "POST", "/minimax/motion-director/clear_run", minimax_clear_run)
     register_material_library_routes(routes)
     register_director_preset_routes(routes)
+    # Registered last: this module was defined but never called, so every
+    # prompt-enhancement endpoint it declares was absent at runtime and the
+    # panel's enhance/模型/template calls all failed.
+    register_prompt_enhance_routes(routes, _register_route)
     _ROUTES_REGISTERED = True
     log.info("MiniMax H3 Motion Director HTTP routes registered")
     return True

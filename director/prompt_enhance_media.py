@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import logging
 import os
 import re
@@ -596,6 +597,88 @@ def collect_segment_vision_b64(
     return all_images, len(ref_images), len(source_frames), ref_slots
 
 
+def _probe_video_geometry(video_path: str) -> tuple[float, float, int]:
+    """Return (fps, duration_seconds, frame_count) from stream metadata.
+
+    Metadata only. Counting frames (``ffprobe -count_frames``) decodes the whole
+    file just to learn its length, which is what made the vision-collect step
+    take minutes on long sources. Zero means "unknown".
+    """
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=avg_frame_rate,nb_frames:format=duration",
+                "-of",
+                "json",
+                video_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        meta = json.loads(probe.stdout or "{}")
+        stream = (meta.get("streams") or [{}])[0]
+        fps = 0.0
+        rate = str(stream.get("avg_frame_rate") or "")
+        if "/" in rate:
+            num, _, den = rate.partition("/")
+            if den and float(den):
+                fps = float(num) / float(den)
+        elif rate:
+            try:
+                fps = float(rate)
+            except ValueError:
+                fps = 0.0
+        duration = 0.0
+        try:
+            duration = float((meta.get("format") or {}).get("duration") or 0.0)
+        except (TypeError, ValueError):
+            duration = 0.0
+        raw_total = str(stream.get("nb_frames") or "")
+        total = int(raw_total) if raw_total.isdigit() else 0
+        if total <= 0 and duration > 0 and fps > 0:
+            total = int(duration * fps)
+        return fps, duration, total
+    except Exception:  # noqa: BLE001 - metadata is best effort
+        return 0.0, 0.0, 0
+
+
+def _extract_frames_at(video_path: str, stamps: list[float]) -> list[str]:
+    """Grab one JPEG base64 frame per timestamp using an input seek."""
+    frames: list[str] = []
+    for stamp in stamps:
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                f"{max(0.0, stamp):.3f}",
+                "-i",
+                video_path,
+                "-frames:v",
+                "1",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "mjpeg",
+                "-q:v",
+                "4",
+                "pipe:1",
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        if result.returncode == 0 and result.stdout:
+            frames.append(base64.b64encode(result.stdout).decode("ascii"))
+    return frames
+
+
 def extract_input_video_frames_b64(
     filename: str,
     *,
@@ -615,6 +698,32 @@ def extract_input_video_frames_b64(
 
     num_frames = max(1, min(int(num_frames), 5))
     try:
+        fps, duration, total_frames = _probe_video_geometry(video_path)
+
+        # Seek to each sample rather than decoding the whole file per frame. The
+        # old shape (count_frames + select=eq(n,N)) decoded the entire video four
+        # times per request, which is what made the panel sit on "collecting
+        # material" for minutes on long sources.
+        if fps > 0 or duration > 0:
+            if total_frames > num_frames:
+                step = total_frames / (num_frames + 1)
+                indices = [int(step * (i + 1)) for i in range(num_frames)]
+            elif total_frames:
+                indices = list(range(total_frames))
+            else:
+                indices = list(range(num_frames))
+            stamps: list[float] = []
+            for pos, idx in enumerate(indices):
+                stamp = idx / fps if fps > 0 else duration * (pos + 1) / (num_frames + 1)
+                if duration > 0:
+                    stamp = min(stamp, max(duration - 0.05, 0.0))
+                stamps.append(max(0.0, stamp))
+            frames_b64 = _extract_frames_at(video_path, stamps)
+            if frames_b64:
+                return frames_b64, None
+            # Seeks produced nothing (unusual container): fall through to the
+            # index scan rather than reporting no frames at all.
+
         probe = subprocess.run(
             [
                 "ffprobe",
@@ -641,7 +750,7 @@ def extract_input_video_frames_b64(
             step = total_frames / (num_frames + 1)
             indices = [int(step * (i + 1)) for i in range(num_frames)]
 
-        frames_b64: list[str] = []
+        frames_b64 = []
         for idx in indices:
             result = subprocess.run(
                 [
