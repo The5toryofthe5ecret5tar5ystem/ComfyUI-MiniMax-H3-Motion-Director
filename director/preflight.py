@@ -24,6 +24,7 @@ import folder_paths
 
 from ..lib.h3_rate import H3_MODEL_FPS, rate_warning_message
 from ..lib.segment_kind import is_generated_segment
+from ..lib import vram_budget
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director")
 
@@ -106,6 +107,102 @@ def _issue(issues: list, severity: str, code: str, message: str,
     if segment is not None:
         item["segment"] = segment
     issues.append(item)
+
+
+#: Conditioning rows the sampler adds per segment when Motion Context is on.
+#: Mirrors the executor's own default (``context_length=22``).
+DEFAULT_CONTEXT_FRAMES = 22
+
+
+def _machine_for_budget() -> dict[str, Any]:
+    """Machine profile with the user's stored overrides, or {} if unavailable.
+
+    Detection failures must never turn a validation into an error: the estimate
+    is advisory, so a machine it cannot read simply produces no estimate.
+    """
+    try:
+        from ..lib.machine_profile import collect_machine_profile
+
+        machine = collect_machine_profile()
+        machine_settings: dict[str, Any] = {}
+        try:
+            from .motion_settings import STORE
+
+            machine_settings = (STORE.load(machine=machine) or {}).get("machine") or {}
+        except Exception as exc:  # noqa: BLE001 - settings are optional here
+            log.debug("VRAM estimate: settings unavailable: %s", exc)
+        override = float(machine_settings.get("vram_gb_override") or 0.0) or None
+        index = int(machine_settings.get("device_index") or 0)
+        if override is not None or index:
+            machine = collect_machine_profile(device_index=index, vram_gb_override=override)
+        return machine
+    except Exception as exc:  # noqa: BLE001 - diagnostics must never block validate
+        log.debug("VRAM estimate: machine profile unavailable: %s", exc)
+        return {}
+
+
+def _segment_shapes(plan: Any, *, context_frames: int) -> list:
+    """Per-segment shapes from the rebuilt plan, honouring a run selection."""
+    shapes: list = []
+    run_indices = getattr(plan, "run_indices", None)
+    width = int(getattr(plan, "width", 0) or 0)
+    height = int(getattr(plan, "height", 0) or 0)
+    ref_edge = int(getattr(plan, "ref_max_size", 0) or 0)
+    for position, segment in enumerate(getattr(plan, "segments", []) or []):
+        raw_index = int(getattr(segment, "index", position) or 0)
+        if run_indices is not None and raw_index not in run_indices:
+            continue
+        index = int(getattr(segment, "timeline_index", raw_index) or 0)
+        shapes.append(vram_budget.SegmentShape(
+            index=index,
+            frames=int(getattr(segment, "frame_count", 0) or 0),
+            width=width,
+            height=height,
+            pictures=len(getattr(segment, "refs", []) or []),
+            ref_long_edge=ref_edge,
+            # The first segment conditions on nothing, so it carries no context rows.
+            context_frames=int(context_frames or 0) if raw_index > 0 else 0,
+            label=f"S{index + 1}",
+        ))
+    return shapes
+
+
+def _check_vram_fit(plan: Any, plan_inputs: dict, issues: list) -> dict[str, Any] | None:
+    """Pre-flight the plan against the machine, and report what it found.
+
+    A warning, never an error: an over-budget shape is still a legitimate render
+    request (a workaround, a backend that offloads differently), and the pack's
+    rule is to explain rather than block or silently change anything.
+    """
+    try:
+        machine = _machine_for_budget()
+        device = machine.get("device") or {}
+        requested_context = plan_inputs.get("context_length")
+        if requested_context is None:
+            enabled = bool(plan_inputs.get("motion_context_enabled", True))
+            requested_context = DEFAULT_CONTEXT_FRAMES if enabled else 0
+        shapes = _segment_shapes(plan, context_frames=int(requested_context or 0))
+        if not shapes:
+            return None
+        report = vram_budget.evaluate(
+            shapes,
+            baselines=machine.get("baselines") or {},
+            total_gb=device.get("total_vram_gb"),
+            free_gb=device.get("free_vram_gb"),
+            resident_gb=vram_budget.bytes_to_gb(plan_inputs.get("model_bytes")),
+        )
+        if report.verdict == "unknown":
+            return None
+        message = report.reason
+        if report.suggestions:
+            message = f"{message} {' '.join(report.suggestions)}"
+        severity = "info" if report.verdict == "ok" else "warning"
+        worst_index = report.worst.index if report.worst is not None else None
+        _issue(issues, severity, f"vram_{report.verdict}", message, worst_index)
+        return report.as_dict()
+    except Exception as exc:  # noqa: BLE001 - never break Validate for an estimate
+        log.debug("VRAM estimate skipped: %s", exc)
+        return None
 
 
 def _raw_refs(timeline: dict) -> tuple[list[dict], list[dict], list[dict]]:
@@ -355,5 +452,13 @@ def validate_project(node_id: str | None, **plan_inputs: Any) -> dict[str, Any]:
                f"The plan produced {segment_total} of {declared} timeline segments "
                "(check that segment start and length fit inside the source frames).")
 
+    # Whether the machine can hold this plan's biggest segment belongs in the same
+    # report: it is the one prediction that costs minutes of GPU time to learn
+    # any other way.
+    vram = _check_vram_fit(plan, plan_inputs, issues)
+
     ok = not any(i.get("severity") == "error" for i in issues)
-    return {"ok": ok, "segment_total": segment_total, "issues": issues}
+    payload: dict[str, Any] = {"ok": ok, "segment_total": segment_total, "issues": issues}
+    if vram:
+        payload["vram"] = vram
+    return payload

@@ -460,6 +460,48 @@ function ensureStyles() {
     font-weight:650
 }
 
+.bd-run-oom{
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 7px 8px;
+    border: 1px solid #7a4a2a;
+    border-radius: 5px;
+    background: #241a12;
+}
+.bd-run-oom.hidden {
+    display: none;
+}
+.bd-run-oom-head {
+    color: #ffb27a;
+    font-size: 10px;
+    font-weight: 650;
+}
+.bd-run-oom-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+.bd-run-oom-actions button {
+    border: 1px solid #7a4a2a;
+    border-radius: 4px;
+    background: #2f2116;
+    color: #ffd9bb;
+    cursor: pointer;
+    font-size: 10px;
+    padding: 4px 8px;
+}
+.bd-run-oom-actions button:hover {
+    background: #3c2a1c;
+    border-color: #a86a3c;
+    color: #fff;
+}
+.bd-run-oom-note {
+    color: #a98a70;
+    font-size: 9px;
+    line-height: 1.35;
+}
+
 .bd-run-detail{
     margin:4px 0;
     color:#999;
@@ -676,6 +718,10 @@ export function mountOutputUI(
             data-r="run-detail"
             data-output-text="task_detail"
           >任务 / 片段 / 阶段 / 步数</div>
+
+          <!-- Filled in when a run dies on VRAM: the retry belongs next to the
+               failure, with the numbers the estimate already computed. -->
+          <div class="bd-run-oom hidden" data-r="run-oom"></div>
 
           <div
             class="bd-run-select-bar hidden"
@@ -3654,6 +3700,11 @@ export function mountOutputUI(
         runDetailEl:
             liveRoot.querySelector(
                 '[data-r="run-detail"]',
+            ),
+
+        runOomEl:
+            liveRoot.querySelector(
+                '[data-r="run-oom"]',
             ),
 
         runOverallEl:

@@ -15,6 +15,7 @@ from typing import Any
 import torch
 
 from ..lib.image_prep import preflight_h3_visual_conditioning
+from ..lib import vram_budget
 from ..patches import MC_AUDIO_KEY, MC_KEY, motion_context_patch_status
 from .color_reanchor import apply_color_reanchor
 
@@ -288,11 +289,21 @@ def _encode_video_context(
     try:
         encoded = vae.encode(tail)
     except torch.cuda.OutOfMemoryError as exc:
-        raise RuntimeError(
-            "Motion Director ran out of VRAM while encoding Motion Context. "
-            "Context rows increase memory use; reduce output resolution or enable "
-            "clear_vram_between_segments. Context was not silently reduced."
-        ) from exc
+        # tail is [B, C, T, H, W] on H3's 32 px grid: the context rows are the
+        # sequence the estimate should talk about, not the segment behind them.
+        _ndim = int(getattr(tail, "ndim", 0) or 0)
+        raise RuntimeError(vram_budget.oom_message(
+            "Motion Context encoding",
+            shape=vram_budget.SegmentShape(
+                frames=int(tail.shape[2]) if _ndim == 5 else int(span),
+                width=int(tail.shape[4]) if _ndim == 5 else 0,
+                height=int(tail.shape[3]) if _ndim == 5 else 0,
+                label="Motion Context",
+            ),
+            free_gb=vram_budget.device_free_gb(),
+            tail="Context was not silently reduced; reduce the output resolution or "
+                 "keep clear_vram_between_segments enabled.",
+        )) from exc
     if not isinstance(encoded, torch.Tensor) or encoded.ndim != 5:
         raise ValueError(
             "Motion Director: video VAE returned %r for Motion Context; expected "
@@ -353,10 +364,11 @@ def _encode_audio_context(
     try:
         encoded = audio_vae.encode(tail.movedim(1, -1))
     except torch.cuda.OutOfMemoryError as exc:
-        raise RuntimeError(
-            "Motion Director ran out of VRAM while encoding Motion Audio Context. "
-            "Generated audio continuation was not silently disabled."
-        ) from exc
+        raise RuntimeError(vram_budget.oom_message(
+            "Motion Audio Context encoding",
+            free_gb=vram_budget.device_free_gb(),
+            tail="Generated audio continuation was not silently disabled.",
+        )) from exc
     if not isinstance(encoded, torch.Tensor) or encoded.ndim != 4:
         raise ValueError(
             "Motion Director: audio VAE returned an unexpected Motion Audio latent."

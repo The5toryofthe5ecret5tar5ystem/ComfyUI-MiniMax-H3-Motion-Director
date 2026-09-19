@@ -201,6 +201,13 @@ Adding several pictures in one *Apply* reconnects their mentions in order: the f
 heals the first missing picture chip, the second heals the next one. If the Library adds more
 pictures than there are missing chips, the extras get their own new identity.
 
+**A red chip can also be fixed directly.** Click it and pick from the assets this prompt can
+actually use; the mention is rewritten to that asset and nothing else in the prompt changes.
+That is the explicit version of what a re-add does by guessing, and it is the only way to fix
+a mention whose asset is gone for good - a prompt imported from another project, or a
+reference you deleted on purpose. Hovering the chip still names the id it wants and the
+assets in scope.
+
 ### Important Mixed Mode rule
 
 The Library targets the **currently selected Segment** and only exposes media that are legal for that mode.
@@ -1082,7 +1089,7 @@ with two 1376 px references sit within a few hundred MB of the ceiling, while 17
 segments at the same settings have room to spare.
 
 If a render does hit it, the cheapest order to try is: (1) shorten the long segments, (2)
-lower `ref_max_size`, (3) lower the resolution, (4) free GPU headroom
+lower `ref_max_size`, (3) lower the resolution, (4) free GPU headroom.
 (`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` and a larger `--reserve-vram` help a
 single large workspace allocation fit), and only then (5) turn SLA off for the long
 segments - its fallback to dense attention is the *more* expensive path, which is why the
@@ -1153,6 +1160,36 @@ project can hold ~4 GB *per segment*).
 versions, the detected machine and backend probes, the stored settings, cache totals and
 run states, the current project's shape, the workflow-backend warnings, and the last run
 report. Paste it into a bug report instead of a screenshot of the console.
+
+### The VRAM fit check, and what happens after an OOM
+
+**Validate** now estimates whether the project fits, per segment, before anything is
+queued. The estimate counts what actually decides it:
+
+- **sequence length** - latent frames x (width/32) x (height/32) tokens, plus the tokens
+every reference picture adds at `ref_max_size`, plus the Motion Context rows the sampler
+carries (`context_length`);
+- **what is free right now** - the failure this exists for was a *placement* failure, not a
+capacity one: sparse attention wanted a single 2.99 GB block while 63 MiB was free.
+
+It reports one of three verdicts with the numbers behind it - `ok`, `tight` (fits, but
+attention is the first thing to run out of room) or `over` (this shape is what fails) -
+and lists concrete changes: reference size first when that alone is enough, then the
+segment length cap for your card, then the canvas. It is a warning, never a blocker: a
+shape that looks too big is still a legitimate request.
+
+The same numbers drive the failure message. A CUDA OOM now names the segment, its
+sampled frame count, its tokens, the attention workspace it needed and how much was free
+at that moment - in sampling, in the Source Bridge pass, in Motion Context encoding and
+in Global Refine/upscale alike.
+
+When the failing segment is known, the run panel offers the retry itself:
+
+| Button | What it does |
+|---|---|
+| **Retry S4 at 243 frames** | Shortens that segment to the cap your card is tuned for, then re-renders **from that segment** - the earlier segments keep their caches |
+| **Set reference size to 1024 px and retry** | Lowers the node's `ref_max_size` (a project-wide setting, said so on the button) and re-renders from the failed segment |
+| **Dismiss** | Hides the offer; the message above stays |
 
 ### Where the file lives
 

@@ -151,3 +151,60 @@ def test_successful_sampling_is_unchanged(monkeypatch):
     out = _call(tensor)
 
     assert torch.equal(out["samples"], tensor)
+
+
+# --- every OOM handler reports the same way -------------------------------------
+#
+# Four code paths can hit a CUDA OOM (H3 sampling, the Source Bridge sample,
+# Motion Context encoding, Global Refine/upscale) and each used to raise its own
+# hand-written sentence. They all go through lib.vram_budget.oom_message now, so
+# the message carries the segment shape, the tokens, the attention workspace, the
+# free memory and the concrete settings to change - the same numbers the
+# pre-flight check reports, which is what makes the two agree.
+
+import pathlib  # noqa: E402
+
+_REPO = pathlib.Path(__file__).resolve().parent.parent
+
+
+def _source(relative: str) -> str:
+    return (_REPO / relative).read_text(encoding="utf-8")
+
+
+def test_every_oom_handler_uses_the_shared_message():
+    expected = {
+        "director/executor_core_legacy.py": 2,   # H3 sampling + Source Bridge
+        "director/motion_context.py": 2,         # visual + audio context encode
+        "director/refine_sampling.py": 1,        # Global Refine / upscale
+    }
+    for relative, count in expected.items():
+        source = _source(relative)
+        assert source.count("vram_budget.oom_message(") == count, relative
+
+
+def test_the_unattributed_sentences_are_gone():
+    for relative in ("director/executor_core_legacy.py", "director/motion_context.py"):
+        source = _source(relative)
+        assert "Motion Director ran out of VRAM" not in source, relative
+
+    # Global Refine keeps the plain sentence, but only as the fallback taken when
+    # the budget module cannot be imported at all (the stub harnesses load this
+    # module from a tree where a relative `lib` import is unreachable). The message
+    # that actually ships carries the numbers.
+    refine = _source("director/refine_sampling.py")
+    assert refine.count("Motion Director ran out of VRAM") == 1
+    assert "return vram_budget.oom_message(" in refine
+    assert "_refine_oom_message" in refine
+    assert "raise RuntimeError(_refine_oom_message())" in refine
+
+
+def test_the_preflight_estimate_and_the_oom_message_share_one_model():
+    """Both must describe a segment the same way, or the warning misleads."""
+    executor = _source("director/executor_core_legacy.py")
+    assert "vram_budget.shape_from(" in executor, "the sampler OOM names its segment shape"
+    assert "vram_budget.device_free_gb()" in executor, "and how much was free at the time"
+    assert "vram_budget.suggestions_for(" in executor, "and what to change"
+
+    preflight = _source("director/preflight.py")
+    assert "vram_budget.evaluate(" in preflight
+    assert "_segment_shapes(plan" in preflight, "the estimate is built from the rebuilt plan"

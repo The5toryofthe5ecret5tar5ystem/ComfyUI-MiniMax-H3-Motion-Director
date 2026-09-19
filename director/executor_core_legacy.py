@@ -127,6 +127,7 @@ from .plan import (
     reinforce_v2v_prompt,
 )
 from .progress import (
+    emit_director_oom,
     report_director_audio_preview,
     report_director_finish,
     report_director_progress,
@@ -165,6 +166,7 @@ from .segment_continuity import (
     resolve_prev_segment_output,
 )
 from .vram_cleanup import cleanup_segment_vram, report_anchored_models
+from ..lib import vram_budget
 from .replace_engine import align_replace_window_to_sample, resolve_segment_audio_policy
 from .replace_runtime import (
     assemble_masked_replace_latent,
@@ -1642,11 +1644,30 @@ def execute_director_plan_core(
                 )
                 stage_times["h3_sampling"] = time.perf_counter() - _h3_sample_started
         except torch.cuda.OutOfMemoryError as exc:
-            raise RuntimeError(
-                "Motion Director ran out of VRAM during H3 sampling. Motion Context adds conditioning rows; "
-                "reduce resolution, use fewer references, or keep clear_vram_between_segments enabled. "
-                "No context/reference was silently removed."
-            ) from exc
+            _oom_shape = vram_budget.shape_from(
+                seg, plan, context_frames=int(context_length or 0),
+            )
+            _oom_free = vram_budget.device_free_gb()
+            _oom_advice = vram_budget.suggestions_for(_oom_shape)
+            # Tell the panel before the exception lands, so it can offer the retry
+            # with the numbers instead of making the user re-derive them.
+            emit_director_oom(
+                node_id,
+                stage="h3_sampling",
+                segment_index=int(timeline_slot),
+                timeline_segment_index=int(timeline_slot),
+                shape=_oom_shape,
+                suggestions=_oom_advice,
+                free_gb=_oom_free,
+            )
+            raise RuntimeError(vram_budget.oom_message(
+                "H3 sampling",
+                shape=_oom_shape,
+                free_gb=_oom_free,
+                suggestions=_oom_advice,
+                tail="Motion Context rows count towards the same budget, and no "
+                     "context/reference was silently removed.",
+            )) from exc
 
         if _latent_continuation_active and isinstance(samples, dict):
             # The pinned noise mask is only consumed during first-pass sampling;
@@ -2482,10 +2503,16 @@ def execute_director_plan_core(
                 external_sampler=external_sampler, external_sigmas=external_sigmas,
             )
         except torch.cuda.OutOfMemoryError as exc:
-            raise RuntimeError(
-                "Motion Director ran out of VRAM while sampling the five-frame Source Bridge. "
-                "No source frame or nominal hard cut was silently substituted."
-            ) from exc
+            raise RuntimeError(vram_budget.oom_message(
+                "the five-frame Source Bridge sample",
+                shape=vram_budget.SegmentShape(
+                    index=int(getattr(right, "timeline_index", 0) or 0),
+                    frames=5, width=int(bridge_width or 0), height=int(bridge_height or 0),
+                    label="Source Bridge",
+                ),
+                free_gb=vram_budget.device_free_gb(),
+                tail="No source frame or nominal hard cut was silently substituted.",
+            )) from exc
         bridge_refine_outcome = apply_global_refine(
             global_refine_config,
             task_key=right.task_key,

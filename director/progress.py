@@ -17,6 +17,7 @@ import threading
 import wave
 
 import torch
+from typing import Any
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director")
 
@@ -325,6 +326,62 @@ def report_director_warning(
             srv.send_sync("minimax_motion_director_warning", payload, srv.client_id)
     except Exception as exc:
         log.debug("Director warning send skipped: %s", exc)
+
+
+def emit_director_oom(
+    node_id: str | None,
+    *,
+    stage: str,
+    segment_index: int = -1,
+    timeline_segment_index: int | None = None,
+    shape: Any = None,
+    suggestions: Any = (),
+    free_gb: float | None = None,
+) -> None:
+    """Announce an OOM with the numbers, before the exception reaches the UI.
+
+    The message alone tells the user what happened; the payload is what lets the
+    run panel offer the *fix* (a retry at the suggested length or reference
+    size) instead of asking them to work it out from prose. Never raises: it
+    runs while an OOM is propagating.
+    """
+    if not node_id:
+        return
+    payload: dict[str, Any] = {
+        "node_id": str(node_id),
+        "stage": str(stage or ""),
+        "segment_index": int(segment_index),
+        "suggestions": [str(item) for item in (suggestions or [])],
+    }
+    if timeline_segment_index is not None:
+        payload["timeline_segment_index"] = int(timeline_segment_index)
+        payload["timeline_segment"] = int(timeline_segment_index) + 1
+    if free_gb is not None:
+        payload["free_gb"] = round(float(free_gb), 2)
+    if shape is not None:
+        try:
+            payload["shape"] = {
+                "index": int(getattr(shape, "index", 0) or 0),
+                "label": str(getattr(shape, "label", "") or ""),
+                "frames": int(getattr(shape, "frames", 0) or 0),
+                "sampled_frames": int(getattr(shape, "sampled_frames", 0) or 0),
+                "width": int(getattr(shape, "width", 0) or 0),
+                "height": int(getattr(shape, "height", 0) or 0),
+                "pictures": int(getattr(shape, "pictures", 0) or 0),
+                "ref_long_edge": int(getattr(shape, "ref_long_edge", 0) or 0),
+                "tokens": int(getattr(shape, "tokens", 0) or 0),
+                "attention_gb": round(float(getattr(shape, "attention_gb", 0.0) or 0.0), 2),
+            }
+        except Exception:  # noqa: BLE001 - diagnostics only
+            pass
+    try:
+        from server import PromptServer
+
+        srv = PromptServer.instance
+        if srv:
+            srv.send_sync("minimax_motion_director_oom", payload, srv.client_id)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Director OOM event skipped: %s", exc)
 
 
 def report_director_report(node_id: str | None, report: str) -> None:

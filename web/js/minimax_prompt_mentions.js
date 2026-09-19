@@ -322,6 +322,18 @@ export function wirePromptImageMentions(editor, textarea, getMedia, options = {}
         chip.dataset.missing = presentation.state === "missing" ? "1" : "0";
         chip.textContent = presentation.text;
         chip.title = presentation.title;
+        if (presentation.state === "missing") {
+            // Until now the only cure was to delete the chip and re-insert the
+            // mention, which is what re-adding the reference did on the user's
+            // behalf by guessing from document order. Clicking is explicit.
+            chip.dataset.relink = "1";
+            chip.title = `${presentation.title}\n${t("mention.relinkHint")}`;
+            chip.addEventListener("mousedown", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openRelinkMenu(chip, token, kind);
+            });
+        }
         if (presentation.state === "missing" && !warnedMissingTokens.has(id)) {
             warnedMissingTokens.add(id);
             const known = knownOfKind();
@@ -335,6 +347,71 @@ export function wirePromptImageMentions(editor, textarea, getMedia, options = {}
             );
         }
         return chip;
+    };
+
+    let relinkMenu = null;
+
+    const closeRelinkMenu = () => {
+        relinkMenu?.remove?.();
+        relinkMenu = null;
+    };
+
+    /**
+     * Offer the assets this prompt can actually name, and rewrite the token.
+     *
+     * A red chip means the prompt wants an asset that is not in scope. The
+     * Library's re-add path can guess which one was meant, but a guess is all it
+     * is: this is the explicit version, and it works for every way an asset can
+     * go missing (renamed, removed from another project, imported prompt).
+     */
+    const openRelinkMenu = (chip, token, kind) => {
+        closeRelinkMenu();
+        const candidates = mediaItems().filter((candidate) => candidate.kind === kind);
+        if (!candidates.length) return;
+        const menu = document.createElement("div");
+        menu.className = "bd-mention-menu";
+        menu.setAttribute("role", "listbox");
+        const title = document.createElement("div");
+        title.className = "bd-mention-title";
+        title.textContent = t("mention.relinkTitle");
+        menu.appendChild(title);
+        for (const candidate of candidates) {
+            const row = document.createElement("div");
+            row.className = "bd-mention-item";
+            row.setAttribute("role", "option");
+            const tag = candidate.effectiveTag || candidate.authoringTag || "";
+            const name = candidate.name || candidate.label || candidate.assetId;
+            const label = document.createElement("span");
+            label.className = "bd-mention-label";
+            label.textContent = tag || name;
+            const sub = document.createElement("span");
+            sub.className = "bd-mention-name";
+            sub.textContent = tag ? name : "";
+            row.append(label, sub);
+            row.addEventListener("mousedown", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const replacement = String(candidate.token || "");
+                if (replacement && replacement !== token) {
+                    textarea.value = String(textarea.value || "").split(token).join(replacement);
+                    renderRich();
+                    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+                }
+                closeRelinkMenu();
+                rich.focus();
+            });
+            menu.appendChild(row);
+        }
+        const portal = options.overlayLayer || editor?._directorOverlayLayer || document.body;
+        portal.appendChild(menu);
+        positionMenu(menu, chip);
+        relinkMenu = menu;
+        const onOutside = (event) => {
+            if (relinkMenu && !relinkMenu.contains(event.target)) closeRelinkMenu();
+        };
+        // Registry-managed so the controller's destroy() removes it; the handler is
+        // idempotent, so a stray fire after the menu closed costs nothing.
+        listeners.add(document, "mousedown", onOutside, true);
     };
 
     const renderRich = () => {

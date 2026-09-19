@@ -3,6 +3,44 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## Unreleased
+
+### Added
+
+- **The pack tells you whether a segment fits, before it spends the GPU time.** A 345-frame
+  segment at 1376x768 with two full-size references allocated 22.19 GiB, had 63 MiB free and
+  asked for one more 2.99 GiB block - and the only way to learn a project's ceiling was to
+  lose a segment finding it. **Validate** now estimates the plan per segment from the two
+  quantities that decide it: sequence length (latent frames x width/32 x height/32 tokens,
+  plus the tokens every reference adds at `ref_max_size`, plus the Motion Context rows the
+  sampler carries) and what is free right now, because the real failure was a *placement*
+  failure rather than a capacity one. It reports `ok` / `tight` / `over` with the numbers and
+  the concrete changes (reference size first when that alone suffices, then the tier's frame
+  cap, then the canvas) as a **warning**, never a blocker. New module `lib/vram_budget.py`
+  (pure, unit-tested against the measured shapes: 175/243/311/345 frames -> 44/61/78/87
+  latent frames, and the 2.99 GiB allocation at 345 frames reproduced from 91,848 tokens).
+  The estimate can be calibrated from real runs via `calibrate_attention_kb_per_token`.
+- **The run panel offers the retry instead of leaving you to translate the message.** The
+  engine emits the failing segment and the same suggestions the fit check prints, so the
+  error state carries **Retry S4 at 243 frames** (shortens that segment, then re-renders from
+  it - earlier segments keep their caches) and **Set reference size to 1024 px and retry**
+  (a node-level setting, labelled as such). New module `web/js/minimax_oom_retry.mjs` (pure
+  parsing, unit-tested) and a `minimax_motion_director_oom` event from
+  `director/progress.py`.
+- **A red `missing asset` chip can be relinked directly.** Click it and pick from the assets
+  the prompt can actually name; only that mention is rewritten. Re-adding a reference still
+  reconnects by kind and document order, but that is a guess - this is the explicit version,
+  and the only cure for a mention whose asset is gone for good.
+
+### Changed
+
+- **Every CUDA OOM reports the same way.** The four handlers (H3 sampling, the Source Bridge
+  sample, Motion Context encoding, Global Refine/upscale) each raised their own hand-written
+  sentence; they now go through `vram_budget.oom_message`, so the message names the segment,
+  its sampled frames, its tokens, the attention workspace it needed and the free memory at
+  the failure point. `director/refine_sampling.py` keeps its plain sentence as a documented
+  fallback for stub harnesses that cannot resolve a relative `lib` import.
+
 ## v1.11.0 — 2026-09-19
 
 ### Added

@@ -109,6 +109,7 @@ import {
     wireBatchRunSelectControls,
     wireMediaDuration,
 } from "./minimax_image_batch.js";
+import { oomRetryActions } from "./minimax_oom_retry.mjs?boot=oom_retry_v1";
 import {
     FL2V_STYLES,
     bindFl2vEvents,
@@ -1834,6 +1835,13 @@ const STYLES = `
 .bd-run-status.error .bd-run-title{color:#f88}
 .bd-run-title{font-size:11px;font-weight:600;line-height:1.35}
 .bd-run-detail{color:#999;font-size:10px;line-height:1.4}
+.bd-run-oom{display:flex;flex-direction:column;gap:5px;padding:7px 8px;border:1px solid #7a4a2a;border-radius:5px;background:#241a12}
+.bd-run-oom.hidden{display:none}
+.bd-run-oom-head{color:#ffb27a;font-size:10px;font-weight:650}
+.bd-run-oom-actions{display:flex;flex-wrap:wrap;gap:5px}
+.bd-run-oom-actions button{border:1px solid #7a4a2a;border-radius:4px;background:#2f2116;color:#ffd9bb;cursor:pointer;font-size:10px;padding:4px 8px}
+.bd-run-oom-actions button:hover{background:#3c2a1c;border-color:#a86a3c;color:#fff}
+.bd-run-oom-note{color:#a98a70;font-size:9px;line-height:1.35}
 .bd-run-bars{display:flex;flex-direction:column;gap:3px}
 .bd-run-bar{height:5px;background:#2a2a2a;border-radius:3px;overflow:hidden}
 .bd-run-bar-fill{height:100%;background:linear-gradient(90deg,#2a6b4a,#4fff8f);border-radius:3px;transition:width .15s ease}
@@ -4736,6 +4744,7 @@ class MiniMaxH3MotionDirectorEditor {
                 this.runStatusEl = this.outputUi.runStatusEl;
                 this.runTitleEl = this.outputUi.runTitleEl;
                 this.runDetailEl = this.outputUi.runDetailEl;
+                this.runOomEl = this.outputUi.runOomEl;
                 this.runOverallEl = this.outputUi.runOverallEl;
                 this.runPhaseEl = this.outputUi.runPhaseEl;
                 this.runSelectBar = this.outputUi.runSelectBar;
@@ -5789,6 +5798,7 @@ class MiniMaxH3MotionDirectorEditor {
         this.runStatusEl = this.root.querySelector('[data-r="run-status"]');
         this.runTitleEl = this.root.querySelector('[data-r="run-title"]');
         this.runDetailEl = this.root.querySelector('[data-r="run-detail"]');
+        this.runOomEl = this.root.querySelector('[data-r="run-oom"]');
         this.runOverallEl = this.root.querySelector('[data-r="run-overall"]');
         this.runPhaseEl = this.root.querySelector('[data-r="run-phase"]');
         this.runSelectBar = this.root.querySelector('[data-r="run-select-bar"]');
@@ -7047,6 +7057,9 @@ class MiniMaxH3MotionDirectorEditor {
             height: Number(widgetVal("height")) || 0,
             ref_max_size: Number(widgetVal("ref_max_size")) || 0,
             motion_context_enabled: Boolean(widgetVal("motion_context_enabled") ?? true),
+            // The fit check needs the rows the sampler adds on top of each segment;
+            // without them the estimate is optimistic by the context length.
+            context_length: Number(widgetVal("context_length")) || 0,
         };
         this._renderValidate([{ severity: "info", code: "checking", message: "Validating project..." }], {});
         try {
@@ -14869,6 +14882,10 @@ class MiniMaxH3MotionDirectorEditor {
         }
         this._stopRequested = false;
 
+        // A new run owns the panel: the previous failure's offer is stale.
+        this._lastOom = null;
+        this._renderOomOffer?.();
+
         // A sweep replaces the normal single queue: N takes, N seeds, no resume.
         const sweepSeeds = Array.isArray(sweep) ? sweep : null;
         if (sweepSeeds && isSweepActive(sweepSeeds.length)) {
@@ -15639,8 +15656,104 @@ class MiniMaxH3MotionDirectorEditor {
         if (this.runOverallEl) this.runOverallEl.style.width = "0%";
         if (this.runPhaseEl) this.runPhaseEl.style.width = "0%";
         this._runHighlightSeg = -1;
+        // A VRAM failure carries a fix; offer it here rather than making the user
+        // translate the message back into settings.
+        this._renderOomOffer();
         this.updateRunSelectUI();
         this.scheduleRender();
+    }
+
+    /** Remember the engine's structured OOM report for the run panel. */
+    _noteRunOom(detail) {
+        this._lastOom = detail || null;
+        if (this._lastOom) this._renderOomOffer();
+    }
+
+    /** The pieces of an OOM a retry can act on, or null when there is nothing. */
+    _oomActions() {
+        return oomRetryActions(this._lastOom, t);
+    }
+
+    _renderOomOffer() {
+        const host = this.runOomEl || this.root?.querySelector?.('[data-r="run-oom"]');
+        if (!host) return;
+        const plan = this._oomActions();
+        if (!plan || (!plan.actions.length && !plan.title)) {
+            host.replaceChildren();
+            host.classList.add("hidden");
+            return;
+        }
+        host.replaceChildren();
+        const head = document.createElement("div");
+        head.className = "bd-run-oom-head";
+        head.textContent = plan.title;
+        host.appendChild(head);
+        if (plan.actions.length) {
+            const row = document.createElement("div");
+            row.className = "bd-run-oom-actions";
+            for (const action of plan.actions) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.textContent = action.label;
+                if (action.note) button.title = action.note;
+                button.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this._retryAfterOom(action);
+                });
+                row.appendChild(button);
+            }
+            const dismiss = document.createElement("button");
+            dismiss.type = "button";
+            dismiss.textContent = t("run.oomDismiss");
+            dismiss.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                this._lastOom = null;
+                this._renderOomOffer();
+            });
+            row.appendChild(dismiss);
+            host.appendChild(row);
+        }
+        const notes = plan.actions.map((action) => action.note).filter(Boolean);
+        if (notes.length) {
+            const note = document.createElement("div");
+            note.className = "bd-run-oom-note";
+            note.textContent = notes.join(" ");
+            host.appendChild(note);
+        }
+        host.classList.remove("hidden");
+    }
+
+    /**
+     * Apply one suggested change and re-render from the failed segment.
+     *
+     * Resume semantics are deliberate: segments before the failure already have
+     * their caches and are reused, so the retry only pays for the shape that did
+     * not fit.
+     */
+    _retryAfterOom(action) {
+        if (!action || this._isRunActive()) return;
+        if (action.kind === "frames") {
+            const segment = this.timeline?.segments?.[action.index];
+            if (!segment) return;
+            const frames = alignMiniMaxFrameCount(Number(action.value) || 0);
+            if (!Number.isFinite(frames) || frames <= 0) return;
+            segment.length = frames;
+            if (segment.durationSec != null) {
+                segment.durationSec = preferredDurationSecFromFrames(frames, 24);
+            }
+            if (this.isImageBatch?.()) this.normalizeImageBatchSegments?.(this.timeline);
+        } else if (action.kind === "ref_size") {
+            if (this.refMaxWidget) this.refMaxWidget.value = Number(action.value) || 0;
+        } else {
+            return;
+        }
+        this._lastOom = null;
+        this._renderOomOffer();
+        this.commit?.(true, { syncTimeline: true });
+        const from = Number.isFinite(action.index) && action.index >= 0 ? action.index : null;
+        this._queueRunWithIntent({ resume: true, from, reseed: true });
     }
 
     _stopPlay() {
@@ -16436,6 +16549,14 @@ app.registerExtension({
             const editor = findDirectorNode(detail?.node_id)?._minimaxEditor;
             if (!editor) return;
             editor._noteRunWarning?.(detail);
+        });
+
+        api.addEventListener("minimax_motion_director_oom", ({ detail }) => {
+            const editor = findDirectorNode(detail?.node_id)?._minimaxEditor;
+            if (!editor) return;
+            // Arrives before execution_error, so the damage report already knows
+            // which segment failed and what the fit check would change.
+            editor._noteRunOom?.(detail);
         });
 
         api.addEventListener("minimax_motion_director_report", ({ detail }) => {

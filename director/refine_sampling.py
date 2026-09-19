@@ -605,6 +605,33 @@ class GlobalRefineOutcome:
         return self.status.startswith("SUCCESS")
 
 
+def _refine_oom_message() -> str:
+    """The refine OOM message, with the numbers when the budget module loads.
+
+    Imported lazily on purpose: test harnesses load this module from a stub tree
+    where a package-relative ``lib`` import is not reachable, and the message is
+    only ever needed on the failure path. The fallback keeps the original
+    sentence, so an install without the module still says something true.
+    """
+    try:
+        from ..lib import vram_budget
+
+        return vram_budget.oom_message(
+            "Global Refine/upscale",
+            free_gb=vram_budget.device_free_gb(),
+            tail="Reduce the upscale target or chunk size, enable temporal_split, or keep "
+                 "clear_vram_between_segments enabled. If VRAM stays pinned after this "
+                 "error, check the log for the anchored-model report.",
+        )
+    except Exception:  # pragma: no cover - the module ships with the pack
+        return (
+            "Motion Director ran out of VRAM during Global Refine/upscale. "
+            "Reduce the upscale target or chunk size, enable temporal_split, "
+            "or keep clear_vram_between_segments enabled. If VRAM stays pinned "
+            "after this error, check the log for the anchored-model report."
+        )
+
+
 def apply_global_refine(
     config: dict[str, Any],
     *,
@@ -1012,12 +1039,7 @@ def apply_global_refine(
         # not be downgraded to "kept the first-pass result": silently keeping
         # the un-upscaled output is exactly how a pinned/leaked model goes
         # unnoticed, and the first-pass path already treats OOM the same way.
-        raise RuntimeError(
-            "Motion Director ran out of VRAM during Global Refine/upscale. "
-            "Reduce the upscale target or chunk size, enable temporal_split, "
-            "or keep clear_vram_between_segments enabled. If VRAM stays pinned "
-            "after this error, check the log for the anchored-model report."
-        ) from exc
+        raise RuntimeError(_refine_oom_message()) from exc
     except Exception as exc:
         log.warning(
             "Global Refine failed; keeping first-pass result: %s\n%s",
