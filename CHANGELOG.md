@@ -72,7 +72,14 @@ Notable changes in this fork. Older releases are tagged in git and published on 
   upload: a dangling mention of that kind is reconnected first (in document order), and
   otherwise the id is derived from the materialized file. One *Apply* shares one claim set,
   so bringing in two pictures reconnects two chips instead of both claiming the first and
-  making the schema re-id the loser. `web/js/tests/minimax_library_ref_ids.test.mjs`.
+  making the schema re-id the loser. The reconnect scan also covers every prompt the project
+  holds (all segments, the global prompt, the Common block's own prompt), not just the scope
+  the target implies. `web/js/tests/minimax_library_ref_ids.test.mjs`.
+
+- **A red `missing asset` chip now says what it cannot find.** The chip's tooltip reports the
+  id it wants plus the picture/video/audio assets the prompt's scope does hold, and each
+  unknown id logs one console warning naming the same list. A chip that stays red after the
+  reference is added is therefore self-diagnosing instead of a dead end.
 
 - **A graceful Stop no longer ends in a Face Refine error.** With Face Refine enabled the
   executor's segment-final lifecycle check expected a final state for every *selected*

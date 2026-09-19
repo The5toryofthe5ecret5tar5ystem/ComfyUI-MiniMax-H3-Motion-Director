@@ -63,6 +63,10 @@ let stylesInjected = false;
 
 const MENTION_STYLE_ID = "mmx-mention-styles";
 
+/** Prompt tokens already reported as unknown, so one report is one warning per
+ * id instead of one per keystroke (every input re-renders every chip). */
+const warnedMissingTokens = new Set();
+
 /**
  * Inject the mention popup stylesheet once per document.
  *
@@ -285,6 +289,14 @@ export function wirePromptImageMentions(editor, textarea, getMedia, options = {}
         chip.contentEditable = "false";
         chip.dataset.semanticToken = token;
         const id = parsed?.[2] || "";
+        // A red chip is the one place a user cannot tell a renamed reference from
+        // a mistyped one, so it names what the scope does hold of that kind.
+        const knownOfKind = () => mediaItems()
+            .filter((candidate) => candidate.kind === kind)
+            .map((candidate) => [
+                candidate.effectiveTag || candidate.authoringTag || candidate.label || "",
+                candidate.assetId,
+            ].filter(Boolean).join(" "));
         const presentation = referenceChipPresentation(item || {
             assetId: id,
             status: "missing",
@@ -296,12 +308,32 @@ export function wirePromptImageMentions(editor, textarea, getMedia, options = {}
                 t("mention.disabledAsset"),
                 authoringTag ? `${authoringTag} · ${name}` : "",
             ].filter(Boolean).join("\n"),
-            formatMissingTitle: (name) => t("mention.missingAsset", { name }),
+            formatMissingTitle: (name) => {
+                const known = knownOfKind();
+                return [
+                    t("mention.missingAsset", { name }),
+                    known.length
+                        ? t("mention.missingAssetKnown", { kind, list: known.join(", ") })
+                        : t("mention.missingAssetNone", { kind }),
+                ].join("\n");
+            },
         });
         chip.dataset.state = presentation.state;
         chip.dataset.missing = presentation.state === "missing" ? "1" : "0";
         chip.textContent = presentation.text;
         chip.title = presentation.title;
+        if (presentation.state === "missing" && !warnedMissingTokens.has(id)) {
+            warnedMissingTokens.add(id);
+            const known = knownOfKind();
+            console.warn(
+                "[MiniMax H3 Motion Director] prompt mentions unknown %s asset \"%s\". %s",
+                kind,
+                id,
+                known.length
+                    ? `In scope: ${known.join(", ")}`
+                    : `No ${kind} asset is in scope for this prompt.`,
+            );
+        }
         return chip;
     };
 

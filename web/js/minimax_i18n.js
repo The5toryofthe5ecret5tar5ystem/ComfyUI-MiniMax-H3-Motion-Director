@@ -720,6 +720,8 @@ const ZH = {
     "mention.disabledLabel": "已关闭 · {name}",
     "mention.missingLabel": "素材缺失 · {name}",
     "mention.missingAsset": "找不到素材：{name}",
+    "mention.missingAssetKnown": "本项目现有的{kind}素材：{list}",
+    "mention.missingAssetNone": "时间线里没有可被提示词引用的{kind}素材。",
 
     "widget.seed": "种子",
     "widget.clearVram": "段间清理显存",
@@ -1534,6 +1536,8 @@ const EN = {
     "mention.disabledLabel": "disabled · {name}",
     "mention.missingLabel": "missing asset · {name}",
     "mention.missingAsset": "Missing asset: {name}",
+    "mention.missingAssetKnown": "{kind} assets this project has: {list}",
+    "mention.missingAssetNone": "The timeline holds no {kind} asset the prompt could name.",
 
     "widget.seed": "Seed",
     "widget.clearVram": "Clear VRAM between segments",

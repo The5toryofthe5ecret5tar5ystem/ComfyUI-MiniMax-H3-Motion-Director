@@ -277,12 +277,30 @@ function refRecord(kind, materialized, item, index, assetId = "") {
 }
 
 /** Prompts that can mention an asset added to the Library's current target.
- * The Common target is reachable from every segment prompt, a segment target
- * only from that segment - exactly the rule local uploads use. */
+ * The target's own scope comes first (the Common target is reachable from every
+ * segment prompt, a segment target from that segment - exactly the rule local
+ * uploads use), then every other prompt the project holds: the shared block is
+ * the top of each segment prompt, but a project can also carry mentions in the
+ * global prompt or in blocks the scope helper skips, and scanning more text can
+ * only reconnect more of the same dangling ids. */
 function libraryReferencingPrompts(editor, target) {
-    if (target === "common") return batchReferencingPrompts(editor, -1);
-    const index = Number.parseInt(String(target).split(":")[1], 10);
-    return Number.isFinite(index) ? batchReferencingPrompts(editor, index) : [];
+    const texts = [];
+    const push = (value) => {
+        const text = typeof value === "string" ? value : "";
+        if (text && !texts.includes(text)) texts.push(text);
+    };
+    if (target === "common") {
+        for (const text of batchReferencingPrompts(editor, -1)) push(text);
+    } else {
+        const index = Number.parseInt(String(target).split(":")[1], 10);
+        if (Number.isFinite(index)) {
+            for (const text of batchReferencingPrompts(editor, index)) push(text);
+        }
+    }
+    push(editor?.timeline?.global?.prompt);
+    push(editor?.timeline?.r2vCommon?.prompt);
+    for (const segment of editor?.timeline?.segments || []) push(segment?.prompt);
+    return texts;
 }
 
 /** Ids for Library-added references, on the same terms as a local upload: an
