@@ -145,6 +145,12 @@ Notable changes in this fork. Older releases are tagged in git and published on 
   source-audio mode the extracted track covers only the footage's own duration, so it
   ends in silence under the slowed picture - both need the source resampled (section 26
   of the user guide).
+- **A replace window built from pictures holds the source pose.** The assembled replace
+  block only told the model to stay on the source pose in the RefMod variant; the
+  `<Picture N>` variant said nothing about position, size in frame, body language or
+  timing. Wherever the prompt did not speak the source therefore lost the argument, and a
+  live run reached *over* her back instead of staying *under* it. Both variants now carry
+  the same line, and the recipe instruction is pinned to agree with it.
 - **Enhancing the same replace window twice no longer nests the motion note.** The note
   is appended to the window's action prose, and the panel writes the assembled block back
   into the prompt box - so the next run read that note back in, from inside the block and
