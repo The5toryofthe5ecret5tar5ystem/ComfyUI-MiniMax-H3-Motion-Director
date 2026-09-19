@@ -3,7 +3,7 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
-## Unreleased
+## v1.11.0 — 2026-09-19
 
 ### Added
 

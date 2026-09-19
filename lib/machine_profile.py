@@ -65,13 +65,13 @@ BASELINE_TIERS: tuple[dict[str, Any], ...] = (
         "id": "large",
         "label": "Large",
         "max_vram_gb": 32.0,
-        "note": "24-32 GB cards. 10 s segments at 1 MP, several references.",
+        "note": "24-32 GB cards. 7 s segments at 1 MP; see the Guide's practical limit note.",
         "baselines": {
             "megapixels": 1.0,
             "width": 1344,
             "height": 768,
-            "segment_frames": 243,  # 10.13 s
-            "max_segment_frames": 362,  # 15.08 s
+            "segment_frames": 175,  # 7.29 s
+            "max_segment_frames": 243,  # 10.13 s
             "ref_max_size": 1024,
         },
     },
@@ -79,13 +79,13 @@ BASELINE_TIERS: tuple[dict[str, Any], ...] = (
         "id": "xl",
         "label": "Workstation",
         "max_vram_gb": 1.0e9,
-        "note": "33 GB and up. Long segments and full-size references.",
+        "note": "33 GB and up. 10 s segments at 1 MP.",
         "baselines": {
-            "megapixels": 1.4,
-            "width": 1600,
-            "height": 896,
-            "segment_frames": 362,  # 15.08 s
-            "max_segment_frames": 498,  # 20.75 s, the largest 17k+5 value under 512
+            "megapixels": 1.0,
+            "width": 1344,
+            "height": 768,
+            "segment_frames": 243,  # 10.13 s
+            "max_segment_frames": 362,  # 15.08 s
             "ref_max_size": 1280,
         },
     },

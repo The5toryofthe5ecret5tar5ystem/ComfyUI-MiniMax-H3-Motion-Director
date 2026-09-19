@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.10.0-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.11.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.10.0**
+> Current version: **v1.11.0**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,54 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.11.0 — One Settings panel for the pack, your call on exported metadata, and references that reconnect
+
+**The pack has a Settings panel.** A gear in the Director's top bar opens one document per
+ComfyUI user, shared by every node and every workflow rather than being a per-project widget
+group. It reports the machine and which attention backends actually import here, compares the
+current graph with that machine and names the node asking for a backend it cannot run - before
+a render discovers it at CUDA level - holds the baselines new segments are built from, keeps
+the run/UI defaults, manages every cache the pack writes with real sizes and run states, and
+produces a one-click diagnostics blob. Baselines seed **new** content only; an existing
+project changes when you press **Apply to this project**, because rewriting segments would
+invalidate segment caches and the Resume Done marks.
+
+**The default segment length now matches what the hardware really holds.** A 345-frame
+sequence at 1376x768 with full-size references asked for a single ~3 GB contiguous
+allocation on a card already holding 22 GB and died in sparse attention with 63 MiB free -
+the tier baselines were optimistic. 24-32 GB cards default to 7 s segments at 1 MP with
+`ref_max_size` 1024 and cap at 10 s, workstations sit at 10 s and 15 s, and the Guide gained
+a *Practical limit* section with the measured numbers: attention cost grows roughly with the
+square of the sequence, so 175 frames is 1x, 243 is ~1.9x and 345 is ~3.8x.
+
+**You choose whether exported videos carry the workflow.** The `workflow` and `prompt` tags
+are what let a finished mp4 be dragged back onto the canvas to restore the graph - and for
+this pack that means the entire project, including prompt text, model and LoRA names and
+local paths. Settings gained an **Export** tab (`Auto` / `Always embed` / `Never embed`, with
+the effective state and the `--disable-metadata` flag spelled out), the Results save card has
+the same three-way choice per save, and the tab can strip metadata from a file that is
+already saved (ffmpeg remux, streams copied, `_clean` suffix, output folder only).
+
+**A reference added from the Material Library reconnects to the prompt mention that names
+it.** Three faults stacked up: the Library passed its *media* kind (`image`) where the prompt
+schema speaks *references* (`picture`), so the dangling-mention search never matched and
+every add fell through to a fresh id; the apply refreshed the reference panels but not the
+mention chips; and a material is copied in as `mat_<id>.<ext>`, which is what the reference
+was labelled with. Kinds are normalized now, an apply repaints the chips, and Library
+references carry the material's title. A red `missing asset` chip also explains itself: its
+tooltip lists the picture/video/audio assets the prompt's scope does hold, and each unknown
+id logs one console warning.
+
+**A graceful Stop no longer ends in a Face Refine error.** The segment-final lifecycle check
+expected a final state for every *selected* segment, so a Stop after segment 1 (or a Resume
+reusing a cached prefix) raised right after Assembly and threw away the partial export the
+Stop exists to keep. The shortfall is attributed now - a Stop or a Resume logs `N of M
+segment(s) reached their final state; the finished prefix is kept`, while an unexplained
+shortfall still fails.
+
+The prompt Enhancer's button is now **Enhancer…** (`扩写设置`) so it cannot be confused with
+the app-wide Settings gear.
 
 ### v1.10.0 — Chains that leave the footage, a story that becomes segments, and one fps rule
 
