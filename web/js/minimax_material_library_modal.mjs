@@ -41,6 +41,8 @@ import { materialCategories, materialCategoryLabel, mlT, onMaterialLocaleChange 
 
 const STYLE_ID = "mmx-material-library-styles";
 const TYPE_ORDER = ["image", "audio", "video", "prompt"];
+/** The Library assigns media; the prompt/asset schema speaks references. */
+const REFERENCE_KIND = { image: "picture", audio: "audio", video: "video" };
 const TYPE_ALLOWED = {
     t2v: new Set(["prompt"]),
     i2v: new Set(["image", "prompt"]),
@@ -253,10 +255,15 @@ function nextFreeSlot(items, limit) {
 
 function refRecord(kind, materialized, item, index, assetId = "") {
     const path = inputRelativePath(materialized);
-    if (kind === "image") return { index, assetId, imageFile: path, imageB64: "" };
+    // The Library copies a material into the input folder as `mat_<id>.<ext>`, so
+    // the file name says nothing to the user. The material's title does, and the
+    // schema keeps it as `name` (the field the panels and the mention menu read).
+    const label = String(item?.title || "");
+    if (kind === "image") return { index, assetId, name: label, imageFile: path, imageB64: "" };
     if (kind === "audio") return {
         index,
         assetId,
+        name: label,
         audioFile: path,
         fileName: materialized.name || relativeName(item),
         type: "input",
@@ -265,6 +272,7 @@ function refRecord(kind, materialized, item, index, assetId = "") {
     return {
         index,
         assetId,
+        name: label,
         videoFile: path,
         fileName: materialized.name || relativeName(item),
         type: "input",
@@ -347,7 +355,7 @@ async function appendReferences(container, state, materialize, status, resolveAs
                     ? { audioFile: path, fileName: name }
                     : { videoFile: path, fileName: name };
             const assetId = typeof resolveAssetId === "function"
-                ? resolveAssetId(kind, fileRef)
+                ? resolveAssetId(REFERENCE_KIND[kind] || kind, fileRef)
                 : "";
             container[field].push(refRecord(kind, mat, entry.item, slot, assetId));
         }
@@ -360,6 +368,10 @@ function refreshEditor(editor, { fl2v = false, referenceSchema = null } = {}) {
     if (fl2v) syncFl2vFromShots(editor);
     else if (["t2v", "i2v", "r2v"].includes(currentMode(editor))) normalizeImageBatchSegments(editor);
     editor.renderImageBatchGroups?.();
+    // Mention chips are rendered from the edit they were inserted into: an apply
+    // that reconnects a dangling mention has to repaint them, or the chip keeps
+    // showing the red id until the prompt is touched again.
+    editor.refreshPromptMentions?.();
     editor.updateSelectionUI?.();
     editor.updateVideoNameLabel?.();
     editor.updateDomWidgetHeight?.();

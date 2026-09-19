@@ -349,6 +349,7 @@ function sanitizeRefImage(ref) {
     return {
         index: Number.isFinite(index) ? index : 0,
         assetId: ref.assetId || ref.asset_id || "",
+        name: ref.name || "",
         imageFile: ref.imageFile || "",
         fileName: ref.fileName || "",
         type: ref.type || "input",
@@ -362,6 +363,7 @@ function sanitizeRefAudio(ref) {
     return {
         index: Number.isFinite(index) ? index : 0,
         assetId: ref.assetId || ref.asset_id || "",
+        name: ref.name || "",
         audioFile: ref.audioFile || "",
         fileName: ref.fileName || "",
         type: ref.type || "input",
@@ -376,6 +378,7 @@ function sanitizeRefVideo(ref) {
     return {
         index: Number.isFinite(index) ? index : 0,
         assetId: ref.assetId || ref.asset_id || "",
+        name: ref.name || "",
         videoFile: ref.videoFile || "",
         fileName: ref.fileName || "",
         type: ref.type || "input",

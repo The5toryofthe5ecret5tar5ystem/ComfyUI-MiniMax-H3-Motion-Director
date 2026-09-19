@@ -8,7 +8,7 @@ function defaultIdFactory(kind = "asset") {
 }
 
 export function semanticReferenceToken(kind, assetId) {
-    const normalized = String(kind || "").trim().toLowerCase();
+    const normalized = referenceKindOf(kind);
     const identity = String(assetId || "").trim();
     if (!["picture", "video", "audio"].includes(normalized)) {
         throw new Error("Reference kind must be picture, video, or audio");
@@ -19,9 +19,26 @@ export function semanticReferenceToken(kind, assetId) {
     return `{{mmx-ref:${normalized}:${identity}}}`;
 }
 
+/** The Library stores and assigns *media* ("image", "audio", "video"); prompts,
+ * slots and chips speak *references* ("picture", "video", "audio"). Both
+ * vocabularies reach the functions below, and a mismatch fails silently: the
+ * dangling-mention regex simply never matches, so the caller quietly falls back
+ * to a fresh id and the mention stays red. Normalising here is what keeps the
+ * two spellings from having to agree at every call site. */
+export function referenceKindOf(kind) {
+    const value = String(kind || "").trim().toLowerCase();
+    if (value === "image" || value === "images" || value === "picture" || value === "pictures") {
+        return "picture";
+    }
+    if (value === "video" || value === "videos") return "video";
+    if (value === "audio" || value === "audios") return "audio";
+    return value;
+}
+
 function referenceKindField(kind) {
-    if (kind === "video") return "refVideos";
-    if (kind === "audio") return "refAudios";
+    const normalized = referenceKindOf(kind);
+    if (normalized === "video") return "refVideos";
+    if (normalized === "audio") return "refAudios";
     return "refs";
 }
 
@@ -102,16 +119,17 @@ export function danglingReferenceTokenIds(promptText, kind, knownIds) {
  * first one (the schema would re-id the loser and leave its chip red again).
  */
 export function resolveReferenceAssetId(timeline, kind, referencingPrompts, fileRef, claimed = null) {
-    const knownIds = timelineKnownAssetIds(timeline, kind);
+    const referenceKind = referenceKindOf(kind);
+    const knownIds = timelineKnownAssetIds(timeline, referenceKind);
     for (const assetId of claimed || []) knownIds.add(String(assetId));
     for (const promptText of referencingPrompts || []) {
-        const dangling = danglingReferenceTokenIds(promptText, kind, knownIds);
+        const dangling = danglingReferenceTokenIds(promptText, referenceKind, knownIds);
         if (dangling.length) {
             claimed?.add(dangling[0]);
             return dangling[0];
         }
     }
-    const stable = fileStableReferenceAssetId(kind, fileRef);
+    const stable = fileStableReferenceAssetId(referenceKind, fileRef);
     if (stable) claimed?.add(stable);
     return stable;
 }

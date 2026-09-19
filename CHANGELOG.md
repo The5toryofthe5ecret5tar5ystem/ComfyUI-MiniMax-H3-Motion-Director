@@ -62,19 +62,29 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 ### Fixed
 
 - **A reference added from the Material Library now reconnects to the prompt mention that
-  names it.** Library-added references were appended without an asset id, so the schema
-  minted a fresh random one. Any prompt that already mentioned that asset - a red *missing
-  asset* chip, which is what a prompt copied from another project, a plan import or a
-  removed reference leaves behind - kept pointing at the old id and stayed red, and
-  removing and re-adding the same material never reconnected either. Uploading the very
-  same file through a slot healed it, which is why the two ways of adding one picture
-  behaved differently. The Library now resolves ids through the same rules as a local
-  upload: a dangling mention of that kind is reconnected first (in document order), and
-  otherwise the id is derived from the materialized file. One *Apply* shares one claim set,
-  so bringing in two pictures reconnects two chips instead of both claiming the first and
-  making the schema re-id the loser. The reconnect scan also covers every prompt the project
-  holds (all segments, the global prompt, the Common block's own prompt), not just the scope
-  the target implies. `web/js/tests/minimax_library_ref_ids.test.mjs`.
+  names it.** Three faults stacked up, all on the Library's side:
+  - **Kind vocabulary.** The Library assigns *media* (`image`), while prompts, slots and
+    chips speak *references* (`picture`). The id resolver matches `{{mmx-ref:picture:…}}`
+    tokens, so an `image` call matched nothing, never saw the dangling mention and always
+    fell through to a fresh id - the chip stayed red however often the reference was
+    re-added. Kinds are normalized in `minimax_reference_assets.mjs` now
+    (`referenceKindOf`), and the Library maps them explicitly, so the same file gets the
+    same id whether it is added from the Library or uploaded through a slot, instead of two
+    different `f-…` hashes.
+  - **No repaint.** An apply refreshed the reference panels but not the mention chips, so a
+    reconnected mention kept the old red chip on screen until the prompt was touched. It now
+    calls `refreshPromptMentions()`, as the local upload paths always did.
+  - **Opaque name.** A material is copied into the input folder as `mat_<id>.<ext>`, and the
+    reference was labelled with that. Library references now carry the material's title as
+    their `name` (the field the panels, tooltips and the mention menu read), and the payload
+    sanitizers keep it, so it survives a save/reload.
+
+  Reconnecting still needs the reference to be (re-)added - the red ids inside an existing
+  prompt are only rebound when an add claims them. The scan covers every prompt the project
+  holds (all segments, the global prompt, the Common block's own prompt), and one *Apply*
+  shares one claim set, so bringing in two pictures reconnects two chips in document order.
+  Reproduced and verified in the live UI against a project with a dangling mention:
+  `web/js/tests/minimax_library_ref_ids.test.mjs`, `docs/USER_GUIDE.md` §8.
 
 - **A red `missing asset` chip now says what it cannot find.** The chip's tooltip reports the
   id it wants plus the picture/video/audio assets the prompt's scope does hold, and each

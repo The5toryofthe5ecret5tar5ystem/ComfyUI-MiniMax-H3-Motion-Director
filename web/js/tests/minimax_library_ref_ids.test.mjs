@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import {
+    referenceKindOf,
     resolveReferenceAssetId,
     semanticReferenceToken,
 } from "../minimax_reference_assets.mjs";
@@ -103,19 +104,62 @@ assert.equal(
     true,
 );
 
+// --- the Library's vocabulary must reach the prompt's ----------------------------
+
+// The Library assigns *media* ("image"), prompts speak *references* ("picture").
+// Passing the media kind through to the resolver matched no token at all, so the
+// fallback id was handed out and the mention stayed red - the exact failure this
+// file exists for. The names are normalized now, and both spellings must land on
+// the same dangling mention.
+assert.equal(referenceKindOf("image"), "picture");
+assert.equal(referenceKindOf("images"), "picture");
+assert.equal(referenceKindOf("video"), "video");
+assert.equal(referenceKindOf("audio"), "audio");
+assert.equal(referenceKindOf("picture"), "picture");
+assert.equal(semanticReferenceToken("image", "x"), "{{mmx-ref:picture:x}}");
+
+const claimedByMediaKind = new Set();
+assert.equal(
+    resolveReferenceAssetId(empty, "image", [danglingPrompt], libraryFile("mat_a.png"), claimedByMediaKind),
+    "r2v-common-picture-face",
+    'an "image" add must reconnect a "picture" mention',
+);
+assert.equal(
+    [...claimedByMediaKind][0],
+    "r2v-common-picture-face",
+    "the media-kind add claims the picture id, so a second file heals the next chip",
+);
+
+// A file-stable id must not depend on which vocabulary the caller used, or the
+// same file re-added from the Library and from a slot would never agree.
+assert.equal(
+    resolveReferenceAssetId(empty, "image", ["none"], libraryFile("mat_a.png")),
+    resolveReferenceAssetId(empty, "picture", ["none"], libraryFile("mat_a.png")),
+);
+
 // --- the Library actually asks -------------------------------------------------
 
 const modal = fs.readFileSync(new URL("../minimax_material_library_modal.mjs", import.meta.url), "utf8");
 
 assert.match(
     modal,
-    /function refRecord\(kind, materialized, item, index, assetId = ""\)/,
-    "a Library-added reference record must carry an asset id",
+    /const REFERENCE_KIND = \{ image: "picture", audio: "audio", video: "video" \};/,
+    "the Library maps its media kinds onto the schema's reference kinds",
 );
 assert.match(
     modal,
-    /container\[field\]\.push\(refRecord\(kind, mat, entry\.item, slot, assetId\)\)/,
-    "the pushed record carries the id that was resolved for it",
+    /resolveAssetId\(REFERENCE_KIND\[kind\] \|\| kind, fileRef\)/,
+    "the resolver is called with the reference kind, not the media kind",
+);
+assert.match(
+    modal,
+    /function refRecord\(kind, materialized, item, index, assetId = ""\)/,
+    "a Library-added reference record must carry an asset id",
+);
+assert.equal(
+    (modal.match(/name: label,/g) || []).length,
+    3,
+    "picture, audio and video records all carry the material title as their name",
 );
 assert.equal(
     (modal.match(/libraryAssetIdResolver\(editor, state\.target\)/g) || []).length,
@@ -129,6 +173,20 @@ assert.match(
 );
 assert.match(
     modal,
+    /editor\.refreshPromptMentions\?\.\(\);/,
+    "an apply repaints the mention chips instead of leaving the old red id on screen",
+);
+assert.match(
+    modal,
     /resolveReferenceAssetId\(\n\s+editor\.timeline,\n\s+kind,\n\s+prompts,\n\s+fileRef,\n\s+claimed,\n\s+\)/,
     "one Apply shares one `claimed` set across the files it brings in",
+);
+
+// The copied file is named `mat_<id>.<ext>`, which tells the user nothing: the
+// display name has to survive a save/reload to stay useful.
+const timelineSrc = fs.readFileSync(new URL("../minimax_timeline.js", import.meta.url), "utf8");
+assert.equal(
+    (timelineSrc.match(/name: ref\.name \|\| ""/g) || []).length,
+    3,
+    "the payload sanitizers keep the reference display name for all three kinds",
 );
