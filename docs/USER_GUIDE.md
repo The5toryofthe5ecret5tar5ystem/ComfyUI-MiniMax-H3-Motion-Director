@@ -193,6 +193,9 @@ A reference added from the Library behaves exactly like one uploaded through a s
   reference **reconnects** to the mention instead of creating a second, unrelated identity.
 - Otherwise the id is derived from the file, so removing and re-adding the same material keeps
   existing mentions bound to it.
+- A Library reference is labelled with the **material's title**, and the file it points at is a
+  copy in `input/minimax_material_library/`, so the name you see in the panel is the one you
+  gave the material rather than the copy's generated file name.
 
 Adding several pictures in one *Apply* reconnects their mentions in order: the first picture
 heals the first missing picture chip, the second heals the next one. If the Library adds more
