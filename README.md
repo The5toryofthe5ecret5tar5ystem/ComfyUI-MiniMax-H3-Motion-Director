@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.9.0-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.10.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.9.0**
+> Current version: **v1.10.0**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,71 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.10.0 — Chains that leave the footage, a story that becomes segments, and one fps rule
+
+**A Character Replace chain can leave the footage.** Every row in a replace job used
+to be a masked window over the source video, so a chain could only ever cover what the
+footage covered - and a scene that needed one more beat had nowhere to put it. A row
+can now be a **generated row** (`"kind": "generate"`): no source range at all,
+rendered from its own prompt and references, in the middle of the chain or past the
+last frame. The rows still run and export in table order, continuity still arrives
+from the previous segment's Motion Context, and a generated row chooses how it joins
+the one in front of it - **r2v** continues from it as context with its last rendered
+frame as a `<Picture>` anchor, **i2v** locks that frame as the row's literal first
+frame. The timeline normalizer no longer clamps such a row to the source's frame total
+(which deleted exactly the row that sits past the end), the panel labels it **G**
+beside the windows' **W** and keeps the window-only mask controls off it, the coverage
+badge counts windows only with a separate `n generated` badge for the added frames,
+and **Long-form replace** keeps generated rows and puts them back where they were.
+Rows without a kind behave exactly as before.
+
+**Story to segments, in the modes it was written for.** Describe the whole story in a
+few sentences, set how many segments and how long each one is, and one model call
+splits it into a shared world paragraph plus one beat per segment - following the rules
+the rest of the pack enforces (one continuous take per segment, every beat changes
+something, each segment ends on a pose the next can continue from, her look stated
+once). The section lives in the enhancer panel, and the prompt-batch (`t2v` / `i2v` /
+`r2v`) and Long-form modes never offered a way into it: their card and shot lists hide
+the prompt rows the Settings button sits on. The batch and Long-form panels now carry
+their own **Story to segments** button, and a prompt batch is recognised for what it is
+- a list of generation segments - so the missing cards are created for you at that
+length (`durationSec`, so the batch normalizer builds 17k+5 frames at H3's 24 fps).
+Long-form fills the shots you already have, and a hand-laid video or Character Replace
+timeline is still never re-timed.
+
+**One fps rule, and it is the model's.** MiniMax H3 has no fps input: the frame count
+*is* the duration, and the joint video+audio latent is 24 fps. A 30 fps project
+therefore had two rates in play and used the project's wherever *picture* seconds were
+meant - segment audio was trimmed to `frames ÷ 30` (a silent tail under a 5.71 s
+picture), the merged `Export all` clip was stamped 30 fps by the node's `fps` output (a
+20.29 s film played back in 16.23 s while the per-segment clips beside it were written
+at 24), an Audio Drive block was validated and written into the prompt against a
+picture duration 20% short, and the seam diagnostics described the merged track at the
+wrong rate. `lib/h3_rate.py` now owns the one constant and the rule - source maths at
+the project rate (a window's start/end *are* source frames), anything derived from
+rendered frames at the model rate - so the whole chain agrees. **Validate** warns
+`frame_rate_not_24` and says what an off-rate project will do; the honest remainder is
+speed, and 30 fps frames handed to a 24 fps model still play 25% slow, so the
+recommendation is a 24 fps source for the footage whose character is being replaced.
+
+**The enhancer learned where it is, and what it is looking at.** Vision frames now come
+from the segment's own window instead of three moments sampled from the whole file (the
+same three for every window, on a long project), and from four frames on they are
+sampled as **movement pairs** - two near-identical frames a few frames apart - because
+a set of stills cannot show a movement. The action caption describes the action *before*
+the room, after a live run came back with a scene and no action, cut off mid-word. A
+caption that is really the model's own notes ("The user wants... I need to cover...") is
+no longer pasted into the block. **Your own prompt recipes** can live in a file a pack
+update cannot overwrite (`recipes.json`, with a starter for every shape in
+`recipe_templates/`), the panel's `Browse...` loads them, and the dropdown keeps the
+shapes the pack ships. A replace window keeps your own words about the motion - the
+caption cannot see a movement that leaves no difference between frames - and the
+`<Picture N>` variant of the replace block now carries the same "stay on the source
+pose" line the RefMod variant always had, after a live run reached *over* her back
+instead of staying *under* it. Also fixed: a stale cached `.mjs` could kill the
+enhancer panel in silence until the browser cache was cleared by hand (three layers now
+prevent it), and a reference picture in a subfolder was silently dropped.
 
 ### v1.9.0 — One reference pool, one numbering, and RefMod windows that can sit out
 
