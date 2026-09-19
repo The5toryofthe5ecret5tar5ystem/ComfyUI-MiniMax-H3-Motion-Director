@@ -6,9 +6,13 @@ import {
     MAX_REFERENCE_VIDEOS,
     newBatchSegment,
 } from "./minimax_gen_timeline.js";
-import { normalizeImageBatchSegments } from "./minimax_image_batch.js";
+import { batchReferencingPrompts, normalizeImageBatchSegments } from "./minimax_image_batch.js";
 import { newFl2vShot, syncFl2vFromShots } from "./minimax_fl2v.js";
-import { ensureR2vReferenceAssetSchema, ensureReferenceAssetSchema } from "./minimax_reference_assets.mjs?boot=reference_assets_v2";
+import {
+    ensureR2vReferenceAssetSchema,
+    ensureReferenceAssetSchema,
+    resolveReferenceAssetId,
+} from "./minimax_reference_assets.mjs?boot=reference_assets_v2";
 import {
     createMaterialLibraryState,
     ensureMaterialLibraryMode,
@@ -247,11 +251,12 @@ function nextFreeSlot(items, limit) {
     return null;
 }
 
-function refRecord(kind, materialized, item, index) {
+function refRecord(kind, materialized, item, index, assetId = "") {
     const path = inputRelativePath(materialized);
-    if (kind === "image") return { index, imageFile: path, imageB64: "" };
+    if (kind === "image") return { index, assetId, imageFile: path, imageB64: "" };
     if (kind === "audio") return {
         index,
+        assetId,
         audioFile: path,
         fileName: materialized.name || relativeName(item),
         type: "input",
@@ -259,6 +264,7 @@ function refRecord(kind, materialized, item, index) {
     };
     return {
         index,
+        assetId,
         videoFile: path,
         fileName: materialized.name || relativeName(item),
         type: "input",
@@ -270,7 +276,33 @@ function refRecord(kind, materialized, item, index) {
     };
 }
 
-async function appendReferences(container, state, materialize, status) {
+/** Prompts that can mention an asset added to the Library's current target.
+ * The Common target is reachable from every segment prompt, a segment target
+ * only from that segment - exactly the rule local uploads use. */
+function libraryReferencingPrompts(editor, target) {
+    if (target === "common") return batchReferencingPrompts(editor, -1);
+    const index = Number.parseInt(String(target).split(":")[1], 10);
+    return Number.isFinite(index) ? batchReferencingPrompts(editor, index) : [];
+}
+
+/** Ids for Library-added references, on the same terms as a local upload: an
+ * existing "missing asset" mention of that kind reconnects first, otherwise
+ * the id is derived from the materialized file so re-adding a material keeps
+ * its mentions bound. `claimed` is shared by one Apply, so bringing in two
+ * pictures reconnects two chips instead of both claiming the first. */
+function libraryAssetIdResolver(editor, target) {
+    const claimed = new Set();
+    const prompts = libraryReferencingPrompts(editor, target);
+    return (kind, fileRef) => resolveReferenceAssetId(
+        editor.timeline,
+        kind,
+        prompts,
+        fileRef,
+        claimed,
+    );
+}
+
+async function appendReferences(container, state, materialize, status, resolveAssetId = null) {
     container.refs = Array.isArray(container.refs) ? container.refs : [];
     container.refAudios = Array.isArray(container.refAudios) ? container.refAudios : [];
     container.refVideos = Array.isArray(container.refVideos) ? container.refVideos : [];
@@ -289,7 +321,17 @@ async function appendReferences(container, state, materialize, status) {
                 continue;
             }
             const mat = await materialize(entry.item);
-            container[field].push(refRecord(kind, mat, entry.item, slot));
+            const path = inputRelativePath(mat);
+            const name = mat?.name || relativeName(entry.item);
+            const fileRef = kind === "image"
+                ? { imageFile: path, fileName: name }
+                : kind === "audio"
+                    ? { audioFile: path, fileName: name }
+                    : { videoFile: path, fileName: name };
+            const assetId = typeof resolveAssetId === "function"
+                ? resolveAssetId(kind, fileRef)
+                : "";
+            container[field].push(refRecord(kind, mat, entry.item, slot, assetId));
         }
     }
 }
@@ -960,7 +1002,7 @@ export function mountMaterialLibrary(editor, node = null) {
                 refreshEditor(editor, { fl2v: true });
             } else if (state.mode === "r2v") {
                 const target = state.target === "common" ? (editor.timeline.r2vCommon ||= { refs: [], refAudios: [], refVideos: [] }) : editor.timeline.segments[parseInt(String(state.target).split(":")[1], 10)];
-                await appendReferences(target, state, materialize, setStatus);
+                await appendReferences(target, state, materialize, setStatus, libraryAssetIdResolver(editor, state.target));
                 if (state.target !== "common" && state.prompts.length) {
                     const text = state.prompts.map((entry) => entry.item?.content || "").join("\n");
                     target.prompt = applyPromptText(target.prompt, text, state.promptApplyMode);
@@ -971,7 +1013,7 @@ export function mountMaterialLibrary(editor, node = null) {
                 const target = editor.timeline.segments[index];
                 // Current Director RV2V runtime consumes source <Video 1> + Picture/Audio refs.
                 // Library video stays disabled here so Source Video remains local-upload only.
-                await appendReferences(target, { ...state, videos: [] }, materialize, setStatus);
+                await appendReferences(target, { ...state, videos: [] }, materialize, setStatus, libraryAssetIdResolver(editor, state.target));
                 if (state.prompts.length) {
                     const text = state.prompts.map((entry) => entry.item?.content || "").join("\n");
                     target.prompt = applyPromptText(target.prompt, text, state.promptApplyMode);

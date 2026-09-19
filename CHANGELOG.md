@@ -61,6 +61,19 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Fixed
 
+- **A reference added from the Material Library now reconnects to the prompt mention that
+  names it.** Library-added references were appended without an asset id, so the schema
+  minted a fresh random one. Any prompt that already mentioned that asset - a red *missing
+  asset* chip, which is what a prompt copied from another project, a plan import or a
+  removed reference leaves behind - kept pointing at the old id and stayed red, and
+  removing and re-adding the same material never reconnected either. Uploading the very
+  same file through a slot healed it, which is why the two ways of adding one picture
+  behaved differently. The Library now resolves ids through the same rules as a local
+  upload: a dangling mention of that kind is reconnected first (in document order), and
+  otherwise the id is derived from the materialized file. One *Apply* shares one claim set,
+  so bringing in two pictures reconnects two chips instead of both claiming the first and
+  making the schema re-id the loser. `web/js/tests/minimax_library_ref_ids.test.mjs`.
+
 - **A graceful Stop no longer ends in a Face Refine error.** With Face Refine enabled the
   executor's segment-final lifecycle check expected a final state for every *selected*
   segment, so a cooperative Stop after segment 1 (and a Resume run reusing a cached

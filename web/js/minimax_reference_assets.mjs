@@ -95,14 +95,25 @@ export function danglingReferenceTokenIds(promptText, kind, knownIds) {
  * 2. Otherwise derive a stable id from the uploaded file so removing and
  *    re-adding the same file keeps mentions bound.
  * 3. Otherwise return "" so the schema assigns a fresh id.
+ *
+ * `claimed` carries the ids handed out so far by the same add, so one action
+ * that brings in several files can heal several mentions: the second picture
+ * reconnects to the second missing chip instead of both files claiming the
+ * first one (the schema would re-id the loser and leave its chip red again).
  */
-export function resolveReferenceAssetId(timeline, kind, referencingPrompts, fileRef) {
+export function resolveReferenceAssetId(timeline, kind, referencingPrompts, fileRef, claimed = null) {
     const knownIds = timelineKnownAssetIds(timeline, kind);
+    for (const assetId of claimed || []) knownIds.add(String(assetId));
     for (const promptText of referencingPrompts || []) {
         const dangling = danglingReferenceTokenIds(promptText, kind, knownIds);
-        if (dangling.length) return dangling[0];
+        if (dangling.length) {
+            claimed?.add(dangling[0]);
+            return dangling[0];
+        }
     }
-    return fileStableReferenceAssetId(kind, fileRef);
+    const stable = fileStableReferenceAssetId(kind, fileRef);
+    if (stable) claimed?.add(stable);
+    return stable;
 }
 
 function arraysFor(container) {

@@ -779,8 +779,9 @@ function batchAssetTarget(editor, index) {
 /** Prompts that can mention assets held by the target container of `index`.
  * Common pool assets (-1) are referenced by every segment and the global
  * prompt, so the visible (selected) segment is healed first. Local adds only
- * heal their own segment's prompt. */
-function batchReferencingPrompts(editor, index) {
+ * heal their own segment's prompt. The Material Library resolves its ids
+ * through this too, so a Library add and a local upload heal the same text. */
+export function batchReferencingPrompts(editor, index) {
     const texts = [];
     if (Number(index) === -1) {
         const selected = editor.timeline?.segments?.[editor.selectedIndex];

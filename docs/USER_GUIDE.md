@@ -184,6 +184,20 @@ The Material Library is different from Common References. Common References belo
 | 11 | Close | Closes the Library |
 | 12 | X | Closes the dialog |
 
+### Referencing Library assets in prompts
+
+A reference added from the Library behaves exactly like one uploaded through a slot:
+
+- If the prompt already mentions that asset (a red **missing asset** chip, as left behind by a
+  prompt copied from another project, a plan import, or a reference you removed), the added
+  reference **reconnects** to the mention instead of creating a second, unrelated identity.
+- Otherwise the id is derived from the file, so removing and re-adding the same material keeps
+  existing mentions bound to it.
+
+Adding several pictures in one *Apply* reconnects their mentions in order: the first picture
+heals the first missing picture chip, the second heals the next one. If the Library adds more
+pictures than there are missing chips, the extras get their own new identity.
+
 ### Important Mixed Mode rule
 
 The Library targets the **currently selected Segment** and only exposes media that are legal for that mode.
@@ -1042,6 +1056,34 @@ default length used by segments created from then on. It never re-times existing
 and the status line says what it did.
 
 **Reset to detected** puts the baseline numbers back to the detected profile.
+
+#### Practical limit: segment length is what makes a render fit
+
+Frames cost memory twice over - the latent/activation grows with the frame count, and H3's
+attention grows with its *square* - and an attention kernel can need one large contiguous
+allocation on top (SLA's sparse path asks for its workspace in a single block: ~3 GB at the
+lengths below). A real over-budget run looks like this, on a 32 GB card at 1376×768 with two
+full-size references:
+
+```
+SLA kernel failed (engine=comfy_kitchen) ... Allocation on device 0 would exceed allowed memory
+Currently allocated: 22.19 GiB   Requested: 2.99 GiB   Free (CUDA): 63 MiB
+-> SLA falls back to dense, dense needs 1.59 GiB more -> Motion Director ran out of VRAM
+```
+
+So treat the tier numbers as a starting point for a *plain* graph, and halve them when you
+stack attention patches (SLA / Spectrum / ComfyKitchen int8), carry several references, or
+keep references at full resolution (`ref_max_size` = the output long edge means "do not
+scale them down at all"). Measured on the same 32 GB card: 311-frame segments at 1376×768
+with two 1376 px references sit within a few hundred MB of the ceiling, while 175-frame
+segments at the same settings have room to spare.
+
+If a render does hit it, the cheapest order to try is: (1) shorten the long segments, (2)
+lower `ref_max_size`, (3) lower the resolution, (4) free GPU headroom
+(`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` and a larger `--reserve-vram` help a
+single large workspace allocation fit), and only then (5) turn SLA off for the long
+segments - its fallback to dense attention is the *more* expensive path, which is why the
+error arrives in two stages.
 
 ### Run & UI
 
