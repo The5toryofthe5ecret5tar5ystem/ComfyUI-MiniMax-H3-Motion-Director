@@ -984,3 +984,154 @@ readout can disagree with what gets rendered. Those jobs have no source footage 
 step with, so **set the project frame rate to 24** for them: the durations you type then
 mean what they say.
 
+## 27. Settings: machine profile, baselines, export, cache, diagnostics
+
+The **设置 / Settings** gear sits at the right end of the Director's top bar (next to the
+time bounds). It is *app-wide*: one settings file per ComfyUI user, shared by every
+Director node and every workflow - not a per-project widget. The prompt **Enhancer**'s own
+button next to the prompt box is now labelled **扩写设置 / Enhancer…** so the two can never
+be confused.
+
+### Machine
+
+Everything here is **detected, not typed**:
+
+| Row | Meaning |
+| --- | --- |
+| GPU | device name and compute capability |
+| VRAM | total and *free right now* |
+| Profile | which baseline tier the numbers came from (`Compact` ≤12 GB, `Mid` ≤20 GB, `Large` ≤32 GB, `Workstation` 33 GB+) |
+| Pack / ComfyUI, Runtime | pack version, ComfyUI version, Python / torch / CUDA |
+| Attention backends | which of `sdpa`, `sage`, `comfy_kitchen` (int8 attention), `xformers`, `flash_attn`, `triton` actually import *on this machine* |
+
+Two things are worth knowing:
+
+- **Free VRAM matters as much as total.** When something else holds most of the card (an
+  Ollama server holding 16 GB of a 24 GB GPU is the classic case), the recommended profile
+  drops one tier and says why. *Detect again* re-reads it.
+- **"Installed" and "usable" are different questions.** SageAttention is compiled against
+  one torch ABI and ComfyKitchen's int8 kernels against specific SM versions, so a backend
+  that imports on one machine can fail on another. The backend table is the honest answer,
+  and the panel then compares it with the workflow: if a node in the *current* graph asks
+  for a backend this machine cannot run (`attention_backend`, `dense_backend`, `engine`
+  widgets), you get a warning naming the node *before* a render finds out - instead of a
+  CUDA crash thirty minutes in.
+
+*Manual override* (device index, VRAM override) exists for a multi-GPU box or a driver
+that reads wrong. Leave the override at 0 unless you know better than the driver.
+
+### Baselines
+
+Starting points **for new content only**: a new segment, a new card, a new long-form shot.
+Existing segments keep their lengths and existing projects keep their size - changing them
+would invalidate the segment caches and the Resume Done marks, so the pack never does it
+behind your back.
+
+| Setting | What it starts |
+| --- | --- |
+| Aspect ratio, Megapixels | the canvas for a new project (fixed W×H overrides the pair; `0` + `0` means "derive") |
+| Default segment frames | how long a new segment is (on H3's 17k+5 grid; the seconds readout shows what that means) |
+| Max frames per segment | the length you get warned above (frames drive both time and VRAM) |
+| Reference image long edge | how far reference images are downscaled (`0` = never) |
+| Segment guidance / overlap | continuity defaults for new timelines |
+| Clear VRAM between segments, Export mode | run defaults |
+
+**Apply to this project** writes those values through the panel's own output controls:
+canvas, export mode, continuity, `clear_vram_between_segments`, `verbose_logging`, and the
+default length used by segments created from then on. It never re-times existing segments,
+and the status line says what it did.
+
+**Reset to detected** puts the baseline numbers back to the detected profile.
+
+### Run & UI
+
+Render behaviour and interface preferences that have no per-project home: auto-save the
+workflow after each segment (Resume needs a saved workflow to keep its Done marks), keep
+models resident between segments, verbose logging, default export mode, language, live
+preview, preview audio, and the cache warning size.
+
+The toolbar's language button and this setting are the same value: whichever you use, the
+other follows.
+
+### Export: the workflow inside the video
+
+ComfyUI writes the **workflow** and **prompt** tags into every video its own `Save Video`
+node produces (unless it was launched with `--disable-metadata`). That is how dropping the
+file back onto the canvas restores the graph, and for this pack it restores the whole
+project - the timeline, every segment prompt, the references and the sampling settings all
+live in the workflow.
+
+Those same two tags also carry your prompt text, model and LoRA names and local paths, so
+they travel with anything you share. The **Export** tab decides what happens:
+
+| Choice | Behaviour |
+| --- | --- |
+| **Auto** (default) | follow ComfyUI: embed unless `--disable-metadata` is set |
+| **Always embed** | embed even when ComfyUI was launched with that flag |
+| **Never embed** | strip both tags when saving |
+
+The row under it says what is in effect right now and why, so a missing tag is explainable
+instead of mysterious. The choice applies to **this pack's save route** (the Results page's
+save button and the auto-save); a save node in your own graph, such as the core
+`Save Video`, decides for itself.
+
+**Strip metadata from an existing file** cleans a file that was written before you chose:
+enter a path relative to ComfyUI's output folder (e.g.
+`mm-director/2026-09-19/143710_00001_.mp4`) and it writes a `_clean` copy with the streams
+copied, not re-encoded. Only files inside the output folder can be cleaned.
+
+Turning the tags off costs nothing you cannot get back: a Director project is also
+recoverable from its exported plan / `.h3proj.json` and from the segment caches.
+
+### Cache
+
+Every cache the pack writes, with real sizes, per project node:
+
+| Kind | What it holds |
+| --- | --- |
+| Segment caches | rendered frames, per-segment audio and the run manifest (`minimax_seg_cache`) |
+| Motion context | the Motion Context and AV latent caches (`minimax_motion_context_cache`) |
+| First-pass | first-pass latent caches (`minimax_first_pass_cache`) |
+
+Rows are sorted biggest first and show the run state (`rendering` / `stopped` / `done` /
+`idle`) plus how many segments are marked done. **Clear** deletes one project's cache,
+**Clear <kind>** deletes all of them; both need a second click and refuse while that
+project looks like it is rendering right now. Deleting a segment cache only costs a
+re-render - it never touches your rendered videos, which live in the output directory.
+
+This is the place to look when a long chain has eaten tens of GB of disk (a 1400×800
+project can hold ~4 GB *per segment*).
+
+### Diagnostics
+
+**Copy** or **Download JSON** gathers the pack version, ComfyUI/Python/torch/CUDA
+versions, the detected machine and backend probes, the stored settings, cache totals and
+run states, the current project's shape, the workflow-backend warnings, and the last run
+report. Paste it into a bug report instead of a screenshot of the console.
+
+### Where the file lives
+
+The settings live in one JSON document under ComfyUI's user directory
+(`.../user/minimax_h3_motion_director/settings.json`), next to the Director **Presets**.
+It is written atomically, and a corrupt file is reported rather than silently reset - so
+"my settings vanished" cannot happen quietly. Deleting the file restores the detected
+defaults.
+
+**Presets** and **Settings** are different things on purpose: a preset is a settings
+*package* you apply to one project (sampling, continuity, output), while Settings are the
+machine-level defaults every new project starts from.
+
+#### Keeping two machines in step
+
+The same project rendered on a 24 GB card and a 32 GB card wants different starting
+points, and their attention backends differ. Nothing in the workflow file has to carry
+that: each machine keeps its own `settings.json`, the project keeps its own numbers, and
+the panel tells you when a workflow asks for a backend the machine cannot run.
+
+#### What Settings never does
+
+- It never rewrites an existing project (only *Apply to this project* touches one, and it
+  says so).
+- It never changes `seed`, prompts, segments or task type.
+- It never edits the node's wiring - backends are still selected by the nodes in your
+  graph; Settings only tells you whether they will run here.

@@ -307,6 +307,10 @@ export function normalizePostprocessConfig(raw) {
     result.save.codec = String(result.save.codec || "auto").trim().toLowerCase().slice(0, 64) || "auto";
     result.save.encoding = result.save.encoding === "re-encode" ? "re-encode" : "auto";
     result.save.crf = Math.max(0, Math.min(51, Math.round(Number(result.save.crf) || 23)));
+    // auto/always/never: whether the saved video carries the workflow + prompt tags.
+    // Mirrors director/video_metadata.py, which resolves the effective policy.
+    const embed = String(result.save.embed_metadata || "auto").trim().toLowerCase();
+    result.save.embed_metadata = ["auto", "always", "never"].includes(embed) ? embed : "auto";
     result.version = 11;
     return result;
 }

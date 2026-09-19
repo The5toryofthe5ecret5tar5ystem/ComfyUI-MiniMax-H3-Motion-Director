@@ -298,6 +298,45 @@ export function defaultFrameCount(taskKey) {
     return durationToMiniMaxFrames(defaultDurationSec(taskKey), 24);
 }
 
+let _baselineProvider = null;
+
+/**
+ * Frame count for a segment that is being *created* right now.
+ *
+ * The app-wide Setup baselines (machine profile → segment length) plug in through
+ * `setBaselineFrameProvider`; without a provider this is exactly `defaultFrameCount`,
+ * which keeps every pure module and test independent of stored settings. Only
+ * creation paths use this - normalizing an existing segment must never re-time it.
+ */
+export function baselineFrameCount(taskKey) {
+    const fallback = defaultFrameCount(taskKey);
+    if (typeof _baselineProvider !== "function") return fallback;
+    try {
+        const value = _baselineProvider(taskKey, {
+            fallback,
+            minFrames: minFrameCount(taskKey),
+            maxFrames: MAX_GEN_FRAMES,
+        });
+        const frames = Math.round(Number(value));
+        if (!Number.isFinite(frames) || frames <= 0) return fallback;
+        const floor = minFrameCount(taskKey);
+        return Math.min(MAX_GEN_FRAMES, Math.max(floor, alignMiniMaxFrameCount(frames)));
+    } catch {
+        return fallback;
+    }
+}
+
+/** Duration (seconds) that produces the baseline frames, for duration-based editors. */
+export function baselineDurationSec(taskKey) {
+    if (isImageBatchTask(taskKey)) return 0;
+    return preferredDurationSecFromFrames(baselineFrameCount(taskKey), 24);
+}
+
+/** Install (or clear) the settings-driven baseline provider. */
+export function setBaselineFrameProvider(provider) {
+    _baselineProvider = typeof provider === "function" ? provider : null;
+}
+
 export function minFrameCount(taskKey) {
     if (isImageBatchTask(taskKey)) return 1;
     if (isVideoBatchTask(taskKey) || FL2V_TASKS.has(taskKey)) return 5;

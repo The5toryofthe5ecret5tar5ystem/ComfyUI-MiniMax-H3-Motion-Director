@@ -22,11 +22,15 @@ from .audio_refine_config import (
     normalize_audio_refine,
 )
 from .postprocess_config_legacy import *  # noqa: F401,F403
+from .video_metadata import normalize_embed_policy
 
 POSTPROCESS_CONFIG_VERSION = 11
 DEFAULT_POSTPROCESS_CONFIG = copy.deepcopy(_legacy.DEFAULT_POSTPROCESS_CONFIG)
 DEFAULT_POSTPROCESS_CONFIG["version"] = POSTPROCESS_CONFIG_VERSION
 DEFAULT_POSTPROCESS_CONFIG["audio_refine"] = copy.deepcopy(DEFAULT_AUDIO_REFINE)
+# auto/always/never: whether a saved video carries the workflow + prompt tags.
+# Kept out of the legacy normalizer so the v9/v10 documents stay byte-compatible.
+DEFAULT_POSTPROCESS_CONFIG["save"]["embed_metadata"] = "auto"
 
 
 def _raw_section(raw: Any, *keys: str) -> Any:
@@ -50,6 +54,11 @@ def normalize_postprocess_config(raw: Any) -> dict[str, Any]:
     result["audio_refine"] = normalize_audio_refine(
         _raw_section(raw, "audio_refine", "audioRefine")
     )
+    save_raw = _raw_section(raw, "save", "video_save") or {}
+    if isinstance(save_raw, dict):
+        result["save"]["embed_metadata"] = normalize_embed_policy(save_raw.get("embed_metadata"))
+    else:
+        result["save"]["embed_metadata"] = normalize_embed_policy(None)
     result["version"] = POSTPROCESS_CONFIG_VERSION
     return result
 

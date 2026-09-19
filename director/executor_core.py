@@ -164,6 +164,32 @@ def _settle_resume_manifest(node_id: str | None) -> None:
         _legacy.log.debug("Resume manifest settle skipped: %s", exc)
 
 
+def _shortened_run_reason(plan, node_id: str | None) -> str | None:
+    """Why a run may legitimately end with fewer segment-final states than selected.
+
+    Two engine paths hand back a prefix instead of the whole run selection:
+
+    * a cooperative Stop leaves the segment loop after the last finished
+      segment (the partial export path reports what was produced);
+    * a Resume run reuses the cached prefix without sampling it.
+
+    Both skip ``trim_segment_av`` for the segments they did not sample, so the
+    lifecycle check owns their shortfall and must not read it as a divergence.
+    Everything else (a crash, a missing hook, a duplicated trim) still fails.
+    """
+    if bool(getattr(plan, "resume", False)):
+        return "resume"
+    try:
+        from . import resume_state
+
+        state = str(resume_state.resume_status(node_id).get("state") or "")
+    except Exception as exc:
+        # Bookkeeping must never turn a render into a lifecycle error.
+        _legacy.log.debug("Face Refine stop-state read skipped: %s", exc)
+        return None
+    return "stop" if state == "stopped" else None
+
+
 def execute_director_plan_core(
     plan,
     *,
@@ -469,9 +495,25 @@ def execute_director_plan_core(
         combined, segment_outputs, segment_audios, report = runner(plan, **call_kwargs)
     finally:
         _settle_resume_manifest(node_id)
-    if pending_seam is not None or trim_cursor != len(generated_segments):
+    if trim_cursor > len(generated_segments):
+        # More segment-final states than the run selection asked for: the
+        # preserved executor called trim_segment_av outside its per-segment
+        # loop, so the segment/slot bookkeeping can no longer be trusted.
         raise RuntimeError(
-            "Face Refine lifecycle error: final segment state was not completed for every generated segment."
+            "Face Refine lifecycle error: segment/trim call count diverged."
+        )
+    if pending_seam is not None or trim_cursor != len(generated_segments):
+        reason = _shortened_run_reason(plan, node_id)
+        if reason is None:
+            raise RuntimeError(
+                "Face Refine lifecycle error: final segment state was not completed for every generated segment."
+            )
+        _legacy.log.info(
+            "[Face Refine] %s run: %d of %d selected segment(s) reached their final state; "
+            "the finished prefix is kept.",
+            "Stopped" if reason == "stop" else "Resumed",
+            trim_cursor,
+            len(generated_segments),
         )
     report = _append_segment_final_report(report, face_outcomes, context_timings)
     return combined, segment_outputs, segment_audios, report

@@ -55,6 +55,7 @@ import {
     CUSTOM_ASPECT_RATIO,
     DEFAULT_ASPECT_RATIO,
     DEFAULT_MEGAPIXELS,
+    baselineFrameCount,
     defaultDurationSec,
     defaultFrameCount,
     durationToClampedMiniMaxFrames,
@@ -83,6 +84,7 @@ import {
     RESOLUTION_ASPECTS,
     resolutionFromSelector,
     resolveTaskKey,
+    setBaselineFrameProvider,
     snapResolutionDim,
     sumFrameCounts,
     taskUsesReferenceAudios,
@@ -132,6 +134,12 @@ import {
     updateFl2vToolbarBtns,
 } from "./minimax_fl2v.js";
 import { mountPromptImageMentions } from "./minimax_prompt_mentions.js?boot=director_ui_v3";
+import {
+    aspectLabelFromRatio,
+    collectBackendHints,
+    resolveBaselines,
+} from "./minimax_motion_settings.mjs?boot=setup_v1";
+import { mountSettingsOverlay } from "./minimax_settings_ui.mjs?boot=setup_v1";
 import {
     createTimelineShortcutHandler,
 } from "./minimax_prompt_mentions_core.mjs?boot=director_ui_v2";
@@ -187,6 +195,7 @@ import {
     aspectDisplayLabel,
     getLocale,
     onLocaleChange,
+    setLocale,
     t,
     taskDisplayLabel,
     toggleLocale,
@@ -251,6 +260,56 @@ const PREVIEW_AUDIO_STORAGE_KEY = "mmx_director_preview_audio";
 const PREVIEW_VOLUME_STORAGE_KEY = "mmx_director_preview_volume";
 const PREVIEW_VOLUME_LAST_STORAGE_KEY = "mmx_director_preview_volume_last";
 const PREVIEW_VOLUME_DEFAULT = 0.8;
+
+/* ---------------------------------------------------------------------------
+ * App-wide Setup settings (machine profile, baselines, run behaviour).
+ *
+ * Fetched once per page and shared by every Director node: they are a property of
+ * the machine, not of the node. The frame-count provider is the only thing that
+ * reaches *creation* paths; everything else is applied by the Setup overlay's
+ * "Apply to this project" button, because rewriting an existing project would
+ * invalidate its caches.
+ * ------------------------------------------------------------------------- */
+
+const APP_SETTINGS_URL = "/minimax/motion-director/settings";
+let appSettingsCache = null;
+let appSettingsPromise = null;
+
+/** Last known settings (or null before the first successful fetch). */
+export function getAppSettings() {
+    return appSettingsCache;
+}
+
+async function loadAppSettings({ force = false } = {}) {
+    if (appSettingsCache && !force) return appSettingsCache;
+    if (appSettingsPromise && !force) return appSettingsPromise;
+    appSettingsPromise = (async () => {
+        try {
+            const response = await api.fetchApi(APP_SETTINGS_URL);
+            const payload = await response.json();
+            if (!response.ok || payload?.error) throw new Error(payload?.error || response.status);
+            appSettingsCache = payload.settings || null;
+            return appSettingsCache;
+        } catch {
+            /* Offline or older install: the panel keeps the built-in defaults. */
+            return appSettingsCache;
+        } finally {
+            appSettingsPromise = null;
+        }
+    })();
+    return appSettingsPromise;
+}
+
+function publishAppSettings(settings) {
+    appSettingsCache = settings || appSettingsCache;
+}
+
+/** Segment frames for a *newly created* segment, from the stored baselines. */
+function baselineFramesForTask(taskKey, { fallback, minFrames, maxFrames }) {
+    const baselines = appSettingsCache?.baselines;
+    if (!baselines) return fallback;
+    return baselineFrameCount(baselines, { minFrames, maxFrames });
+}
 
 /** Segment continuity is opt-in; default off unless explicitly true in output. */
 function isContinuityEnabled(output) {
@@ -4694,6 +4753,11 @@ class MiniMaxH3MotionDirectorEditor {
         this.bindEvents();
         this._unsubLocale = onLocaleChange(() => this.applyLocale());
         this.applyLocale();
+        // App-wide settings: install the frame-count provider immediately (it falls
+        // back to the built-in defaults) and pull the stored values in the background,
+        // so a segment created right after opening the node already sees them.
+        this._onAppSettingsChanged(null);
+        void this._loadAppSettings();
         this._directorMode = getDirectorMode(this.taskTypeWidget?.value);
         if (this._directorMode === "mixed") {
             // Mixed owns editor.mixedTimeline; legacy normalizers intentionally do nothing here.
@@ -5358,6 +5422,7 @@ class MiniMaxH3MotionDirectorEditor {
                   </div>
                 </div>
                 <div class="bd-right">
+                    <button type="button" class="bd-icon-btn" data-a="setup" data-i18n-title="tooltip.setup" data-i18n="panel.setup">设置</button>
                     <div class="bd-bounds" data-r="bounds">起点: 0.00 | 终点: -</div>
                     <div class="bd-timecode" data-r="timecode">0.00s</div>
                 </div>
@@ -8220,7 +8285,9 @@ class MiniMaxH3MotionDirectorEditor {
     ensureGenTimeline() {
         const key = this.getTaskKey();
         this.timeline.gen = this.timeline.gen || {};
-        const defFc = defaultFrameCount(key);
+        // Setup baselines seed *new* timelines; a segment that already has a length
+        // keeps it (see normalizeGenSegments), so this cannot re-time a project.
+        const defFc = baselineFrameCount(key);
         if (!this.timeline.segments?.length || !sumFrameCounts(this.timeline.segments)) {
             this.timeline.segments = [{
                 id: uid(), start: 0, length: defFc, frameCount: defFc,
@@ -8510,7 +8577,7 @@ class MiniMaxH3MotionDirectorEditor {
                     this._clearLiveRunSelection();
                 }
                 const key = this.getTaskKey();
-                const defFc = defaultFrameCount(key);
+                const defFc = baselineFrameCount(key);
                 const keepPrompt = this.timeline.global?.prompt || "";
                 this.timeline.segments = [{
                     id: uid(),
@@ -10435,6 +10502,7 @@ class MiniMaxH3MotionDirectorEditor {
         // silently overwriting every segment prompt.
         forward('[data-a="enhance-all"]', () => { void this._enhanceAllPrompts(); });
         forward('[data-a="enhance-settings"]', () => { void this._toggleEnhanceSettings(); });
+        forward('[data-a="setup"]', () => { this._openSetup(); });
     }
 
     async _ensureEnhancerPanel() {
@@ -10543,6 +10611,134 @@ class MiniMaxH3MotionDirectorEditor {
         // Opening the settings is also when the model list matters, so refresh it
         // rather than showing a stale catalogue.
         if (!overlay.hidden) void pe.fetchModels(true);
+    }
+
+    /* -----------------------------------------------------------------------
+     * Setup overlay: machine profile, baselines, cache, diagnostics.
+     * --------------------------------------------------------------------- */
+
+    _openSetup() {
+        if (!this._setupOverlay) {
+            this._setupOverlay = mountSettingsOverlay({
+                host: this.root,
+                api,
+                getGraphNodes: () => this._setupNodeSummaries(),
+                getProjectInfo: () => this._setupProjectInfo(),
+                getLastReport: () => this._lastRunReport || "",
+                applyBaselines: (resolved, settings) => this._applySetupBaselines(resolved, settings),
+                onSettingsChanged: (settings) => this._onAppSettingsChanged(settings),
+            });
+        }
+        this._setupOverlay.open();
+    }
+
+    /** Node summaries for the backend check: id, class and every widget value. */
+    _setupNodeSummaries() {
+        const graph = app.graph ?? app.canvas?.graph;
+        const summaries = [];
+        for (const node of graph?._nodes ?? graph?.nodes ?? []) {
+            const widgets = {};
+            for (const widget of node?.widgets || []) {
+                const name = widget?.name;
+                if (name) widgets[name] = widget.value;
+            }
+            summaries.push({
+                id: node?.id,
+                type: node?.comfyClass || node?.type || "",
+                widgets,
+            });
+        }
+        return summaries;
+    }
+
+    _setupProjectInfo() {
+        const output = this.timeline?.output || {};
+        return {
+            taskType: this.getTaskKey?.() || "",
+            width: Number(this.widthWidget?.value || output.width || 0),
+            height: Number(this.heightWidget?.value || output.height || 0),
+            segmentCount: (this.timeline?.segments || []).length,
+            totalFrames: Number(this.timeline?.totalFrames || 0),
+            frameRate: Number(this.timeline?.frameRate || 24),
+        };
+    }
+
+    async _loadAppSettings({ force = false } = {}) {
+        const settings = await loadAppSettings({ force });
+        this._onAppSettingsChanged(settings, { applyLocale: true });
+    }
+
+    /** Keep the shared cache and the new-segment baseline provider in sync. */
+    _onAppSettingsChanged(settings, { applyLocale = false } = {}) {
+        if (settings) publishAppSettings(settings);
+        setBaselineFrameProvider(baselineFramesForTask);
+        if (!this._unsubLocaleSettings) {
+            // The toolbar's language button writes the app-wide setting too, so the
+            // stored locale and the live one cannot drift apart.
+            this._unsubLocaleSettings = onLocaleChange((lang) => {
+                const stored = appSettingsCache?.app?.locale;
+                if (!appSettingsCache || stored === lang) return;
+                appSettingsCache.app = { ...(appSettingsCache.app || {}), locale: lang };
+                void api.fetchApi(APP_SETTINGS_URL, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ settings: { app: { locale: lang } } }),
+                }).catch(() => { /* offline: the choice still applies to this browser */ });
+            });
+        }
+        const locale = appSettingsCache?.app?.locale;
+        if (applyLocale && (locale === "zh" || locale === "en")) {
+            // The stored choice wins over the browser default; the toolbar button
+            // writes it back, so the two cannot drift.
+            try {
+                setLocale(locale);
+            } catch {
+                /* i18n unavailable: keep the browser default */
+            }
+        }
+    }
+
+    /**
+     * Apply the stored baselines to *this* project: output size, export mode,
+     * continuity and the default length for segments created from now on.
+     *
+     * Everything goes through the panel's own output-field handler, because writing
+     * `timeline.output` directly is overwritten by the next commit(). Existing
+     * segments keep their lengths - re-timing them would invalidate their caches.
+     */
+    _applySetupBaselines(resolved, settings) {
+        const output = this.timeline.output || (this.timeline.output = {});
+        let applied = null;
+        if (resolved.width >= 32 && resolved.height >= 32) {
+            // Explicit fixed dimensions win over the ratio+MP pair.
+            applied = this.applyCustomResolution(resolved.width, resolved.height);
+        } else {
+            applied = this.applyResolutionSelector(
+                aspectLabelFromRatio(resolved.aspectRatio),
+                resolved.megapixels,
+            );
+        }
+        if (resolved.refMaxSize > 0 && this.refMaxWidget) {
+            this.refMaxWidget.value = resolved.refMaxSize;
+        }
+        if (this.outExportMode) this.onOutputField("exportMode", resolved.exportMode);
+        if (this.segmentContinuityCb) this.onOutputField("continuityEnabled", resolved.continuity);
+        if (this.segmentContinuityOverlap) {
+            this.onOutputField("continuityOverlapFrames", resolved.continuityOverlapFrames);
+        }
+        const clearVram = this.widget("clear_vram_between_segments");
+        if (clearVram) clearVram.value = !!resolved.clearVramBetweenSegments;
+        const verbose = this.widget("verbose_logging");
+        if (verbose && settings?.run) verbose.value = !!settings.run.verbose_logging;
+
+        this.timeline.gen = this.timeline.gen || {};
+        this.timeline.gen.defaultFrameCount = resolved.segmentFrames;
+        this.commit(false, { syncTimeline: true });
+        return {
+            width: applied?.width ?? output.width ?? resolved.width,
+            height: applied?.height ?? output.height ?? resolved.height,
+            frames: resolved.segmentFrames,
+        };
     }
 
     /**
@@ -13491,7 +13687,7 @@ class MiniMaxH3MotionDirectorEditor {
             );
         }
         if (this.isGenMode() && this.isGlobalMode()) {
-            const defFc = this.timeline.gen?.defaultFrameCount ?? defaultFrameCount(this.getTaskKey());
+            const defFc = this.timeline.gen?.defaultFrameCount ?? baselineFrameCount(this.getTaskKey());
             if (this.genDefaultFc) this.genDefaultFc.value = defFc;
         }
 
@@ -16240,7 +16436,12 @@ app.registerExtension({
         });
 
         api.addEventListener("minimax_motion_director_report", ({ detail }) => {
-            findDirectorNode(detail?.node_id)?._minimaxEditor?.outputUi?.setReport?.(detail?.report || "");
+            const editor = findDirectorNode(detail?.node_id)?._minimaxEditor;
+            if (!editor) return;
+            // Kept on the editor so the Setup panel's diagnostics can attach the last
+            // run report without reaching into the output page's DOM.
+            editor._lastRunReport = String(detail?.report || "");
+            editor.outputUi?.setReport?.(detail?.report || "");
         });
 
         api.addEventListener("minimax_motion_director_audio", ({ detail }) => {

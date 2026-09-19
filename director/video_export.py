@@ -196,18 +196,28 @@ def save_final_video(record: FinalVideoRecord, raw_config: Any) -> dict[str, Any
 
     metadata = None
     try:
-        from comfy.cli_args import args
+        from .video_metadata import metadata_for
 
-        if not args.disable_metadata:
-            metadata = dict(record.extra_pnginfo or {})
-            if record.prompt is not None:
-                metadata["prompt"] = record.prompt
-            metadata = metadata or None
-    except Exception:
-        metadata = dict(record.extra_pnginfo or {})
-        if record.prompt is not None:
-            metadata["prompt"] = record.prompt
-        metadata = metadata or None
+        # The per-save choice wins, then the app-wide setting, then ComfyUI's own
+        # --disable-metadata flag (see director/video_metadata.py).
+        metadata = metadata_for(
+            record.extra_pnginfo,
+            record.prompt,
+            config.get("embed_metadata"),
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("Metadata policy fell back to ComfyUI behaviour: %s", exc)
+        metadata = None
+        try:
+            from comfy.cli_args import args
+
+            if not args.disable_metadata:
+                metadata = dict(record.extra_pnginfo or {})
+                if record.prompt is not None:
+                    metadata["prompt"] = record.prompt
+                metadata = metadata or None
+        except Exception:
+            metadata = None
 
     crf = config["crf"] if config["encoding"] == "re-encode" else None
     record.video.save_to(

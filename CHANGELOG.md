@@ -3,6 +3,75 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## Unreleased
+
+### Added
+
+- **A Settings panel for the whole pack.** A gear in the Director's top bar opens an
+  app-wide settings overlay (one JSON document per ComfyUI user, shared by every node and
+  every workflow - not a per-project widget group):
+  - **Machine** - GPU, total *and free* VRAM, compute capability, pack/ComfyUI/Python/torch
+    versions, and which attention backends actually import here (`sdpa`, `sage`,
+    `comfy_kitchen` int8, `xformers`, `flash_attn`, `triton`). Nothing is typed: when
+    something else is holding the card the profile drops one tier and says why, and a
+    manual device/VRAM override exists for multi-GPU or a wrong driver reading.
+  - **Backend awareness** - the panel compares the machine with the *current graph*: a node
+    that asks for a backend this machine cannot run (`attention_backend`, `dense_backend`,
+    `engine` widget values) is reported by node id before a render discovers it, instead of
+    a CUDA-level crash deep into sampling.
+  - **Baselines for new content** - canvas (aspect + megapixels, or fixed W×H), default
+    segment frames on H3's 17k+5 grid, max frames per segment, reference long edge,
+    continuity and clear-VRAM defaults. They seed **new** segments, cards and long-form
+    shots only; a project is changed only by the explicit **Apply to this project** button,
+    which goes through the panel's own output controls (a direct `timeline.output` write is
+    overwritten by the next commit). Rewriting existing segments would invalidate segment
+    caches and the Resume Done marks, so the pack never does it silently.
+  - **Run & UI** - auto-save the workflow after each segment, keep models resident, verbose
+    logging, default export mode, language, live preview, preview audio, cache warning
+    size. The toolbar language button and the stored locale are the same value.
+  - **Cache manager** - every cache the pack writes, with real sizes per project node and
+    per kind (segments / motion context / first-pass), biggest first, with run state and
+    Done counts. Clear one project or one kind, two-click confirmed, refused while that
+    project looks like it is rendering. Deleting a cache only costs a re-render.
+  - **Diagnostics** - one click copies or downloads the versions, machine, backend probes,
+    settings, cache totals, run states, current project shape, workflow-backend warnings and
+    the last run report, so a bug report is a single blob instead of a console screenshot.
+  - New module: `web/js/minimax_motion_settings.mjs` (pure rules, unit-tested),
+    `web/js/minimax_settings_ui.mjs` (the overlay), `lib/machine_profile.py` (detection and
+    tier baselines), `director/motion_settings.py` (store + validation),
+    `director/settings_routes.py` (routes). All baselines are pre-snapped to H3's 32 px
+    canvas multiple and 17k+5 frame grid, and a baseline can never produce an unrenderable
+    segment (the task's own floor and `MAX_GEN_FRAMES` still win).
+- **The prompt Enhancer's button is now "Enhancer…"** (`扩写设置`) instead of "Settings",
+  so it cannot be confused with the app-wide Settings gear. Its tooltip says the scope is
+  this project.
+- **You choose whether exported videos carry the workflow.** ComfyUI's `Save Video` writes
+  the `workflow` and `prompt` tags into the container, which is what lets a finished mp4 be
+  dragged back onto the canvas to restore the graph - for this pack that means the whole
+  project (timeline, per-segment prompts, references, sampling). The same tags also carry
+  prompt text, model/LoRA names and local paths into every copy, so Settings gained an
+  **Export** tab: `Auto` (follow ComfyUI, the default), `Always embed`, `Never embed`, with
+  the effective state and the `--disable-metadata` flag spelled out. The Results page's
+  save card has the same three-way choice per save, and the tab can also **strip metadata
+  from an already saved file** (ffmpeg remux, streams copied, `_clean` suffix, restricted
+  to ComfyUI's output folder). New modules: `director/video_metadata.py` (policy +
+  stripping). Each command runs with `-nostdin` and a DEVNULL stdin: ffmpeg that inherits a
+  terminal stops on SIGTTIN and then ignores the timeout's SIGTERM, which turned an
+  unattended strip into a permanent hang.
+
+### Fixed
+
+- **A graceful Stop no longer ends in a Face Refine error.** With Face Refine enabled the
+  executor's segment-final lifecycle check expected a final state for every *selected*
+  segment, so a cooperative Stop after segment 1 (and a Resume run reusing a cached
+  prefix) failed with `Face Refine lifecycle error: final segment state was not completed
+  for every generated segment` right after Assembly - throwing away the partial export the
+  Stop exists to keep. The shortfall is now attributed: a Stop (`run_state == "stopped"`)
+  or a Resume (`plan.resume`) logs `[Face Refine] Stopped run: N of M segment(s) reached
+  their final state; the finished prefix is kept.`, while an unexplained shortfall still
+  raises and more trims than selected segments is still `segment/trim call count diverged`.
+  Tests in `tests/test_executor_face_refine_handoff_contract.py`.
+
 ## v1.10.0 — 2026-09-18
 
 ### Added

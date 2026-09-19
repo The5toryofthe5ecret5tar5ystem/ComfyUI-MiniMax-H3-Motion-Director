@@ -46,3 +46,43 @@ def test_runtime_validation_happens_before_legacy_generation_and_hooks_are_per_c
     assert "function_globals = dict(_legacy.execute_director_plan_core.__globals__)" in source
     assert "types.FunctionType(" in source
     assert "_legacy.trim_segment_av =" not in source
+
+
+def test_stopped_and_resumed_runs_keep_their_finished_prefix():
+    """A cooperative Stop and a Resume both end with fewer segment-final states.
+
+    Both skip ``trim_segment_av`` for the segments they did not sample, which
+    used to turn the whole partial render into a lifecycle error after the work
+    was already done. The shortfall is tolerated, the divergence stays fatal.
+    """
+    source = _source()
+    check = source[source.index("if trim_cursor > len(generated_segments):"):]
+    diverged_at = check.index("segment/trim call count diverged")
+    reason_at = check.index("_shortened_run_reason(plan, node_id)")
+    raise_at = check.index("final segment state was not completed")
+    assert diverged_at < reason_at < raise_at
+    assert "if reason is None:" in check
+
+    helper = source[source.index("def _shortened_run_reason"):source.index("def execute_director_plan_core")]
+    assert 'getattr(plan, "resume", False)' in helper
+    assert "resume_state.resume_status(node_id)" in helper
+    assert 'return "stop" if state == "stopped" else None' in helper
+
+
+def test_shortened_run_reason_reads_the_resume_flag_and_the_run_state(monkeypatch):
+    from mmx_pkg.director import executor_core, resume_state
+
+    plan = type("Plan", (), {"resume": False})()
+
+    monkeypatch.setattr(resume_state, "resume_status", lambda node_id: {"state": "stopped"})
+    assert executor_core._shortened_run_reason(plan, "dir") == "stop"
+
+    monkeypatch.setattr(resume_state, "resume_status", lambda node_id: {"state": "done"})
+    assert executor_core._shortened_run_reason(plan, "dir") is None
+
+    monkeypatch.setattr(resume_state, "resume_status", lambda node_id: {"state": "idle"})
+    assert executor_core._shortened_run_reason(plan, None) is None
+
+    plan.resume = True
+    assert executor_core._shortened_run_reason(plan, "dir") == "resume"
+

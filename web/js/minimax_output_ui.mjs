@@ -58,6 +58,10 @@ const OUTPUT_TEXT = {
         codec: "Codec",
         encoding: "Encoding",
         crf: "CRF",
+        embed_metadata: "Workflow metadata",
+        embed_auto: "Auto (follow ComfyUI)",
+        embed_always: "Always embed",
+        embed_never: "Never embed",
         save_button: "Save Video",
         save_not_ready: "Final Result is not ready",
         save_ready: "Ready to save",
@@ -137,6 +141,10 @@ const OUTPUT_TEXT = {
         codec: "编码器",
         encoding: "编码模式",
         crf: "CRF",
+        embed_metadata: "工作流元数据",
+        embed_auto: "自动（跟随 ComfyUI）",
+        embed_always: "总是嵌入",
+        embed_never: "从不嵌入",
         save_button: "保存影片",
         save_not_ready: "最终结果尚未完成",
         save_ready: "可保存",
@@ -1046,6 +1054,29 @@ export function mountOutputUI(
                 value="re-encode"
                 data-output-text="encoding_reencode"
               >重新编码</option>
+            </select>
+          </label>
+
+          <label>
+            <span data-output-text="embed_metadata">
+              Workflow metadata
+            </span>
+
+            <select data-save="embed_metadata">
+              <option
+                value="auto"
+                data-output-text="embed_auto"
+              >Auto (follow ComfyUI)</option>
+
+              <option
+                value="always"
+                data-output-text="embed_always"
+              >Always embed</option>
+
+              <option
+                value="never"
+                data-output-text="embed_never"
+              >Never embed</option>
             </select>
           </label>
 

@@ -13,6 +13,7 @@
 
 import { api } from "../../scripts/api.js";
 import {
+    baselineFrameCount,
     defaultDurationSec,
     defaultFrameCount,
     durationToMiniMaxFrames,
@@ -149,7 +150,7 @@ export function newFl2vShot(overrides = {}) {
     const fps = 24;
     let durationSec = overrides.durationSec != null && Number.isFinite(Number(overrides.durationSec))
         ? Number(overrides.durationSec)
-        : defaultDurationSec("fl2v");
+        : baselineDurationSec("fl2v");
     durationSec = clamp(roundDurationSec(durationSec), minDurationSec(), maxDurationSec());
     return {
         id: overrides.id || uid(),
@@ -391,8 +392,8 @@ export function recomputeFl2vTotals(editor) {
         totalFrames += fc;
     }
     if (!shots.length) {
-        totalSec = defaultDurationSec("fl2v");
-        totalFrames = defaultFrameCount("fl2v");
+        totalSec = baselineDurationSec("fl2v");
+        totalFrames = baselineFrameCount("fl2v");
     }
     totalSec = roundDurationSec(totalSec);
     totalFrames = Math.max(minFrameCount("fl2v"), totalFrames);

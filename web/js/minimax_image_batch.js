@@ -22,6 +22,7 @@ import {
     MAX_REFERENCE_AUDIOS,
     MAX_REFERENCE_IMAGES,
     MAX_REFERENCE_VIDEOS,
+    baselineDurationSec,
     maxDurationSec,
     MINIMAX_CANVAS_MULTIPLE,
     minDurationSec,
@@ -582,7 +583,8 @@ export function ensureImageBatchTimeline(editor) {
         editor.timeline.videoClips = [];
     }
     if (!editor.timeline.segments?.length) {
-        editor.timeline.segments = [newBatchSegment({ durationSec: defaultDurationSec(taskKey) })];
+        // The Setup baselines decide how long a brand new card starts out.
+        editor.timeline.segments = [newBatchSegment({ durationSec: baselineDurationSec(taskKey) })];
     }
     // Legacy R2I keeps its historical per-group migration. R2V is intentionally excluded.
     migrateGlobalRefsIntoBatchSegments(editor, taskKey);
