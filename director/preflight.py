@@ -197,8 +197,10 @@ def _check_vram_fit(plan: Any, plan_inputs: dict, issues: list) -> dict[str, Any
         if report.suggestions:
             message = f"{message} {' '.join(report.suggestions)}"
         severity = "info" if report.verdict == "ok" else "warning"
-        worst_index = report.worst.index if report.worst is not None else None
-        _issue(issues, severity, f"vram_{report.verdict}", message, worst_index)
+        # No `segment` field on purpose: the message already leads with the
+        # segment's name ("S4: 311 frames ..."), and the panel would prefix it
+        # again. Leaving it out keeps the row readable.
+        _issue(issues, severity, f"vram_{report.verdict}", message)
         return report.as_dict()
     except Exception as exc:  # noqa: BLE001 - never break Validate for an estimate
         log.debug("VRAM estimate skipped: %s", exc)

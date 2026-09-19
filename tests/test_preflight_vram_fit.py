@@ -93,7 +93,10 @@ def test_the_failing_project_shape_warns_with_numbers(monkeypatch):
     found = [i for i in issues if i["code"] == "vram_over"]
     assert len(found) == 1
     assert found[0]["severity"] == "warning", "explain, do not block"
-    assert found[0]["segment"] == 3
+    # The message names the segment (S4); the panel does not prefix it again, so
+    # the row reads "S4: 311 frames ..." rather than "Segment 4: S4: 311 ...".
+    assert "segment" not in found[0]
+    assert found[0]["message"].startswith("S4: 311 frames")
     assert "in one piece" in found[0]["message"]
     assert "reference size to 1024 px" in found[0]["message"]
     assert report["segment"]["sampled_frames"] == 333

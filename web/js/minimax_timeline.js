@@ -7091,7 +7091,9 @@ class MiniMaxH3MotionDirectorEditor {
         const ok = errors.length === 0 && !issues.some((i) => i.severity === "error");
         const total = data.segment_total;
         const line = (i) => {
-            const seg = i.segment != null ? `Segment ${i.segment}: ` : "";
+            // Issue indexes are timeline indexes (0-based); every other number in
+            // the panel says "S4", so the label has to as well.
+            const seg = i.segment != null ? `Segment ${Number(i.segment) + 1}: ` : "";
             const color = i.severity === "error" ? "#ff6b6b"
                 : i.severity === "warning" ? "#f5c542" : "#7fd3ff";
             return `<div style="color:${color}">- ${seg}${esc(i.message)}</div>`;
