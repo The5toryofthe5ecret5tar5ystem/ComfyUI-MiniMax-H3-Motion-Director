@@ -9,12 +9,64 @@ import {
 
 const DIRECTOR_CLASS = "MiniMaxH3MotionDirector";
 const REPORT_STYLE_ID = "mmx-director-report-tools";
+//: Containers whose arrival means an enhancement pass has real work to do.
+const ENHANCE_SCOPE = [
+    ".mmx-output-report",
+    ".mmx-postprocess",
+    ".mmx-results-output",
+    ".mmx-output-card",
+    ".mmx-director",
+].join(", ");
+//: One enhancement sweep is four document-wide queries plus a reflow per report
+//: card, so it is coalesced into a single frame and rate-limited rather than run
+//: once per mutation batch (ComfyUI mutates the DOM continuously while busy).
+const SWEEP_MIN_GAP_MS = 400;
+//: Safety net that catches anything the targeted path cannot see (hidden panels,
+//: language swaps, a card moved between containers).
+const SWEEP_IDLE_MS = 2000;
 const reportEnhancements = new Map();
 const resultEnhancements = new Map();
 const refineResults = new Map();
 let reportMutationObserver = null;
 let eventListenersStarted = false;
 let capabilitiesPromise = null;
+let sweepPending = false;
+let sweepTimer = null;
+let lastSweepAt = 0;
+
+function nowMs() {
+    return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+}
+
+function runEnhancementSweep(force = false) {
+    if (document.hidden && !force) return;
+    const stamp = nowMs();
+    if (!force && stamp - lastSweepAt < SWEEP_MIN_GAP_MS) return;
+    lastSweepAt = stamp;
+    scanReportEnhancements(document);
+}
+
+function scheduleEnhancementSweep() {
+    if (sweepPending) return;
+    sweepPending = true;
+    const run = () => {
+        sweepPending = false;
+        runEnhancementSweep();
+    };
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+    else setTimeout(run, 16);
+}
+
+/** Cheap test: did this mutation batch add anything this extension enhances? */
+function mutationTouchesOurDom(mutation) {
+    const added = mutation?.addedNodes;
+    if (!added?.length) return false;
+    for (const node of added) {
+        if (node?.nodeType !== 1) continue;
+        if (node.matches?.(ENHANCE_SCOPE) || node.querySelector?.(ENHANCE_SCOPE)) return true;
+    }
+    return false;
+}
 
 function stripStaleDirectorOutputs(node) {
     const stale = staleDirectorOutputIndices(node?.outputs || []);
@@ -198,6 +250,17 @@ function enhanceReport(report) {
         : null;
     resizeObserver?.observe(report);
 
+    // Card-local attribute watching replaces the old document-wide attribute
+    // observer: only this card's own state can change what the toolbar shows.
+    const cardObserver = typeof MutationObserver === "function"
+        ? new MutationObserver(() => sync())
+        : null;
+    cardObserver?.observe(card, {
+        attributes: true,
+        subtree: true,
+        attributeFilter: ["class", "hidden", "data-has-report"],
+    });
+
     report.addEventListener("pointerdown", refresh);
     page?.addEventListener("scroll", refresh, { passive: true });
     if (rightColumn && rightColumn !== page) {
@@ -209,6 +272,7 @@ function enhanceReport(report) {
     const destroy = () => {
         if (feedbackTimer != null) clearTimeout(feedbackTimer);
         resizeObserver?.disconnect();
+        cardObserver?.disconnect();
         report.removeEventListener("pointerdown", refresh);
         page?.removeEventListener("scroll", refresh);
         if (rightColumn && rightColumn !== page) {
@@ -568,20 +632,25 @@ function startReportEnhancements() {
 
     scanReportEnhancements(document);
     reportMutationObserver = new MutationObserver((mutations) => {
+        let touched = false;
         for (const mutation of mutations) {
             mutation.addedNodes?.forEach?.((node) => {
-                if (node?.nodeType === 1) scanReportEnhancements(node);
+                if (node?.nodeType !== 1) return;
+                // New cards are enhanced immediately (scoped, cheap); anything
+                // else only marks a coalesced sweep.
+                if (node.matches?.(ENHANCE_SCOPE)) scanReportEnhancements(node);
             });
+            if (!touched && mutationTouchesOurDom(mutation)) touched = true;
         }
-        scanReportEnhancements(document);
+        if (touched) scheduleEnhancementSweep();
     });
     reportMutationObserver.observe(document.body, {
         childList: true,
         subtree: true,
-        characterData: true,
-        attributes: true,
-        attributeFilter: ["data-has-report", "class", "hidden"],
     });
+    if (sweepTimer == null) {
+        sweepTimer = setInterval(() => runEnhancementSweep(true), SWEEP_IDLE_MS);
+    }
 }
 
 app.registerExtension({

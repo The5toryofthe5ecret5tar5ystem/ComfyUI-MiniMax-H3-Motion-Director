@@ -225,7 +225,9 @@ function setDiscoveredDuration(timeline, scope, audio, duration, options, editor
 function discoverDuration(audio, timeline, scope, options, editor, node, onReady) {
     const current = getAudioRole(timeline, scope, audio.id, options);
     if (Number(current.sourceDuration) > 0) {
-        onReady?.(Number(current.sourceDuration));
+        // Already known: report it without claiming a change, otherwise every
+        // rebuild of the panel schedules another rebuild and the UI livelocks.
+        onReady?.(Number(current.sourceDuration), false);
         return;
     }
     const media = new Audio();
@@ -234,7 +236,7 @@ function discoverDuration(audio, timeline, scope, options, editor, node, onReady
     const apply = () => {
         if (!Number.isFinite(media.duration) || media.duration <= 0 || media.duration === Infinity) return;
         setDiscoveredDuration(timeline, scope, audio, media.duration, options, editor, node);
-        onReady?.(media.duration);
+        onReady?.(media.duration, true);
         media.src = "";
     };
     media.addEventListener("loadedmetadata", apply, { once: true });
@@ -574,13 +576,28 @@ function decorateCard(card, ctx) {
     const durationEl = meta.querySelector(".mmx-audio-duration");
     if (Number(cfg.sourceDuration) > 0) durationEl.textContent = `${Number(cfg.sourceDuration).toFixed(2)}s`;
     card.appendChild(meta);
-    discoverDuration(audio, timeline, scope, options, editor, node, (duration) => { durationEl.textContent = `${Number(duration).toFixed(2)}s`; schedule(node); });
+    discoverDuration(audio, timeline, scope, options, editor, node, (duration, discovered) => { durationEl.textContent = `${Number(duration).toFixed(2)}s`; if (discovered) schedule(node); });
 }
 
 function createCommonRoleRows(host, ctx, commonAudios) {
     let wrap = host.querySelector(":scope > .mmx-audio-common-roles");
-    if (!commonAudios.length) { wrap?.remove(); return; }
+    if (!commonAudios.length) {
+        if (wrap) wrap.remove();
+        return;
+    }
+    // Only rebuild when something these rows show actually changed: this
+    // function used to run from a per-frame canvas hook and rebuild every row.
+    const signature = [
+        commonAudios.map((audio) => {
+            const cfg = getAudioRole(ctx.timeline, ctx.scope, audio.id, ctx.options);
+            return `${audio.id}:${cfg.role}:${Number(cfg.timelineStart) || 0}:${Number(cfg.sourceDuration) || 0}`;
+        }).join(","),
+        Number(ctx.segmentSec).toFixed(3),
+        words().common,
+    ].join("|");
+    if (wrap?.dataset.mmxSig === signature) return;
     if (!wrap) { wrap = document.createElement("div"); wrap.className = "mmx-audio-common-roles"; host.appendChild(wrap); }
+    wrap.dataset.mmxSig = signature;
     wrap.innerHTML = "";
     for (const audio of commonAudios) {
         const row = document.createElement("div");
@@ -607,7 +624,7 @@ function createCommonRoleRows(host, ctx, commonAudios) {
         edit.onclick = (e) => { e.stopPropagation(); openAudioEditor({ ...ctx, audio }); };
         row.append(name, select, edit);
         wrap.appendChild(row);
-        discoverDuration(audio, ctx.timeline, ctx.scope, ctx.options, ctx.editor, ctx.node, () => schedule(ctx.node));
+        discoverDuration(audio, ctx.timeline, ctx.scope, ctx.options, ctx.editor, ctx.node, (duration, discovered) => { if (discovered) schedule(ctx.node); });
     }
 }
 
@@ -617,7 +634,11 @@ function renderTimeline(host, ctx) {
     if (!panel) { panel = document.createElement("div"); panel.className = PANEL_CLASS; host.appendChild(panel); }
     const rows = activeItems(ctx.timeline, ctx.scope, ctx.audios, ctx.options)
         .filter((r) => r.role === AUDIO_ROLE_AUDIO_DRIVE);
-    if (!rows.length) { panel.hidden = true; return; }
+    if (!rows.length) {
+        if (!panel.hidden) panel.hidden = true;
+        panel.dataset.mmxSig = "";
+        return;
+    }
     panel.hidden = false;
     const validation = validateAudioRoleIntervals(rows, ctx.segmentSec);
     const invalid = new Set();
@@ -627,6 +648,18 @@ function renderTimeline(host, ctx) {
     }
     const warning = validation.errors.some((e) => e.code === "drive_overlap") ? words().overlap
         : validation.errors.some((e) => e.code === "overrun") ? words().overrun : "";
+    const orderedRows = orderDriveRows(rows, ctx.audios.map((audio) => audio.id));
+    // Same reasoning as the common rows: the trim tracks and axis only need to
+    // be re-created when the arrangement they draw changed.
+    const signature = [
+        orderedRows.map((row) => `${row.assetId}:${row.role}:${Number(row.timelineStart) || 0}:${Number(row.sourceDuration) || 0}`).join(","),
+        [...invalid].sort().join(","),
+        warning,
+        Number(ctx.segmentSec).toFixed(3),
+        words().timeline,
+    ].join("|");
+    if (panel.dataset.mmxSig === signature) return;
+    panel.dataset.mmxSig = signature;
     panel.innerHTML = `<div class="mmx-audio-timeline-head"><b>${words().timeline}</b><span class="mmx-audio-timeline-warning"></span></div><div class="mmx-audio-axis"></div><div class="mmx-audio-tracks"></div>`;
     panel.querySelector(".mmx-audio-timeline-warning").textContent = warning;
     const axis = panel.querySelector(".mmx-audio-axis");
@@ -634,7 +667,6 @@ function renderTimeline(host, ctx) {
         const span = document.createElement("span"); span.style.left = `${ratio * 100}%`; span.textContent = `${(ctx.segmentSec * ratio).toFixed(ratio === 0 || ratio === 1 ? 2 : 1)}s`; axis.appendChild(span);
     }
     const tracks = panel.querySelector(".mmx-audio-tracks");
-    const orderedRows = orderDriveRows(rows, ctx.audios.map((audio) => audio.id));
     tracks.style.height = `${Math.max(30, orderedRows.length * 28 + 4)}px`;
     orderedRows.forEach((row, track) => {
         const p = audioPlacement(row, ctx.segmentSec);
@@ -777,7 +809,11 @@ function syncAudioRoleUi(node) {
 }
 
 function schedule(node) {
-    for (const delay of [0, 80, 250, 800]) setTimeout(() => syncAudioRoleUi(node), delay);
+    // Coalesce the retry ladder: without this, every hook and every rebuild
+    // stacked four more timers per node.
+    if (!node) return;
+    for (const id of node._mmxAudioRoleTimers || []) clearTimeout(id);
+    node._mmxAudioRoleTimers = [0, 80, 250, 800].map((delay) => setTimeout(() => syncAudioRoleUi(node), delay));
 }
 
 function wrap(nodeType) {
@@ -792,7 +828,14 @@ function wrap(nodeType) {
     const draw = nodeType.prototype.onDrawBackground;
     nodeType.prototype.onDrawBackground = function () {
         const result = draw?.apply(this, arguments);
-        syncAudioRoleUi(this);
+        // onDrawBackground runs on every canvas frame. Rebuilding this panel in
+        // here pinned a CPU core (and, through the DOM observers, the whole app),
+        // so a slow sanity re-sync is all this hook does now.
+        const stamp = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+        if (stamp - (this._mmxAudioRoleDrawnAt || 0) >= 250) {
+            this._mmxAudioRoleDrawnAt = stamp;
+            syncAudioRoleUi(this);
+        }
         return result;
     };
 }

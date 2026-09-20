@@ -501,7 +501,12 @@ function wrapDirector(nodeType) {
     nodeType.prototype.onNodeCreated = function () {
         const result = onNodeCreated?.apply(this, arguments);
         clearInterval(this._mmxSectionPoll);
-        this._mmxSectionPoll = setInterval(() => syncDirectorSections(this), SYNC_MS);
+        this._mmxSectionPoll = setInterval(() => {
+            // Hidden tab or detached node: nothing to sync, so skip the wakeup
+            // instead of competing with the app's own rendering work.
+            if (document.hidden || !this.graph) return;
+            syncDirectorSections(this);
+        }, SYNC_MS);
         scheduleSync(this, 0);
         scheduleSync(this, 120);
         return result;

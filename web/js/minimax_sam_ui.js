@@ -3,8 +3,14 @@ import { getLocale, onLocaleChange } from "./minimax_i18n.js";
 
 const ROOT_SELECTOR = ".mmx-postprocess";
 const SAM_SELECTOR = '[data-path="face_refine.sam_model"]';
+//: The SAM note only ever appears inside these, so unrelated app DOM churn must
+//: not trigger a scan.
+const SCOPE_SELECTOR = `${ROOT_SELECTOR}, ${SAM_SELECTOR}, .mmx-director`;
+//: Safety net for panels whose inner controls are built asynchronously.
+const SWEEP_IDLE_MS = 2000;
 const boundSelects = new WeakSet();
 let documentObserver = null;
+let sweepTimer = null;
 let stopLocaleSync = null;
 let scanScheduled = false;
 
@@ -51,6 +57,7 @@ function bind(select) {
 }
 
 function scan() {
+    if (document.hidden) return;
     document.querySelectorAll(ROOT_SELECTOR).forEach((root) => bind(root.querySelector(SAM_SELECTOR)));
 }
 
@@ -63,10 +70,29 @@ function scheduleScan() {
     });
 }
 
+/** Cheap test: did this mutation batch add something the note can live in? */
+function mutationAddsScope(mutation) {
+    const added = mutation?.addedNodes;
+    if (!added?.length) return false;
+    for (const node of added) {
+        if (node?.nodeType !== 1) continue;
+        if (node.matches?.(SCOPE_SELECTOR) || node.querySelector?.(SCOPE_SELECTOR)) return true;
+    }
+    return false;
+}
+
 function ensureDocumentObserver() {
     if (documentObserver || typeof MutationObserver !== "function" || !document.body) return;
-    documentObserver = new MutationObserver(scheduleScan);
+    documentObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+            if (mutationAddsScope(mutation)) {
+                scheduleScan();
+                return;
+            }
+        }
+    });
     documentObserver.observe(document.body, { childList: true, subtree: true });
+    if (sweepTimer == null) sweepTimer = setInterval(() => scheduleScan(), SWEEP_IDLE_MS);
 }
 
 function refreshAll() {

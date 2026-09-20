@@ -477,7 +477,12 @@ function wrapDynamicNode(nodeType, syncFn, cleanupFn = null) {
     const onNodeCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
         const result = onNodeCreated?.apply(this, arguments);
-        this._mmxUnifiedPoll = setInterval(() => syncFn(this), SYNC_MS);
+        this._mmxUnifiedPoll = setInterval(() => {
+            // A hidden tab (or a node that is gone) has nothing to sync; burning a
+            // wakeup every SYNC_MS per node only starves the app's own rendering.
+            if (document.hidden || !this.graph) return;
+            syncFn(this);
+        }, SYNC_MS);
         scheduleSync(this, syncFn, 0);
         return result;
     };
