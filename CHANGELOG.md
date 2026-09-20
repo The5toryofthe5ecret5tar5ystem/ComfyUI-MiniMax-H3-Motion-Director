@@ -3,7 +3,27 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
-## Unreleased
+## v1.12.0 — 2026-09-19
+
+### Fixed
+
+- **Long sessions stop turning into ten-second clicks.** The per-node audio-role panel rebuilt its
+  rows and trim tracks from `onDrawBackground` - a hook LiteGraph calls on *every canvas frame* - and
+  each rebuild re-scheduled itself, because the duration-discovery helper fired its "ready" callback
+  even when the duration was already known. That livelock produced, on an idle tab,
+  **4,613 DOM mutation batches and 13,950 mutations per second**, pinning one browser process at 96%
+  of a core; the whole ComfyUI interface queues behind that main thread, which is why actions took
+  seconds while CPU and GPU looked idle (the server's sockets to the page backed up several MB because
+  the page never drained them). Rebuilds are now gated on a render signature, the draw hook only
+  re-syncs on a 250 ms floor, a duration is reported as a change only when it was actually discovered,
+  and `schedule()` clears its previous timer ladder instead of stacking four more per call. Same tab,
+  same workflow, after: **4 batches and 99 mutations per second**.
+- **The pack's document-wide observers stop scanning for every mutation the app makes.** Two
+  extensions observed `document.body` and ran a full-document sweep - four document-wide queries plus
+  forced reflows for every report card - once per mutation batch. They now filter mutations against
+  their own DOM, coalesce to at most one sweep per frame (400 ms floor) with a 2 s safety sweep, watch
+  report-card attributes on the card rather than document-wide, and skip work while the tab is hidden.
+  The 250 ms per-node input/section polls also bail when the tab is hidden or the node is detached.
 
 ### Added
 
@@ -31,6 +51,13 @@ Notable changes in this fork. Older releases are tagged in git and published on 
   the prompt can actually name; only that mention is rewritten. Re-adding a reference still
   reconnects by kind and document order, but that is a guess - this is the explicit version,
   and the only cure for a mention whose asset is gone for good.
+- **`scripts/drift_report.py` measures a finished chain for you.** It reads the rendered segment
+  files (CPU only, no GPU, safe to run during a render) and reports the seam between segments, the
+  colour/exposure trend, detail (Laplacian sharpness), the noise floor and a model-free structure
+  fingerprint, with a chart, a Markdown report and JSON. Each seam is judged against the
+  frame-to-frame change measured *inside* the incoming segment, so fast content is not flagged for
+  ordinary motion: `x step` 1.0 means the join is indistinguishable from normal movement, 5x and
+  above is a visible cut.
 
 ### Changed
 

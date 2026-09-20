@@ -1,6 +1,6 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.11.0-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.12.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.11.0**
+> Current version: **v1.12.0**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,26 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.12.0 — Responsive under load, and a segment's memory cost before you pay it
+
+**The interface stops degrading.** Long sessions used to end in ten-second clicks. A per-node audio-role
+panel rebuilt its rows and trim tracks from the canvas draw hook — a hook LiteGraph calls on *every frame*
+— and each rebuild re-scheduled itself, because the duration discovery helper reported "ready" even when
+the duration was already known. Measured on an idle tab, that loop produced **4,613 DOM mutation batches
+and 13,950 mutations per second**, pinning one browser process at 96% of a core: the entire ComfyUI UI
+queues behind that main thread, which is why actions took seconds while CPU and GPU looked idle. Rebuilds
+are now gated on a render signature, the draw hook only re-syncs on a 250 ms floor, and `schedule()`
+coalesces its timers instead of stacking four more per call. Same tab, same workflow, after: **4 batches
+and 99 mutations per second**. The pack's two document-wide observers (report cards, SAM note) no longer
+run a full-document sweep for every mutation the app produces; they filter to their own DOM, coalesce to
+one sweep per frame, and skip work while the tab is hidden.
+
+**Validate now prices a segment before it runs.** It estimates each segment from sequence length and what
+is free right now, reports `ok` / `tight` / `over` with the numbers, and names the concrete changes
+(reference size first when that alone suffices, then frame cap, then canvas) — as a warning, never a
+blocker. After an OOM the run panel offers the retry it can do for you: **Retry S4 at 243 frames**, or
+**Set reference size to 1024 px and retry**.
 
 ### v1.11.0 — One Settings panel for the pack, your call on exported metadata, and references that reconnect
 
