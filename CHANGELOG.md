@@ -7,6 +7,15 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Fixed
 
+- **The in-panel preview no longer stutters the audio (the exported file was always fine).** A preview
+  clip is picture-only, so the sound comes from a separate `<audio>` element kept on the video's clock -
+  and that clock was read from `state.index`, which a *later* `timeupdate` listener refreshes. On every
+  tick the target was therefore up to one update (~0.25 s) behind an audio element that had kept
+  playing, the drift check tripped, and the correction sought **backwards** - which replays sound. That
+  is the repeated small chunk of audio (Segment / Multi / Final playback). The target now comes from the
+  element's own live clock (clip start + `video.currentTime`), corrections are forward-only except for a
+  genuinely large lead (a backward seek is what repeats), and a clip transition lets the audio wait with
+  the stalled video instead of running ahead and being dragged back.
 - **Start run no longer stays greyed out with nothing running - and a greyed button says why.** The
   button is disabled only while the panel believes a run is active, and that flag can be stranded: a run
   that died without its end events (a ComfyUI restart or a reload mid-run), or another tab whose graph

@@ -1,4 +1,4 @@
-import { ResultPlaybackController } from "./minimax_output_player.mjs";
+import { ResultPlaybackController, audioDriftNeedsSeek, clipGlobalSeconds } from "./minimax_output_player.mjs";
 import {
     clipDescriptor,
     clipPositionFor,
@@ -2504,10 +2504,11 @@ export function mountOutputUI(
     /**
      * Keep the separate audio element aligned with the video.
      *
-     * The time base is the *global* frame time, not video.currentTime. On the
-     * Segment tab the audio track belongs to that segment, so the two agree; on
-     * Multi/Final the audio is the combined track spanning every segment, where
-     * a clip-local clock would restart the audio at each segment boundary.
+     * The time base is the element's **live** clock, never `state.index`: that index is
+     * refreshed by a later `timeupdate` listener, so on this tick it is up to one update
+     * (~0.25 s) old. A target that lags the audio makes the correction seek *backwards*
+     * on every tick, replaying a small chunk of sound over and over - the preview
+     * "stutter" that the exported file, which has no such clock, never had.
      */
     const syncAudioToVideo = () => {
         if (
@@ -2529,26 +2530,41 @@ export function mountOutputUI(
             return;
         }
 
-        const seconds =
-            state.index
-            / Math.max(
+        const fps =
+            Math.max(
                 0.001,
                 Number(state.fps || 24),
             );
 
-        // Only correct real drift; nudging every tick would stutter the audio.
-        if (
-            Math.abs(
-                Number(audio.currentTime || 0)
-                - seconds,
-            ) > 0.12
-        ) {
-            try {
-                audio.currentTime =
-                    seconds;
-            } catch {
-                // Audio not seekable yet; the next tick retries.
-            }
+        const seconds =
+            onSingleClipTransport()
+                ? Math.max(
+                    0,
+                    Number(video.currentTime || 0),
+                )
+                : clipGlobalSeconds(
+                    clipStartIndex(
+                        state.clipPlaylist,
+                        state.clipActive,
+                    ) / fps,
+                    video.currentTime,
+                );
+
+        // Correct real drift only - and only in the direction that cannot be heard as
+        // a repeat (see audioDriftNeedsSeek).
+        const drift =
+            Number(audio.currentTime || 0)
+            - seconds;
+
+        if (!audioDriftNeedsSeek(drift)) {
+            return;
+        }
+
+        try {
+            audio.currentTime =
+                seconds;
+        } catch {
+            // Audio not seekable yet; the next tick retries.
         }
     };
 
@@ -2748,6 +2764,44 @@ export function mountOutputUI(
 
             showClipFrame(
                 state.index,
+            );
+        },
+    );
+
+    // A clip transition (or a slow read) stalls the *video* while the audio keeps
+    // rolling. Let the audio wait with it: running ahead only earns a backwards
+    // correction, and a backwards correction is heard as a repeated chunk.
+    video.addEventListener(
+        "waiting",
+        () => {
+            if (!state.playing) return;
+            if (
+                !state.clipPlaylist.length
+                && !state.videoClip
+            ) {
+                return;
+            }
+            audio.pause();
+        },
+    );
+
+    video.addEventListener(
+        "playing",
+        () => {
+            if (!state.playing) return;
+            if (
+                !state.clipPlaylist.length
+                && !state.videoClip
+            ) {
+                return;
+            }
+            try {
+                syncAudioToVideo();
+            } catch {
+                // No metadata yet; the next tick aligns it.
+            }
+            audio.play?.().catch?.(
+                () => {},
             );
         },
     );
