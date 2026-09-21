@@ -286,26 +286,37 @@ class AnchorItem:
         return (self.beat or "").strip() or DEFAULT_BEAT
 
 
+#: Draft defaults: the final canvas with few steps. A draft exists to judge story
+#: and framing quickly, and at 100 % the framing *is* the final one - only the
+#: sampler is made cheaper (the pass keeps its own cache namespace, so a draft
+#: frame can never stand in for a final one).
+DEFAULT_DRAFT_SCALE = 1.0
+DEFAULT_DRAFT_STEPS = 8
+
+
 @dataclass
 class DraftPass:
-    """Cheap "does the story work?" pass: the fills at reduced resolution/steps."""
+    """Cheap "does the story work?" pass: the fills at the draft scale/steps."""
 
     enabled: bool = False
-    scale: float = 0.5
-    steps: int = 0
+    scale: float = DEFAULT_DRAFT_SCALE
+    steps: int = DEFAULT_DRAFT_STEPS
 
     @classmethod
     def parse(cls, value: Any) -> "DraftPass | None":
         if not isinstance(value, dict):
             return None
+        raw_scale = value.get("scale")
         try:
-            scale = float(value.get("scale") or 0.5)
+            scale = DEFAULT_DRAFT_SCALE if raw_scale is None else float(raw_scale)
         except (TypeError, ValueError):
-            scale = 0.5
+            scale = DEFAULT_DRAFT_SCALE
+        raw_steps = value.get("steps")
         try:
-            steps = int(value.get("steps") or 0)
+            # An explicit 0 still means "keep the node's current steps".
+            steps = DEFAULT_DRAFT_STEPS if raw_steps is None else int(raw_steps)
         except (TypeError, ValueError):
-            steps = 0
+            steps = DEFAULT_DRAFT_STEPS
         return cls(
             enabled=bool(value.get("enabled", False)),
             scale=min(1.0, max(0.1, scale)),
@@ -1530,6 +1541,8 @@ __all__ = [
     "PROMPT_SOURCES",
     "PROMPT_SOURCE_AUTO",
     "PROMPT_SOURCE_TEMPLATE",
+    "DEFAULT_DRAFT_SCALE",
+    "DEFAULT_DRAFT_STEPS",
     "expand_segment_prompt",
     "build_anchor_segment",
     "anchor_image_tensor",

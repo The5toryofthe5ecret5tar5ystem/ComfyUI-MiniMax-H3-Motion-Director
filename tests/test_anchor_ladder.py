@@ -976,7 +976,9 @@ def test_draft_pass_parsing(tmp_path):
     assert draft.enabled is True and draft.scale == 0.25 and draft.steps == 6
     # defaults + clamping
     loose = al.DraftPass.parse({})
-    assert (loose.enabled, loose.scale, loose.steps) == (False, 0.5, 0)
+    assert (loose.enabled, loose.scale, loose.steps) == (False, 1.0, 8)
+    # an explicit 0 still means "keep the node's current steps"
+    assert al.DraftPass.parse({"steps": 0}).steps == 0
     assert al.DraftPass.parse({"scale": 5}).scale == 1.0
     assert al.DraftPass.parse({"scale": 0.001}).scale == 0.1
     assert al.DraftPass.parse({"steps": 999}).steps == 64

@@ -122,6 +122,10 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Changed
 
+- **Draft now defaults to the final canvas with 8 steps** (`scale 100`, `steps 8`) instead of half size
+  at the node's step count: a draft exists to judge story and framing, and at 100 % the framing is the
+  real one - only the sampler is cheaper. A draft still writes into its own cache namespace, so a draft
+  frame can never stand in for a final one; `Steps 0` still means "keep the node's current steps".
 - `SegmentPlan` gained `anchor_prompt` / `anchor_in` / `anchor_out` / `anchor_index` /
   `seed_override`; the segment cache fingerprint only changes when a `cache_variant` is set, so every
   existing cache stays valid.

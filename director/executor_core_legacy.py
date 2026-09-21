@@ -2386,7 +2386,8 @@ def execute_director_plan_core(
             # full size (they are reused by the final pass); only the fills shrink.
             # The cache fingerprint carries width/height (+ the variant below), so
             # a draft frame can never stand in for a final-resolution render.
-            _scale = float(getattr(_draft, "scale", 0.5) or 0.5)
+            _scale = float(getattr(_draft, "scale", anchor_ladder.DEFAULT_DRAFT_SCALE)
+                           or anchor_ladder.DEFAULT_DRAFT_SCALE)
             if 0 < _scale < 1:
                 plan.width = max(32, int(int(plan.width) * _scale) // 32 * 32)
                 plan.height = max(32, int(int(plan.height) * _scale) // 32 * 32)

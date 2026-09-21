@@ -29,7 +29,10 @@ const DEFAULT_ANCHORS = {
     seedBase: 4242,
     renderPass: true,
     preRollOnly: false,
-    draft: { enabled: false, scale: 0.5, steps: 0 },
+    // Draft = the final canvas, few steps (a cheap preview whose framing is the
+    // real one). The 100 % scale is what makes the draft judgeable early; the
+    // steps are what make it cheap.
+    draft: { enabled: false, scale: 1, steps: 8 },
     placement: "boundary",
     leadFrames: 24,
     leadHard: false,
@@ -164,7 +167,7 @@ function anchorsBlock(ed) {
     const draft = block.draft && typeof block.draft === "object" ? block.draft : {};
     draft.enabled = draft.enabled === true;
     draft.scale = clampFloat(draft.scale, 0.1, 1, DEFAULT_ANCHORS.draft.scale);
-    draft.steps = clampInt(draft.steps, 0, 64, 0);
+    draft.steps = clampInt(draft.steps, 0, 64, DEFAULT_ANCHORS.draft.steps);
     block.draft = draft;
     // ``boundaries`` is either absent (all), an explicit index list, or one of the
     // string presets. The strip normalizes it to an explicit list so the eye
@@ -1024,8 +1027,8 @@ export function installAnchorStrip(ed) {
 
         if (document.activeElement !== modeSelect) modeSelect.value = block.mode;
         if (document.activeElement !== chunkInput) chunkInput.value = String(block.chunkFrames);
-        if (document.activeElement !== draftScaleInput) draftScaleInput.value = String(Math.round((block.draft?.scale ?? 0.5) * 100));
-        if (document.activeElement !== draftStepsInput) draftStepsInput.value = String(block.draft?.steps ?? 0);
+        if (document.activeElement !== draftScaleInput) draftScaleInput.value = String(Math.round((block.draft?.scale ?? DEFAULT_ANCHORS.draft.scale) * 100));
+        if (document.activeElement !== draftStepsInput) draftStepsInput.value = String(block.draft?.steps ?? DEFAULT_ANCHORS.draft.steps);
         if (renderPassBox.checked !== block.renderPass) renderPassBox.checked = block.renderPass;
         if (placementSelect.value !== block.placement) placementSelect.value = block.placement;
         if (promptSourceSelect.value !== block.promptSource) promptSourceSelect.value = block.promptSource;
@@ -1099,7 +1102,9 @@ export function installAnchorStrip(ed) {
 
     draftScaleInput.addEventListener("change", () => {
         const block = anchorsBlock(ed);
-        block.draft.scale = clampFloat(Number(draftScaleInput.value) / 100, 0.1, 1, 0.5);
+        block.draft.scale = clampFloat(
+            Number(draftScaleInput.value) / 100, 0.1, 1, DEFAULT_ANCHORS.draft.scale,
+        );
         draftScaleInput.value = String(Math.round(block.draft.scale * 100));
         persistTimeline(ed);
         setFoot();
@@ -1107,15 +1112,15 @@ export function installAnchorStrip(ed) {
 
     draftStepsInput.addEventListener("change", () => {
         const block = anchorsBlock(ed);
-        block.draft.steps = clampInt(draftStepsInput.value, 0, 64, 0);
+        block.draft.steps = clampInt(draftStepsInput.value, 0, 64, DEFAULT_ANCHORS.draft.steps);
         draftStepsInput.value = String(block.draft.steps);
         persistTimeline(ed);
         setFoot();
     });
 
-    // Draft pass: preview the whole story cheaply (reduced resolution and,
-    // optionally, fewer steps) and stop. The flag is only true for the queued
-    // snapshot, so the next Run is a normal full-quality pass again.
+    // Draft pass: preview the whole story cheaply (the draft scale/steps - by
+    // default the final canvas at 8 steps) and stop. The flag is only true for
+    // the queued snapshot, so the next Run is a normal full-quality pass again.
     draftBtn.addEventListener("click", () => {
         if (busy) return;
         withBusy(async () => {
