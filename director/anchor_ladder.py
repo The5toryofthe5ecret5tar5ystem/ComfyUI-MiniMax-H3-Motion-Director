@@ -839,6 +839,47 @@ _TOKEN_HINTS = {
     "to_camera": "the shot that starts on it names no camera",
 }
 
+#: Which side of the boundary a token borrows from. A token whose side has no shot
+#: at all is a different animal from a shot that has no text: the opening boundary
+#: has nothing before it and the closing one nothing after, so ``{{from_tail}}`` on
+#: boundary 1 is meant to vanish. Reporting that (it cannot be acted on) buried the
+#: notes that can be.
+_TOKEN_SIDE = {
+    "from_tail": "from_label",
+    "from_camera": "from_label",
+    "to_head": "to_label",
+    "to_camera": "to_label",
+}
+
+#: Notes already logged this process - see _log_note_once.
+_PROMPT_NOTES_LOGGED: set[str] = set()
+
+
+def _log_note_once(note: str) -> None:
+    """Log a missing-token note the first time it appears.
+
+    The strip composes every boundary's prompt on every refresh, so the same
+    unfixable line used to land in the console dozens of times and hide the run's
+    own messages. The note is still handed to the caller through ``warnings``.
+    """
+    if note in _PROMPT_NOTES_LOGGED:
+        return
+    _PROMPT_NOTES_LOGGED.add(note)
+    log.warning("anchor ladder: %s", note)
+
+
+def reset_prompt_note_log() -> None:
+    """Forget which prompt notes were logged (tests, and a rebuilt plan)."""
+    _PROMPT_NOTES_LOGGED.clear()
+
+
+def _side_has_no_shot(name: str, boundary: BoundaryText) -> bool:
+    """True when the token's own side of the boundary has no shot to borrow from."""
+    side = _TOKEN_SIDE.get(name)
+    if side is None:  # ``camera`` reads either side
+        return not boundary.from_label and not boundary.to_label
+    return not getattr(boundary, side)
+
 
 def used_prompt_tokens(body: str) -> list[str]:
     """Neighbour tokens a body actually asks for (either spelling)."""
@@ -890,11 +931,15 @@ def compose_anchor_prompt(item: AnchorItem, *, anchors: Any = None,
     for name in used_prompt_tokens(body):
         if boundary.value(name):
             continue
+        if _side_has_no_shot(name, boundary):
+            # The timeline starts (or ends) here - there is nothing to borrow and
+            # nothing the user could add, so the token is meant to empty out.
+            continue
         note = (
             "boundary %d: {%s} has no source - %s, so the anchor renders without it."
             % (int(item.index) + 1, name, _TOKEN_HINTS.get(name, "it stays empty"))
         )
-        log.warning("anchor ladder: %s", note)
+        _log_note_once(note)
         if warnings is not None:
             warnings.append(note)
     owner = shots[min(int(item.index), len(shots) - 1)] if shots else None
@@ -1537,6 +1582,7 @@ __all__ = [
     "compose_anchor_prompt",
     "anchor_prompt_body",
     "used_prompt_tokens",
+    "reset_prompt_note_log",
     "DEFAULT_SOURCE_TEMPLATES",
     "PROMPT_SOURCES",
     "PROMPT_SOURCE_AUTO",

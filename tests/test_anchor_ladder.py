@@ -326,11 +326,50 @@ def test_compose_anchor_prompt_reports_a_missing_source(caplog):
     anchors = al.AnchorPlan(mode=al.ANCHOR_MODE_SOFT)
     item = al.AnchorItem(index=1, seed=1, beat="b")
     warnings: list[str] = []
+    # The shot that ends on boundary 2 exists but carries no usable text - that is
+    # the case worth reporting.
+    al.reset_prompt_note_log()
     with caplog.at_level(logging.WARNING):
-        text = al.compose_anchor_prompt(item, anchors=anchors, segments=[], warnings=warnings)
+        text = al.compose_anchor_prompt(item, anchors=anchors, segments=[_shot("")], warnings=warnings)
     assert "has no source" in caplog.text
     assert any("from_tail" in note for note in warnings)
     assert "{" not in text
+
+
+def test_opening_boundary_is_not_reported_as_a_missing_source(caplog):
+    """Boundary 1 has no shot before it, so {from_tail} is meant to vanish.
+
+    Warning about it on every strip refresh (it cannot be acted on) buried the notes
+    that can - and boundary 1 is often deselected for the run entirely.
+    """
+    anchors = al.AnchorPlan(mode=al.ANCHOR_MODE_SOFT)
+    item = al.AnchorItem(index=0, seed=1, beat="b", prompt_override="{from_tail}\n{to_head}")
+    warnings: list[str] = []
+    al.reset_prompt_note_log()
+    with caplog.at_level(logging.WARNING):
+        text = al.compose_anchor_prompt(
+            item, anchors=anchors, segments=[_shot(_SHOT_A), _shot(_SHOT_B)], warnings=warnings,
+        )
+    assert warnings == []
+    assert "has no source" not in caplog.text
+    # {to_head} still resolves - the shot that *starts* on boundary 1 is right there.
+    expected = al.head_clause(_SHOT_A)
+    assert expected and expected in text
+    assert "{" not in text
+
+
+def test_missing_source_note_is_logged_once(caplog):
+    """The strip composes every boundary on every refresh: repeat lines teach nothing."""
+    anchors = al.AnchorPlan(mode=al.ANCHOR_MODE_SOFT)
+    item = al.AnchorItem(index=1, seed=1, beat="b")
+    al.reset_prompt_note_log()
+    with caplog.at_level(logging.WARNING):
+        first = al.compose_anchor_prompt(item, anchors=anchors, segments=[_shot("")])
+        al.compose_anchor_prompt(item, anchors=anchors, segments=[_shot("")])
+        al.compose_anchor_prompt(item, anchors=anchors, segments=[_shot("")])
+    assert first
+    assert caplog.text.count("{from_tail} has no source") == 1
+    al.reset_prompt_note_log()
 
 
 def test_compose_anchor_prompt_lets_a_override_win_and_keeps_tokens():

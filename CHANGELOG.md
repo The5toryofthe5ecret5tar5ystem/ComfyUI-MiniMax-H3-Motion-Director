@@ -7,6 +7,13 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Fixed
 
+- **`boundary 1: {from_tail} has no source` is no longer printed at all.** The opening boundary sits
+  before the first shot, so there is nothing to borrow from *by construction* - and because the strip
+  composes every boundary's prompt on every plan refresh, that line landed in the console dozens of
+  times (including for boundaries deselected for the run). A neighbour token is now reported only when
+  its side **has a shot that yields no text** (the case you can actually fix), and each distinct note is
+  logged once per session so a busy strip cannot bury the run's own lines. Notes are still returned to
+  callers through `compose_anchor_prompt(warnings=...)`.
 - **A decimal stays where you typed it.** The output bar rewrites its numeric fields from state after
   every keystroke (the Megapixels field debounces 280 ms), and `<input type="number">` hides an
   in-progress draft: while the visible text is `1.` the browser already reports the value `1`, so the
