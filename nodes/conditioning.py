@@ -17,6 +17,50 @@ from ..lib.task_modes import TASK_DESCRIPTIONS, infer_task
 from ..patches.markers import MC_KEY
 
 
+def encode_h3_keyframe_latent(vae, frame, *, width: int, height: int):
+    """Encode one IMAGE frame as an H3 keyframe latent ``[B,C,1,H,W]``."""
+    if not isinstance(frame, torch.Tensor) or frame.ndim != 4 or int(frame.shape[0]) != 1:
+        raise ValueError("MiniMax H3 keyframe anchor must be one IMAGE frame [1,H,W,C].")
+    resized = fit_canvas(frame, int(width), int(height))
+    encoded = vae.encode(resized)
+    if not isinstance(encoded, torch.Tensor) or encoded.ndim != 5:
+        raise ValueError(
+            "MiniMax H3 video VAE must return [B,C,T,H,W], got %r."
+            % (getattr(encoded, "shape", type(encoded)),)
+        )
+    if int(encoded.shape[2]) != 1:
+        raise ValueError(
+            "MiniMax H3 single-frame anchor encoded to %d temporal steps; expected 1."
+            % int(encoded.shape[2])
+        )
+    return encoded
+
+
+def append_minimax_keyframes(conditioning, *, keyframes, frame_count: int | None = None):
+    """Add marked H3 keyframes to conditioning that already carries refs.
+
+    Unlike the Source Bridge helper this appends to whatever guides are already
+    present (the Motion Context head lives in the same list), and it only fills
+    ``minimax_frame_count`` when the conditioning does not already know it.
+    """
+    incoming = [dict(item) for item in (keyframes or [])]
+    if not incoming:
+        return conditioning
+    if not isinstance(conditioning, (list, tuple)) or not conditioning:
+        raise ValueError("MiniMax H3 keyframe conditioning is empty.")
+    merged = []
+    for entry in conditioning:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            raise ValueError("MiniMax H3 keyframe conditioning entry has an invalid shape.")
+        metadata = dict(entry[1] or {})
+        existing = [dict(item) for item in (metadata.get("minimax_keyframes") or [])]
+        metadata["minimax_keyframes"] = existing + incoming
+        if frame_count is not None and not metadata.get("minimax_frame_count"):
+            metadata["minimax_frame_count"] = int(frame_count)
+        merged.append([entry[0], metadata, *entry[2:]])
+    return merged
+
+
 def _encode_source_bridge_anchor(vae, frame, *, width: int, height: int):
     if not isinstance(frame, torch.Tensor) or frame.ndim != 4 or int(frame.shape[0]) != 1:
         raise ValueError("Source Bridge anchor must be one IMAGE frame [1,H,W,C].")

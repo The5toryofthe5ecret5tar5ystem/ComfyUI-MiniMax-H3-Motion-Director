@@ -26,6 +26,7 @@ from ..lib.image_prep import (
 from ..lib.task_modes import SUPPORTED_TASK_KEYS
 from ..nodes.conditioning import (
     append_minimax_keyframe_anchors,
+    append_minimax_keyframes,
     append_refmod_references,
     refmod_refs_for_segment,
     run_minimax_conditioning,
@@ -944,6 +945,26 @@ def execute_director_plan_core(
                 f"{len(seg.refs or [])} Picture, {len(getattr(seg, 'ref_videos', None) or [])} Video, "
                 f"{len(seg.ref_audios or [])} standalone Audio."
             )
+            # Say the same thing in the log: a segment that reaches the sampler
+            # with no references is indistinguishable from a t2v shot, and that
+            # is worth seeing before the frames are decoded.
+            log.info(
+                "[Motion Director] S%d/%d: %d picture(s), %d video(s), %d standalone audio "
+                "reference(s) in the effective reference set",
+                int(timeline_slot) + 1,
+                int(seg_total),
+                len(seg.refs or []),
+                len(getattr(seg, "ref_videos", None) or []),
+                len(seg.ref_audios or []),
+            )
+            if not (seg.refs or []) and not (getattr(seg, "ref_videos", None) or []):
+                log.warning(
+                    "[Motion Director] S%d/%d: no reference pictures or videos - this segment "
+                    "renders from its prompt alone (attach references to the segment, or to the "
+                    "project's Common References).",
+                    int(timeline_slot) + 1,
+                    int(seg_total),
+                )
 
         if i2v_continuation:
             raw_clip = torch.zeros((0, 16, 16, 3), dtype=torch.float32)
@@ -1557,6 +1578,46 @@ def execute_director_plan_core(
             node_id, segment_index=progress_index, segment_total=seg_total,
             phase="context_encode", phase_value=1, phase_max=1, **meta,
         )
+
+        # ---- lead anchor (anchors.placement = "lead", optional hard pin) ----
+        # The boundary pose sits inside this shot, `lead_frames` before its end,
+        # and the shot that opens on the boundary is left to the normal
+        # continuation. With ``lead_hard`` the pose is also pinned as an H3
+        # keyframe (a marked guide, the same mechanism the Motion Context head
+        # uses), so the shot is *forced* through it instead of merely asked to
+        # approach a picture. A failure here degrades to the soft reference.
+        _lead_anchor = None if is_anchor else anchor_ladder.lead_for_segment(plan, timeline_slot)
+        if _lead_anchor is not None:
+            _lead_hard = bool(getattr(plan.anchors, "lead_hard", False))
+            reports.append(
+                f"Segment {timeline_slot + 1}: lead anchor - boundary "
+                f"{int(_lead_anchor.boundary) + 1} pose {int(_lead_anchor.frames)} frames "
+                f"({anchor_ladder.lead_seconds_text(int(_lead_anchor.frames))}) before the cut"
+                + (" (pinned as an H3 keyframe)." if _lead_hard else " (prompt + reference).")
+            )
+            if _lead_hard:
+                try:
+                    _lead_keyframes = anchor_ladder.lead_keyframes(
+                        _lead_anchor, vae=vae, canvas_frames=int(num_frames),
+                        width=int(plan.width), height=int(plan.height),
+                    )
+                    positive = append_minimax_keyframes(
+                        positive, keyframes=_lead_keyframes, frame_count=int(num_frames),
+                    )
+                    log.info(
+                        "anchor ladder: segment %d lead keyframe pinned at canvas frame %d of %d",
+                        int(timeline_slot) + 1,
+                        int(num_frames) - int(_lead_anchor.frames), int(num_frames),
+                    )
+                except Exception as exc:  # noqa: BLE001 - keep the soft reference
+                    message = (
+                        f"Segment {timeline_slot + 1}: lead anchor could not be pinned as a "
+                        f"keyframe ({exc}); the shot keeps the prompt + reference."
+                    )
+                    if warning_messages is not None:
+                        warning_messages.append(message)
+                    log.warning("anchor ladder: %s", message)
+
         if clear_vram_between_segments:
             # Clear before sampling, not before latent construction: the point is
             # to have the model resident for sampling and gone afterwards, so the
@@ -2293,14 +2354,19 @@ def execute_director_plan_core(
     if plan.anchors is not None and getattr(plan.anchors, "enabled", False):
         _anchor_root = _anchor_directory(node_id)
         plan.anchors_root = str(_anchor_root or "")
-        if getattr(plan.anchors, "render_pass", True):
+        # ``only_indices`` is an explicit "render exactly these boundaries"
+        # request (the strip's per-cell ▶ and its Pre-roll set it). It outranks
+        # the "Render anchors" checkbox: with the box off, a click used to load
+        # whatever already existed, render nothing, and report success.
+        _anchor_only = tuple(getattr(plan.anchors, "only_indices", ()) or ())
+        if getattr(plan.anchors, "render_pass", True) or _anchor_only:
             _anchor_tensors = anchor_ladder.run_anchor_pass(
                 plan,
                 root=_anchor_root,
                 render=lambda _anchor_seg: _run_one_segment(_anchor_seg, progress_index=0)[0],
                 reports=reports,
                 warnings=warning_messages,
-                only=(getattr(plan.anchors, "only_indices", ()) or None),
+                only=(_anchor_only or None),
                 force=bool(getattr(plan.anchors, "force_render", False)),
             )
         else:

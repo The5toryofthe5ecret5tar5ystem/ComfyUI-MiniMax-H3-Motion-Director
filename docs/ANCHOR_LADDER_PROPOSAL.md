@@ -318,3 +318,48 @@ Tests: `tests/test_anchor_ladder.py` (hold/order/resize/best-effort + parse flag
 * `boundaries` accepts `"all"`, `"bookends"`, `"none"` or an explicit index list.
   Strict semantics: a boundary outside the selection is neither rendered nor
   injected, even when its PNG is already on disk.
+
+## 7. Files, seeds and references (what the pass and the strip agree on)
+
+An anchor PNG is named `A<boundary>_s<seed>_v<variant>_f<chunk>.png`, and one boundary can hold several
+of them (re-rolls leave their predecessors behind). Two rules keep the run and the strip from
+disagreeing about which picture is in play:
+
+* **Lookup is by boundary, seed first.** The file for the boundary's configured seed wins; when it is
+  not on disk, the **newest** PNG for that boundary is injected instead and the log names the file it
+  used. Saving always writes the configured seed, so re-rendering converges back to one filename.
+  (Before this, a boundary whose PNG had been re-rolled under another seed silently rendered with no
+  anchor at all while the strip displayed the file it had.)
+* **An anchor renders with the owning segment's references** - the same list the fill receives -
+  plus the prompt built from `{shared}`, `{beat}`, `{index}` and, optionally, `{subject}` (that
+  segment's own `subject_definitions:` block). If the owner carries no pictures, the plan-level
+  picture pool is borrowed; if there is nothing at all, the pass warns instead of quietly producing a
+  boundary pose of somebody else - an anchor without references is a stranger standing in the right
+  place, and both sides of the boundary end up conditioned on it.
+* Anchors are deliberately standalone: no Motion Context, no continuity, no source window, no audio.
+  That is what makes them comparable from run to run, and why the fills' Motion Context head is the
+  only thing carrying the join.
+
+## 8. Placement: on the cut, or one second before it
+
+Boundary placement makes **two independent generations** agree on a pose at the exact seam - each sees
+the anchor only as a loose reference, so the pictures they land on differ. Lead placement
+(`anchors.placement: "lead"`) moves the checkpoint *inside* the shot instead:
+
+| | boundary (default) | lead |
+|---|---|---|
+| who is conditioned on the pose | the shot that ends on boundary *k* **and** the one that opens on it | only the shot that **ends** on boundary *k* |
+| where the pose sits | at the cut | `leadFrames` before that shot's end (default 24 = 1 s) |
+| what carries the join | both sides aiming at the same picture | the shot's own free tail + the normal Motion Context continuation |
+| prompt line | `<Picture N> is the pose this shot must END on` | `<Picture N> is the pose this shot passes through about one second before it ends` |
+| boundary 0 (the opening) | opening pose of shot 1 | unchanged - there is no earlier shot to lead into |
+
+With `leadHard` the pose is additionally pinned as a **marked H3 keyframe** at
+`canvas_frames - leadFrames` on the fill's conditioning. That is the same guide mechanism the Motion
+Context head uses for its prefix (`patches/h3_layout.py` positions marked guides by frame index), so
+the shot is *forced* through the picture; the last second then runs free and hands a freshly
+generated pose to the next shot's head. Costs to watch: the planned beat now lands a second early,
+the final second of the shot is unconstrained, and a hard interior guide can make the approach rush
+if the pose is far from where the shot already is. Measure the seam (frame-to-frame MAD at the cut
+vs. inside the shot) before and after - the doc's §1 method, `x step` 1.0 is normal motion, 5x and up
+is a visible cut.

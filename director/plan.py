@@ -216,8 +216,11 @@ class DirectorPlan:
     # Anchor ladder plan (parsed from timeline["anchors"]); None when disabled.
     # ``anchors_root`` is filled by the executor with the directory the anchor
     # PNGs live in (next to the segment caches) before the anchor pass runs.
+    # ``anchor_leads`` holds the lead-placement poses per timeline index
+    # (``{segment: LeadAnchor}``), filled by anchor_ladder.apply_injection.
     anchors: object | None = None
     anchors_root: str = ""
+    anchor_leads: dict = field(default_factory=dict)
 
     @property
     def segment_count(self) -> int:

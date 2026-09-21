@@ -5,7 +5,60 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ## v1.13.0 — 2026-09-20
 
+### Fixed
+
+- **An approved boundary anchor can no longer drop out of a run.** Anchors were looked up by the
+  filename their seed implies (`A01_s424243_v1_f22.png`), so a boundary whose PNG had been rendered
+  under a different seed - a re-roll, a cleared `seeds` array, an edited `seedBase` - rendered with
+  **no anchor at all**, while the strip kept showing the file that is on disk; in one project only two
+  of four boundaries were injected, silently. The lookup now prefers the configured seed and falls
+  back to the newest PNG for that boundary, naming the file it uses in the log (`boundary 4 injects
+  A03_s24075095_v1_f22.png - no PNG exists for its configured seed 424245 ...`). A re-render still
+  writes the configured seed's filename, so nothing else moves.
+- **An anchor that renders without references now says so, loudly.** A boundary anchor renders from
+  the references of the segment that owns it; if that segment carries none, the anchor used to be
+  produced from the prompt alone - an invented person in the right pose - and both sides of the
+  boundary were then conditioned on a stranger, which is a seamless-looking project until you reach
+  the join. The pass now logs the reference set it renders with per boundary, borrows the plan-level
+  picture pool when the owner has none of its own, and warns when there is nothing at all
+  (`boundary 2 has no reference pictures - it renders from the prompt alone and will not match the
+  character in the fills`). Fills got the same treatment: every r2v segment logs its effective
+  reference set, and a segment that reaches the sampler with no pictures and no videos warns that it
+  is about to behave like a t2v shot.
+- **The anchor fingerprint tracks the file that is actually injected.** A boundary that falls back to
+  a newer PNG for a different seed now changes the fingerprint, so segment caches cannot be reused
+  from a run that was anchored on a different picture.
+- **\"Render this anchor\" now renders, whatever the checkbox says.** With **Render anchors**
+  unchecked (it governs what a normal *Start run* does automatically), pressing ▶ on a boundary - even
+  right after ↻ gave it a new seed - took the load-only path: nothing was rendered, the run finished in
+  about a second, and the strip reported *\"boundary #3 already existed and was reused\"*. The strip's own
+  render actions now force the pass on for the duration of that run (restoring the checkbox afterwards),
+  and the engine renders the boundaries named by an explicit request (`onlyIndices`) even when the
+  checkbox is off. The message is decided from the listing instead of from the run: a boundary with no
+  PNG on disk after the click reports *\"produced no PNG - check the run log\"*, a Pre-roll that leaves
+  boundaries missing says so, and the footer no longer promises *\"N will render on the next run\"* while
+  \"Render anchors\" is off (`2 missing, but \"Render anchors\" is off - a normal run will not render
+  them`). The checkbox is locked while a strip action is in flight.
+
 ### Added
+
+- **`{subject}` in the anchor prompt template**: the owning segment's own `subject_definitions:`
+  block, so an anchor can be described in exactly the words its fill uses instead of the global
+  prompt alone.
+- **A boundary pose can sit *inside* a shot instead of on the cut** (`anchors.placement: "lead"`,
+  `leadFrames`, default 24 = one second at H3's 24 fps). Lead placement gives the pose of boundary
+  *k* to the shot that **ends** on it, one second before its end, and leaves the shot that opens on
+  the boundary to the normal continuation - instead of two independent generations aiming at the
+  same picture from opposite sides of the seam. The strip gained a **Placement** select (*at the
+  cut* / *1s before the cut*), a **Pin pose** checkbox, a `−1s` badge per cell (its thumbnail click
+  then parks the playhead one second before the cut) and a footer note; the injected line asks the
+  shot to *pass through* the pose and carry on (`{{anchor_lead}}` marker, `ANCHOR_LEAD_LINE`).
+- **`Pin pose` pins that lead pose as a real H3 keyframe** (`anchors.leadHard`): a marked guide at
+  `canvas_frames - leadFrames`, which is the mechanism the Motion Context head already uses for its
+  prefix (`nodes/conditioning.py: append_minimax_keyframes` / `encode_h3_keyframe_latent`, positioned
+  by `patches/h3_layout.py`). The shot is then forced through the picture instead of being asked to
+  approach it; when the guide cannot be built the shot keeps the prompt + reference and the run
+  reports why instead of failing.
 
 - **Boundary anchors: the storyboard is rendered first, and the fills are locked to it.** An optional
   **anchor pass** now runs ahead of the segment fills. It renders one short chunk per segment

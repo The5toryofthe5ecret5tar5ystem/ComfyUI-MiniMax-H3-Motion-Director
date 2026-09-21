@@ -184,6 +184,33 @@ def test_expand_segment_prompt_disabled_or_no_tags_is_noop():
     assert al.expand_segment_prompt("p") == "p"
 
 
+def test_anchor_prompt_supports_the_subject_token():
+    item = al.AnchorItem(index=1, seed=5, beat="hands lift to temples")
+    text = al.anchor_prompt(
+        item, shared_prompt="shared line", template="{shared}\n{subject}\n{beat}",
+        subject_text="subject_definitions:\n<Subject 1> is the woman in the references.",
+    )
+    assert "shared line" in text
+    assert "<Subject 1>" in text
+    assert "hands lift to temples" in text
+    # without the token the subject text is simply unused
+    assert al.anchor_prompt(item, shared_prompt="s", template="{beat}") == "hands lift to temples"
+
+
+def test_subject_block_extracts_only_the_definitions():
+    prompt = (
+        "pov\nsubject_definitions:\n<Subject 1> is the woman. <Picture 1> is her face.\n"
+        "summary:\nA calm room.\ndetailed_description:\n[Shot 1] she enters."
+    )
+    block = al.subject_block(prompt)
+    assert block.startswith("subject_definitions:")
+    assert "<Subject 1> is the woman" in block
+    assert "summary:" not in block and "[Shot 1]" not in block
+    assert al.subject_block("no definitions here") == ""
+    assert al.subject_block("") == ""
+    assert al.subject_block("subject_definitions:\n<Subject 1> only.") == "subject_definitions:\n<Subject 1> only."
+
+
 # --------------------------------------------------------------------------- #
 # injection
 # --------------------------------------------------------------------------- #
@@ -222,6 +249,126 @@ def test_apply_injection_skips_segments_without_tensors(tmp_path):
     touched = al.apply_injection(plan, {}, warnings=warnings)
     assert touched == 0
     assert warnings == []
+
+
+# --------------------------------------------------------------------------- #
+# lead placement: the pose sits inside the shot that ends on the boundary
+# --------------------------------------------------------------------------- #
+def test_parse_lead_placement_defaults_and_clamping(tmp_path):
+    plan = _fake_plan(tmp_path, n=2)  # no placement keys -> boundary, 24 frames
+    assert plan.anchors.placement == "boundary"
+    assert plan.anchors.lead_frames == 24
+    assert plan.anchors.lead_hard is False
+    assert plan.anchors.is_lead is False
+
+    timeline = {
+        "anchors": {"mode": "soft", "placement": "lead", "leadFrames": 12, "leadHard": True,
+                    "beats": ["a", "b", "c"]},
+    }
+    segs = [_fake_segment(i) for i in range(2)]
+    lead = al.parse_anchor_config(timeline, segs)
+    assert lead.placement == "lead" and lead.is_lead is True
+    assert lead.lead_frames == 12 and lead.lead_hard is True
+    assert abs(lead.lead_seconds() - 0.5) < 1e-9
+
+    # unknown placements fall back, absurd offsets are clamped
+    weird = al.parse_anchor_config(
+        {"anchors": {"mode": "soft", "placement": "sideways", "leadFrames": 9999}}, segs,
+    )
+    assert weird.placement == "boundary"
+    assert 4 <= weird.lead_frames <= 120
+
+
+def test_lead_seconds_text_reads_like_english():
+    assert al.lead_seconds_text(24) == "one second"
+    assert al.lead_seconds_text(48) == "2 seconds"
+    assert al.lead_seconds_text(12) == "0.5 seconds"
+
+
+def test_expand_segment_prompt_supports_the_lead_line():
+    text = al.expand_segment_prompt("shot A.", lead_tag=3, lead_seconds="one second")
+    assert "<Picture 3>" in text
+    assert "about one second before it ends" in text
+    assert "do not hold, settle or pose on it" in text
+    # the marker wins over appending, and an empty tag injects nothing
+    marked = al.expand_segment_prompt("shot {{anchor_lead}} done.", lead_tag=2, lead_seconds="2 seconds")
+    assert "<Picture 2>" in marked and "{{anchor_lead}}" not in marked
+    assert al.expand_segment_prompt("shot A.", lead_tag=None) == "shot A."
+
+
+def test_apply_injection_lead_mode_touches_only_the_ending_shot(tmp_path):
+    torch = pytest.importorskip("torch")
+    timeline = {
+        "anchors": {"mode": "soft", "placement": "lead", "leadFrames": 24,
+                    "beats": ["opens", "middle", "ends"]},
+    }
+    segs = [_fake_segment(0, refs=0), _fake_segment(1, refs=0)]
+    segs[0].timeline_index = 0
+    segs[1].timeline_index = 1
+    plan = SimpleNamespace(segments=segs, global_prompt="", anchors_root=str(tmp_path), anchors=None)
+    plan.anchors = al.parse_anchor_config(timeline, segs)
+    tensors = {i: torch.zeros(1, 4, 4, 3) + i for i in range(3)}
+    touched = al.apply_injection(plan, tensors)
+
+    assert touched == 2
+    # segment 0: opening pose (boundary 0) + lead pose (boundary 1, inside it)
+    assert len(segs[0].refs) == 2
+    assert "FIRST frame of this shot" in segs[0].prompt
+    assert "about one second before it ends" in segs[0].prompt
+    # segment 1: only its own lead pose - nothing at its opening
+    assert len(segs[1].refs) == 1
+    assert "FIRST frame of this shot" not in segs[1].prompt
+    assert "about one second before it ends" in segs[1].prompt
+    leads = plan.anchor_leads
+    assert set(leads) == {0, 1}
+    assert leads[0].boundary == 1 and leads[1].boundary == 2
+    assert leads[0].frames == 24 and leads[0].segment == 0
+    assert leads[1].tensor is tensors[2]
+    assert al.lead_for_segment(plan, 1) is leads[1]
+    assert al.lead_for_segment(plan, 7) is None
+
+
+def test_lead_keyframes_pin_the_pose_inside_the_canvas():
+    torch = pytest.importorskip("torch")
+    from mmx_pkg.patches.markers import MC_KEY
+
+    class FakeVAE:
+        def encode(self, frame):
+            assert int(frame.shape[0]) == 1
+            return torch.zeros(1, 4, 1, 2, 2)
+
+    lead = al.LeadAnchor(boundary=2, segment=1, frames=24, tensor=torch.zeros(1, 8, 8, 3))
+    keyframes = al.lead_keyframes(lead, vae=FakeVAE(), canvas_frames=277, width=64, height=64)
+    assert len(keyframes) == 1
+    assert keyframes[0][MC_KEY] == 277 - 24
+    assert keyframes[0]["resolved_frame_index"] == 0
+    assert tuple(keyframes[0]["latent"].shape) == (1, 4, 1, 2, 2)
+
+    with pytest.raises(ValueError):
+        al.lead_keyframes(al.LeadAnchor(boundary=0, segment=0, frames=24), vae=FakeVAE(),
+                          canvas_frames=12, width=64, height=64)
+    with pytest.raises(ValueError):
+        al.lead_keyframes(al.LeadAnchor(boundary=0, segment=0, frames=24), vae=FakeVAE(),
+                          canvas_frames=243, width=64, height=64)
+
+
+def test_append_minimax_keyframes_keeps_the_head_and_adds_the_lead():
+    torch = pytest.importorskip("torch")
+    from mmx_pkg.nodes.conditioning import append_minimax_keyframes
+    from mmx_pkg.patches.markers import MC_KEY
+
+    head = [{"resolved_frame_index": 0, MC_KEY: 0, "latent": torch.zeros(1, 4, 1, 2, 2)}]
+    conditioning = [["cond", {"minimax_keyframes": head, "minimax_frame_count": 277}, "extra"]]
+    lead = [{"resolved_frame_index": 0, MC_KEY: 253, "latent": torch.zeros(1, 4, 1, 2, 2)}]
+    out = append_minimax_keyframes(conditioning, keyframes=lead, frame_count=277)
+    merged = out[0][1]["minimax_keyframes"]
+    assert len(merged) == 2 and merged[0][MC_KEY] == 0 and merged[1][MC_KEY] == 253
+    assert out[0][1]["minimax_frame_count"] == 277  # never lowered/overwritten
+    assert out[0][2] == "extra"
+    # an empty list is a no-op, and a frame count is only filled when missing
+    assert append_minimax_keyframes(conditioning, keyframes=[]) is conditioning
+    bare = append_minimax_keyframes([["c", {"minimax_keyframes": []}]], keyframes=lead, frame_count=243)
+    assert bare[0][1]["minimax_frame_count"] == 243
 
 
 # --------------------------------------------------------------------------- #
@@ -285,6 +432,73 @@ def test_load_anchor_tensors_warns_on_missing(tmp_path):
     assert len(warnings) == 2
 
 
+# --------------------------------------------------------------------------- #
+# on-disk lookup: seed-exact wins, newest file for the boundary is the fallback
+# --------------------------------------------------------------------------- #
+def test_resolve_item_file_prefers_the_configured_seed(tmp_path):
+    item = al.AnchorItem(index=1, seed=4243, beat="b", chunk_frames=22)
+    correct = tmp_path / al.anchor_file_name(1, 4243, chunk_frames=22)
+    correct.write_bytes(b"png")
+    other = tmp_path / al.anchor_file_name(1, 99, chunk_frames=22)
+    other.write_bytes(b"png")
+    path, exact = al.resolve_item_file(item, tmp_path)
+    assert path == correct and exact is True
+
+
+def test_resolve_item_file_falls_back_to_the_newest_for_that_boundary(tmp_path):
+    item = al.AnchorItem(index=1, seed=4243, beat="b", chunk_frames=22)
+    older = tmp_path / al.anchor_file_name(1, 111, chunk_frames=22)
+    newer = tmp_path / al.anchor_file_name(1, 222, chunk_frames=22)
+    older.write_bytes(b"png")
+    newer.write_bytes(b"png")
+    older.touch()
+    # a file for a DIFFERENT boundary must never be borrowed
+    (tmp_path / al.anchor_file_name(2, 333, chunk_frames=22)).write_bytes(b"png")
+    path, exact = al.resolve_item_file(item, tmp_path)
+    assert path == newer and exact is False
+    assert al.scan_anchor_files(1, tmp_path) == [(222, newer), (111, older)]
+
+
+def test_resolve_item_file_missing_returns_the_configured_path(tmp_path):
+    item = al.AnchorItem(index=0, seed=4242, beat="b", chunk_frames=22)
+    path, exact = al.resolve_item_file(item, tmp_path)
+    assert path == tmp_path / al.anchor_file_name(0, 4242, chunk_frames=22)
+    assert exact is True
+    assert al.resolve_item_file(item, None) == (None, True)
+
+
+def test_run_anchor_pass_injects_the_fallback_file_without_rendering(tmp_path, caplog):
+    torch = pytest.importorskip("torch")
+    plan = _fake_plan(tmp_path, n=2)  # configured seeds 4242, 4243, 4244
+    rendered = tmp_path / al.anchor_file_name(1, 987654, chunk_frames=22)
+    assert al.save_anchor_image(torch.zeros(1, 8, 8, 3), rendered)
+
+    def render(seg):  # pragma: no cover - the fallback must be reused, not re-rendered
+        raise AssertionError("a boundary with a PNG on disk must not re-render")
+
+    with caplog.at_level("INFO"):
+        out = al.run_anchor_pass(plan, render=render, root=tmp_path, only=[1])
+    assert list(out) == [1]
+    assert any(
+        "no PNG exists for its configured seed 4243" in r.getMessage() for r in caplog.records
+    )
+
+
+def test_load_anchor_tensors_uses_the_fallback_file(tmp_path, caplog):
+    torch = pytest.importorskip("torch")
+    plan = _fake_plan(tmp_path, n=1)
+    assert al.save_anchor_image(
+        torch.zeros(1, 8, 8, 3), tmp_path / al.anchor_file_name(0, 555, chunk_frames=22)
+    )
+    warnings: list[str] = []
+    with caplog.at_level("INFO"):
+        out = al.load_anchor_tensors(plan, root=tmp_path, warnings=warnings)
+    assert list(out) == [0]
+    assert any("injects" in r.getMessage() for r in caplog.records)
+    # boundary 1 still has nothing on disk -> warned, not silently dropped
+    assert any("is not on disk" in w for w in warnings)
+
+
 def test_anchor_fingerprint_tracks_files(tmp_path):
     torch = pytest.importorskip("torch")
     plan = _fake_plan(tmp_path, n=1)
@@ -335,6 +549,44 @@ def test_build_anchor_segment_is_standalone_and_seeded(tmp_path):
     assert seg.context_link is None
     assert seg.frame_count == item.chunk_frames
     assert seg.index >= 1000  # never collides with a real segment index
+
+
+def test_build_anchor_segment_copies_the_owner_references(tmp_path):
+    from mmx_pkg.director.plan import SegmentPlan
+
+    plan = _fake_plan(tmp_path, n=1)
+    owner = SegmentPlan(
+        index=0, start_frame=0, end_frame=175, prompt="p", task_type="t", task_key="r2v",
+        use_global=False,
+        refs=[SimpleNamespace(index=0), SimpleNamespace(index=1)],
+    )
+    plan.segments = [owner]
+    seg = al.build_anchor_segment(plan, plan.anchors.item(0))
+    assert len(seg.refs) == 2
+
+
+def test_build_anchor_segment_borrows_the_plan_pool_then_warns(tmp_path, caplog):
+    """An anchor must never quietly render without the character."""
+    from mmx_pkg.director.plan import SegmentPlan
+
+    plan = _fake_plan(tmp_path, n=1)
+    owner = SegmentPlan(
+        index=0, start_frame=0, end_frame=175, prompt="p", task_type="t", task_key="r2v",
+        use_global=False, refs=[],
+    )
+    plan.segments = [owner]
+    plan.global_refs = [SimpleNamespace(index=0)]
+    with caplog.at_level("INFO"):
+        seg = al.build_anchor_segment(plan, plan.anchors.item(0))
+    assert len(seg.refs) == 1
+    assert any("borrows 1 picture(s) from plan.global_refs" in r.getMessage() for r in caplog.records)
+
+    caplog.clear()
+    plan.global_refs = []
+    with caplog.at_level("WARNING"):
+        seg = al.build_anchor_segment(plan, plan.anchors.item(0))
+    assert seg.refs == []
+    assert any("no reference pictures" in r.getMessage() for r in caplog.records)
 
 
 # --------------------------------------------------------------------------- #

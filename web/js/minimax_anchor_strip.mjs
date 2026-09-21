@@ -30,11 +30,16 @@ const DEFAULT_ANCHORS = {
     renderPass: true,
     preRollOnly: false,
     draft: { enabled: false, scale: 0.5, steps: 0 },
+    placement: "boundary",
+    leadFrames: 24,
+    leadHard: false,
     beats: [],
     seeds: [],
 };
 
 const MODES = ["off", "soft", "hard"];
+/** Where a boundary pose sits: at the cut, or one second before it. */
+const PLACEMENTS = ["boundary", "lead"];
 const PLAN_DEBOUNCE_MS = 420;
 
 const STYLES = `
@@ -44,6 +49,8 @@ const STYLES = `
 .mmxa-title{font-weight:700;letter-spacing:.02em}
 .mmxa-fold{background:none;border:none;color:#d8d8d8;font-size:12px;cursor:pointer;padding:0 2px;line-height:1}
 .mmxa-summary{display:none;opacity:.8;font-size:11px}
+.mmxa-lead{color:#e0b45c;font-size:10px}
+.mmxa-lbl[data-off="1"]{opacity:.45}
 .mmxa-strip[data-collapsed="1"] .mmxa-bar>*{display:none}
 .mmxa-strip[data-collapsed="1"] .mmxa-fold,
 .mmxa-strip[data-collapsed="1"] .mmxa-title,
@@ -122,6 +129,11 @@ function anchorsBlock(ed) {
     block.candidates = clampInt(block.candidates, 1, 4, 1);
     block.renderPass = block.renderPass !== false;
     block.preRollOnly = block.preRollOnly === true;
+    block.placement = PLACEMENTS.includes(String(block.placement).toLowerCase())
+        ? String(block.placement).toLowerCase()
+        : "boundary";
+    block.leadFrames = Math.max(4, Math.round(clampInt(block.leadFrames, 4, 120, DEFAULT_ANCHORS.leadFrames) / 4) * 4);
+    block.leadHard = block.leadHard === true;
     const draft = block.draft && typeof block.draft === "object" ? block.draft : {};
     draft.enabled = draft.enabled === true;
     draft.scale = clampFloat(draft.scale, 0.1, 1, DEFAULT_ANCHORS.draft.scale);
@@ -219,6 +231,12 @@ export function installAnchorStrip(ed) {
             <label class="mmxa-lbl"><span data-i18n="anchor.chunk">Chunk</span>
                 <input class="mmxa-num" type="number" min="5" max="425" step="1" data-t="chunk">
             </label>
+            <label class="mmxa-lbl" data-i18n-title="anchor.placementTitle"><span data-i18n="anchor.placement">Placement</span>
+                <select class="mmxa-select" data-t="placement"></select>
+            </label>
+            <label class="mmxa-lbl" data-i18n-title="anchor.leadPinTitle">
+                <input type="checkbox" data-t="leadHard"> <span data-i18n="anchor.leadPin">Pin pose</span>
+            </label>
             <label class="mmxa-lbl" data-i18n-title="anchor.renderPass">
                 <input type="checkbox" data-t="renderPass"> <span data-i18n="anchor.renderPass">Render anchors</span>
             </label>
@@ -253,6 +271,15 @@ export function installAnchorStrip(ed) {
         modeSelect.appendChild(option);
     }
     const chunkInput = el.querySelector('[data-t="chunk"]');
+    const placementSelect = el.querySelector('[data-t="placement"]');
+    for (const placement of PLACEMENTS) {
+        const option = document.createElement("option");
+        option.value = placement;
+        option.dataset.i18n = placement === "lead" ? "anchor.placementLead" : "anchor.placementBoundary";
+        option.textContent = t(option.dataset.i18n);
+        placementSelect.appendChild(option);
+    }
+    const leadHardBox = el.querySelector('[data-t="leadHard"]');
     const renderPassBox = el.querySelector('[data-t="renderPass"]');
     const renderFillBox = el.querySelector('[data-t="renderFill"]');
     const approveAllBtn = el.querySelector('[data-t="approveAll"]');
@@ -286,6 +313,9 @@ export function installAnchorStrip(ed) {
         el.dataset.busy = busy ? "1" : "0";
         for (const button of el.querySelectorAll("button")) button.disabled = busy;
         renderFillBox.disabled = busy;
+        renderPassBox.disabled = busy;
+        placementSelect.disabled = busy;
+        leadHardBox.disabled = busy;
     }
 
     function setFoot() {
@@ -301,11 +331,21 @@ export function installAnchorStrip(ed) {
         const preRoll = block.mode !== "off" && block.preRollOnly === true;
         const selection = selectionSet(block);
         if (preRoll) parts.push(`<span class="mmxa-preroll"></span>`);
+        if (block.mode !== "off" && block.placement === "lead") {
+            parts.push(`<span class="mmxa-leadfoot"></span>`);
+        }
         if (block.mode !== "off" && selection !== null) parts.push(`<span class="mmxa-sel"></span>`);
         footEl.innerHTML = parts.join(" ");
         if (hint) footEl.querySelector(".mmxa-hint").textContent = hint;
         footEl.querySelector(".mmxa-est").textContent = lastEstimate || t("anchor.loading");
         if (preRoll) footEl.querySelector(".mmxa-preroll").textContent = t("anchor.preRollFoot");
+        if (block.mode !== "off" && block.placement === "lead") {
+            const seconds = (leadFramesOf(block) / 24).toFixed(2).replace(/\.?0+$/, "");
+            footEl.querySelector(".mmxa-leadfoot").textContent = t("anchor.leadFoot", {
+                seconds,
+                pinned: block.leadHard ? t("anchor.leadFootPinned") : "",
+            });
+        }
         if (block.mode !== "off" && selection !== null) {
             footEl.querySelector(".mmxa-sel").textContent = t("anchor.activeCount", {
                 active: selection.size, total: boundaryCount(ed),
@@ -436,11 +476,24 @@ export function installAnchorStrip(ed) {
         return total > 0 ? Math.min(frame, Math.max(0, total - 1)) : frame;
     }
 
+    /** In lead placement the pose sits inside the shot that ends on the boundary. */
+    function leadFramesOf(block = anchorsBlock(ed)) {
+        const value = clampInt(block.leadFrames, 4, 120, DEFAULT_ANCHORS.leadFrames);
+        return Math.max(4, Math.round(value / 4) * 4);
+    }
+
     function seekToBoundary(index) {
-        const frame = boundaryFrame(index);
-        if (frame === null || typeof ed.seekToFrame !== "function") return;
+        const block = anchorsBlock(ed);
+        const base = boundaryFrame(index);
+        if (base === null || typeof ed.seekToFrame !== "function") return;
+        const lead = block.placement === "lead" && index > 0;
+        const frame = lead ? Math.max(0, base - leadFramesOf(block)) : base;
         ed.seekToFrame(frame, { fromUi: true });
-        hint = t("anchor.seekHint", { index: index + 1, frame: frame + 1 });
+        hint = lead
+            ? t("anchor.seekHintLead", {
+                index: index + 1, frame: frame + 1, seconds: leadFramesOf(block) / 24,
+            })
+            : t("anchor.seekHint", { index: index + 1, frame: frame + 1 });
         setFoot();
     }
 
@@ -477,6 +530,7 @@ export function installAnchorStrip(ed) {
         const previous = {
             preRollOnly: block.preRollOnly === true,
             forceRender: block.forceRender === true,
+            renderPass: block.renderPass !== false,
             onlyIndices: Array.isArray(block.onlyIndices) ? block.onlyIndices.slice() : null,
         };
         const historyBefore = await historyCount();
@@ -484,6 +538,11 @@ export function installAnchorStrip(ed) {
         try {
             block.preRollOnly = true;
             block.forceRender = force;
+            // Every strip action that says "render" means it: the "Render anchors"
+            // checkbox governs what a normal Start run does automatically, not
+            // whether this button works. (With it off, ▶ used to load the anchors
+            // that already existed, render nothing, and report "reused".)
+            block.renderPass = true;
             // A fresh nonce changes the payload, so ComfyUI's node-output cache
             // cannot short-circuit a repeat click into a 0.01s no-op run.
             block.nonce = String(Date.now());
@@ -499,6 +558,7 @@ export function installAnchorStrip(ed) {
             const current = anchorsBlock(ed);
             current.preRollOnly = previous.preRollOnly;
             current.forceRender = previous.forceRender;
+            current.renderPass = previous.renderPass;
             if (previous.onlyIndices === null) delete current.onlyIndices;
             else current.onlyIndices = previous.onlyIndices;
             persistTimeline(ed);
@@ -517,7 +577,7 @@ export function installAnchorStrip(ed) {
             cell.dataset.index = String(index);
             cell.innerHTML = `
                 <a class="mmxa-thumb" target="_blank" rel="noopener" data-i18n-title="anchor.thumbTitle"><span class="mmxa-thumb-empty"></span></a>
-                <div class="mmxa-row"><span class="mmxa-idx"></span><span class="mmxa-seed"></span></div>
+                <div class="mmxa-row"><span class="mmxa-idx"></span><span class="mmxa-lead"></span><span class="mmxa-seed"></span></div>
                 <div class="mmxa-row mmxa-status"><i class="mmxa-dot"></i><span class="mmxa-status-txt"></span></div>
                 <input class="mmxa-beat" type="text" data-i18n-placeholder="anchor.beatPlaceholder">
                 <div class="mmxa-actions">
@@ -576,15 +636,21 @@ export function installAnchorStrip(ed) {
                 hint = t("anchor.rendering", { index: index + 1 });
                 setFoot();
                 withBusy(async () => {
+                    let result = { settled: true, changed: false };
                     try {
-                        const result = await runAnchors([index], { force: true });
+                        result = await runAnchors([index], { force: true });
                         clearFailure();
-                        if (!result.settled) hint = t("anchor.renderTimeout");
-                        else if (result.changed) hint = t("anchor.renderedHint", { index: index + 1 });
-                        else hint = t("anchor.renderedReused", { index: index + 1 });
                     } finally {
                         delete cell.dataset.rendering;
+                        // Decide the message on the listing, not on the run: a
+                        // boundary that produced no PNG is a failure, never a
+                        // "it was already there and got reused".
                         await refresh();
+                        const onDisk = diskItems.has(index);
+                        if (!result.settled) hint = t("anchor.renderTimeout");
+                        else if (result.changed) hint = t("anchor.renderedHint", { index: index + 1 });
+                        else if (!onDisk) hint = t("anchor.renderNothing", { index: index + 1 });
+                        else hint = t("anchor.renderedReused", { index: index + 1 });
                         setFoot();
                     }
                 });
@@ -610,6 +676,15 @@ export function installAnchorStrip(ed) {
             cell.dataset.status = status;
             cell.dataset.stale = stale ? "1" : "0";
             cell.querySelector(".mmxa-idx").textContent = `#${index + 1}`;
+            const leadMode = block.placement === "lead";
+            const leadFrame = leadMode && index > 0 ? leadFramesOf(block) : 0;
+            cell.dataset.lead = leadFrame ? "1" : "0";
+            const leadBadge = cell.querySelector(".mmxa-lead");
+            if (leadBadge) {
+                leadBadge.textContent = leadFrame
+                    ? t("anchor.leadBadge", { seconds: (leadFrame / 24).toFixed(2).replace(/\.?0+$/, "") })
+                    : "";
+            }
             cell.querySelector(".mmxa-seed").textContent = `s${wanted}`;
             cell.querySelector(".mmxa-status-txt").textContent = item
                 ? `${t(`anchor.status.${status}`)}${stale ? " · ↻" : ""}`
@@ -691,7 +766,9 @@ export function installAnchorStrip(ed) {
                 fill: (data.worstFillWorkspaceGb ?? 0).toFixed(2),
             });
             if (Array.isArray(data.missing) && data.missing.length && data.enabled) {
-                lastEstimate += ` · ${t("anchor.missing", { count: data.missing.length })}`;
+                lastEstimate += data.renderPass === false
+                    ? ` · ${t("anchor.missingOff", { count: data.missing.length })}`
+                    : ` · ${t("anchor.missing", { count: data.missing.length })}`;
             }
             if (Number(data.chunkFrames) && document.activeElement !== chunkInput) {
                 chunkInput.value = String(data.chunkFrames);
@@ -739,6 +816,12 @@ export function installAnchorStrip(ed) {
         if (document.activeElement !== draftScaleInput) draftScaleInput.value = String(Math.round((block.draft?.scale ?? 0.5) * 100));
         if (document.activeElement !== draftStepsInput) draftStepsInput.value = String(block.draft?.steps ?? 0);
         if (renderPassBox.checked !== block.renderPass) renderPassBox.checked = block.renderPass;
+        if (placementSelect.value !== block.placement) placementSelect.value = block.placement;
+        if (leadHardBox.checked !== block.leadHard) leadHardBox.checked = block.leadHard;
+        // "Pin pose" is the hard variant of lead placement: without lead there is
+        // no interior frame to pin, so the box follows the placement.
+        leadHardBox.disabled = busy || block.placement !== "lead";
+        leadHardBox.parentElement.dataset.off = block.placement === "lead" ? "0" : "1";
         if (renderFillBox.checked !== !block.preRollOnly) renderFillBox.checked = !block.preRollOnly;
         approveAllBtn.disabled = busy;
         clearBtn.disabled = busy;
@@ -849,6 +932,23 @@ export function installAnchorStrip(ed) {
         schedulePlan();
     });
 
+    placementSelect.addEventListener("change", () => {
+        const block = anchorsBlock(ed);
+        block.placement = PLACEMENTS.includes(placementSelect.value) ? placementSelect.value : "boundary";
+        persistTimeline(ed);
+        hint = block.placement === "lead"
+            ? t("anchor.placementLeadHint", { seconds: leadFramesOf(block) / 24 })
+            : t("anchor.placementBoundaryHint");
+        refresh();
+    });
+
+    leadHardBox.addEventListener("change", () => {
+        anchorsBlock(ed).leadHard = Boolean(leadHardBox.checked);
+        persistTimeline(ed);
+        schedulePlan();
+        setFoot();
+    });
+
     // "Render fill pieces" unchecked = pre-roll: render the boundary anchors,
     // write the storyboard, stop. Checking it again runs the normal pass, which
     // reuses the anchors already on disk.
@@ -877,12 +977,17 @@ export function installAnchorStrip(ed) {
                 ? t("anchor.preRollRunning")
                 : t("anchor.preRollNothing", { count: diskItems.size });
             setFoot();
+            let settled = true;
             try {
                 const result = await runAnchors(missing);
                 clearFailure();
-                hint = result.settled ? t("anchor.preRollDone") : t("anchor.renderTimeout");
+                settled = result.settled;
             } finally {
                 await refresh();
+                const still = missing.filter((index) => !diskItems.has(index));
+                if (!settled) hint = t("anchor.renderTimeout");
+                else if (still.length) hint = t("anchor.preRollPartial", { count: still.length });
+                else hint = t("anchor.preRollDone");
                 setFoot();
             }
         });

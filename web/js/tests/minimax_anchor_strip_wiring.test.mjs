@@ -24,6 +24,10 @@ const timeline = read("web/js/minimax_timeline.js");
 const strip = read("web/js/minimax_anchor_strip.mjs");
 const api = read("web/js/minimax_anchor_api.mjs");
 const routes = read("director/anchor_routes.py");
+const ladder = read("director/anchor_ladder.py");
+const executor = read("director/executor_core_legacy.py");
+const plan = read("director/plan.py");
+const conditioning = read("nodes/conditioning.py");
 const i18n = read("web/js/minimax_i18n.js");
 
 // --- editor wiring ----------------------------------------------------------- //
@@ -129,10 +133,79 @@ assert.ok(
     "thumbnails must go through the cache-busted URL helper",
 );
 
+// --- an explicit render click outranks the "Render anchors" checkbox --------- //
+
+assert.ok(
+    /block\.renderPass = true;/.test(strip),
+    "runAnchors() must force renderPass on: ▶/Pre-roll are explicit render actions, and with " +
+        "the checkbox off they used to load what existed, render nothing and report 'reused'",
+);
+assert.ok(
+    strip.includes("current.renderPass = previous.renderPass;"),
+    "and the checkbox state must be restored after the run",
+);
+{
+    const start = strip.indexOf('data-cell="render"');
+    const body = strip.slice(start, start + 1400);
+    assert.ok(
+        body.includes('anchor.renderNothing') && body.includes("diskItems.has(index)"),
+        "the render button must decide its message from the listing: a boundary with no PNG on " +
+            "disk is a failure, never 'it already existed and got reused'",
+    );
+}
+assert.ok(
+    strip.includes('anchor.preRollPartial'),
+    "a pre-roll that leaves boundaries missing must say so instead of claiming success",
+);
+assert.ok(
+    routes.includes('"renderPass": bool(getattr(plan, "render_pass", True))'),
+    "the preflight must report renderPass so the footer can say rendering is off",
+);
+
+// --- lead placement: the pose lives inside the shot that ends on it ---------- //
+
+assert.ok(
+    strip.includes('const PLACEMENTS = ["boundary", "lead"];'),
+    "the strip must offer both placements",
+);
+assert.ok(
+    strip.includes("block.placement = PLACEMENTS.includes("),
+    "the placement select must write anchors.placement through the widget",
+);
+assert.ok(
+    strip.includes("anchorsBlock(ed).leadHard = Boolean(leadHardBox.checked);"),
+    "the pin checkbox must write anchors.leadHard",
+);
+assert.ok(
+    strip.includes('const lead = block.placement === "lead" && index > 0;'),
+    "a thumbnail click must seek one second before the cut in lead mode",
+);
+assert.ok(
+    ladder.includes('INJECT_MARKER_LEAD = "{{anchor_lead}}"') && ladder.includes("ANCHOR_LEAD_LINE ="),
+    "the engine must have a lead prompt line and marker",
+);
+assert.ok(
+    ladder.includes('idx_lead, idx_out = idx_out, None'),
+    "lead injection must move the boundary anchor into the shot that ends on it",
+);
+assert.ok(
+    plan.includes("anchor_leads: dict = field(default_factory=dict)"),
+    "the plan must carry the lead anchors to the executor",
+);
+assert.ok(
+    conditioning.includes("def append_minimax_keyframes(") &&
+        conditioning.includes("def encode_h3_keyframe_latent("),
+    "pinning a lead pose reuses the keyframe plumbing (marked guides)",
+);
+assert.ok(
+    executor.includes("anchor_ladder.lead_keyframes(") &&
+        executor.includes("positive = append_minimax_keyframes("),
+    "the executor must pin the lead keyframe on the fill conditioning",
+);
+
 // --- i18n -------------------------------------------------------------------- //
 
-const anchorKeys = [...strip.matchAll(/\bt\("(anchor\.[A-Za-z0-9_.]+)"/g)].map((match) => match[1]);
-const uniqueKeys = [...new Set(anchorKeys)];
+const anchorKeys = [...strip.matchAll(/\bt\("(anchor\.[A-Za-z0-9_.]+)"/g)].map((match) => match[1]);const uniqueKeys = [...new Set(anchorKeys)];
 assert.ok(uniqueKeys.length >= 10, `expected the strip to use anchor.* keys, saw ${uniqueKeys.length}`);
 for (const key of uniqueKeys) {
     const occurrences = i18n.split(`"${key}":`).length - 1;
