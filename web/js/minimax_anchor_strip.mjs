@@ -99,6 +99,10 @@ const STYLES = `
 .mmxa-cell[data-selected="0"]{opacity:.48}
 .mmxa-btn-eye{min-width:24px;padding:3px 4px}
 .mmxa-btn-go{border-color:rgba(120,190,230,.55)}
+/* Pre-roll wears the timeline's clip yellow (CLIP_SEGMENT_COLORS[0] in
+   minimax_timeline.js) so "fill every missing pose" stands out from the rest. */
+.mmxa-btn[data-t="preRoll"]{border-color:rgba(255,200,50,.9)}
+.mmxa-btn[data-t="preRoll"]:hover:not(:disabled){background:rgba(255,200,50,.16)}
 .mmxa-foot .mmxa-sel{color:#9fd0a8}
 .mmxa-foot .mmxa-hint{color:#e8c98a;opacity:1}
 .mmxa-foot .mmxa-preroll{color:#e0b25a;font-weight:600}

@@ -232,6 +232,10 @@ assert.ok(
     "every boundary cell needs the ✎ prompt editor",
 );
 assert.ok(
+    strip.includes('data-t="preRoll"') && strip.includes("border-color:rgba(255,200,50,.9)"),
+    "Pre-roll must wear the timeline's clip yellow: it is the 'fill every missing pose' action",
+);
+assert.ok(
     strip.includes("{{from_tail}}") && strip.includes("{{to_head}}") && strip.includes('"{{camera}}"'),
     "the editor must offer the neighbour material as insertable tokens",
 );
