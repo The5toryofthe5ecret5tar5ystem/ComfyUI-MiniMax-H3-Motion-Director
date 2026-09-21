@@ -44,6 +44,12 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Added
 
+- **A Stop button for a long anchor pass.** Filling a dozen boundaries is one queued run you may want to
+  abandon halfway. The strip's footer now has a **Stop** to the left of the status line - live only while
+  a strip action is in flight - which interrupts the running prompt. Each anchor writes its PNG the moment
+  it settles, so the poses finished before the click stay on disk, and the strip reports
+  `stopped after 7 of 12 poses` instead of waiting out its timeout. (The node's own graceful Stop is only
+  checked inside the fill loop, i.e. after the whole anchor pass - it cannot stop anchors.)
 - **A boundary anchor can be prompted from the shots around it.** A boundary sits between two shots -
   the one that **ends** on it and the one that **starts** on it - and `anchors.promptSource`
   (`auto` | `template` | `from` | `to` | `both`) decides which of them lends its words. `auto` follows

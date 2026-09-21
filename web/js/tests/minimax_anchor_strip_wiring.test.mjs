@@ -255,6 +255,30 @@ for (const source of ["auto", "template", "from", "to", "both"]) {
     );
 }
 
+// --- stop: the footer button that interrupts a running anchor pass ---------- //
+
+assert.ok(
+    strip.includes('data-t="stop"') && strip.includes('data-t="footText"'),
+    "the footer needs a Stop button to the left of its status text",
+);
+assert.ok(
+    strip.includes("if (button === stopBtn) continue;") && strip.includes("stopBtn.hidden = !busy;"),
+    "Stop is the one control that must stay live while a run is in flight",
+);
+assert.ok(
+    strip.includes('fetch("/interrupt", { method: "POST" })'),
+    "Stop must interrupt the running prompt (the anchor pass renders before the fill loop, " +
+        "so the node's own graceful stop cannot reach it)",
+);
+assert.ok(
+    strip.includes("if (stopRequested)") && strip.includes("stopped: true, changed: await anchorChanged"),
+    "the wait loops must end on a stop instead of waiting out the timeout",
+);
+assert.ok(
+    strip.includes('t("anchor.stoppedHint"') && strip.includes('t("anchor.preRollStopped"'),
+    "a stopped run has to say so - never report it as a timeout",
+);
+
 // --- i18n -------------------------------------------------------------------- //
 
 const anchorKeys = [...strip.matchAll(/\bt\("(anchor\.[A-Za-z0-9_.]+)"/g)].map((match) => match[1]);const uniqueKeys = [...new Set(anchorKeys)];

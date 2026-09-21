@@ -93,7 +93,10 @@ const STYLES = `
 .mmxa-cell[data-status="approved"] .mmxa-dot{background:#5ac878}
 .mmxa-cell[data-status="rejected"] .mmxa-dot{background:#d05a5a}
 .mmxa-cell[data-status="empty"] .mmxa-dot{background:#5a5a5a}
-.mmxa-foot{padding:0 8px 7px;font-size:11px;opacity:.78;line-height:1.45}
+.mmxa-foot{display:flex;align-items:flex-start;gap:8px;padding:0 8px 7px;font-size:11px;opacity:.78;line-height:1.45}
+.mmxa-foot-text{flex:1 1 auto;min-width:0}
+.mmxa-stop{flex:0 0 auto;border-color:rgba(255,90,90,.85);color:#ffd9d9;padding:1px 8px;font-size:11px}
+.mmxa-stop:hover:not(:disabled){background:rgba(255,90,90,.18)}
 .mmxa-foot .mmxa-err{color:#ff9a9a;opacity:1}
 .mmxa-cell[data-rendering="1"]{border-color:rgba(224,178,90,.85);box-shadow:0 0 0 1px rgba(224,178,90,.35)}
 .mmxa-cell[data-selected="0"]{opacity:.48}
@@ -315,7 +318,10 @@ export function installAnchorStrip(ed) {
             </div>
             <div class="mmxa-rendered" data-t="promptRendered"></div>
         </div>
-        <div class="mmxa-foot" data-t="foot"></div>`;
+        <div class="mmxa-foot" data-t="foot">
+            <button type="button" class="mmxa-btn mmxa-stop" data-t="stop" data-i18n-title="anchor.stopTitle" data-i18n="anchor.stop" hidden>■ Stop</button>
+            <span class="mmxa-foot-text" data-t="footText"></span>
+        </div>`;
 
     const modeSelect = el.querySelector('[data-t="mode"]');
     for (const mode of MODES) {
@@ -368,6 +374,8 @@ export function installAnchorStrip(ed) {
     const clearBtn = el.querySelector('[data-t="clear"]');
     const cellsEl = el.querySelector('[data-t="cells"]');
     const footEl = el.querySelector('[data-t="foot"]');
+    const footTextEl = el.querySelector('[data-t="footText"]');
+    const stopBtn = el.querySelector('[data-t="stop"]');
 
     let cells = [];
     let lastSignature = "";
@@ -379,23 +387,31 @@ export function installAnchorStrip(ed) {
     let lastEstimate = null;
     let hint = "";
     let error = "";
+    let stopRequested = false;
 
     // ---- small helpers ---------------------------------------------------- //
     function setBusy(value) {
         busy = Boolean(value);
         el.dataset.busy = busy ? "1" : "0";
-        for (const button of el.querySelectorAll("button")) button.disabled = busy;
+        for (const button of el.querySelectorAll("button")) {
+            // Stop is the one control that must stay live while a run is in
+            // flight - every other control locks.
+            if (button === stopBtn) continue;
+            button.disabled = busy;
+        }
         renderFillBox.disabled = busy;
         renderPassBox.disabled = busy;
         placementSelect.disabled = busy;
         leadHardBox.disabled = busy;
         promptSourceSelect.disabled = busy;
+        stopBtn.hidden = !busy;
+        stopBtn.disabled = !busy || stopRequested;
     }
 
     function setFoot() {
         if (error) {
-            footEl.innerHTML = `<span class="mmxa-err"></span>`;
-            footEl.firstChild.textContent = t("anchor.error", { message: error });
+            footTextEl.innerHTML = `<span class="mmxa-err"></span>`;
+            footTextEl.firstChild.textContent = t("anchor.error", { message: error });
             return;
         }
         const parts = [];
@@ -409,19 +425,19 @@ export function installAnchorStrip(ed) {
             parts.push(`<span class="mmxa-leadfoot"></span>`);
         }
         if (block.mode !== "off" && selection !== null) parts.push(`<span class="mmxa-sel"></span>`);
-        footEl.innerHTML = parts.join(" ");
-        if (hint) footEl.querySelector(".mmxa-hint").textContent = hint;
-        footEl.querySelector(".mmxa-est").textContent = lastEstimate || t("anchor.loading");
-        if (preRoll) footEl.querySelector(".mmxa-preroll").textContent = t("anchor.preRollFoot");
+        footTextEl.innerHTML = parts.join(" ");
+        if (hint) footTextEl.querySelector(".mmxa-hint").textContent = hint;
+        footTextEl.querySelector(".mmxa-est").textContent = lastEstimate || t("anchor.loading");
+        if (preRoll) footTextEl.querySelector(".mmxa-preroll").textContent = t("anchor.preRollFoot");
         if (block.mode !== "off" && block.placement === "lead") {
             const seconds = (leadFramesOf(block) / 24).toFixed(2).replace(/\.?0+$/, "");
-            footEl.querySelector(".mmxa-leadfoot").textContent = t("anchor.leadFoot", {
+            footTextEl.querySelector(".mmxa-leadfoot").textContent = t("anchor.leadFoot", {
                 seconds,
                 pinned: block.leadHard ? t("anchor.leadFootPinned") : "",
             });
         }
         if (block.mode !== "off" && selection !== null) {
-            footEl.querySelector(".mmxa-sel").textContent = t("anchor.activeCount", {
+            footTextEl.querySelector(".mmxa-sel").textContent = t("anchor.activeCount", {
                 active: selection.size, total: boundaryCount(ed),
             });
         }
@@ -447,6 +463,7 @@ export function installAnchorStrip(ed) {
         } catch (err) {
             fail(err);
         } finally {
+            stopRequested = false;
             setBusy(false);
             // Re-apply the per-cell disabled rules: refresh() ran while the
             // strip was busy, so every action button is still disabled.
@@ -468,6 +485,27 @@ export function installAnchorStrip(ed) {
         await comfy.queuePrompt(0);
     }
 
+    /** Interrupt the running prompt - the anchor pass stops where it is.
+     *
+     * Every anchor writes its PNG as soon as it settles, so the poses finished
+     * before the click are on disk and stay there; only the ones still to render
+     * are lost. (The node's own graceful Stop only takes effect inside the fill
+     * loop, i.e. after the whole anchor pass - useless for stopping anchors.)
+     */
+    async function interruptRun() {
+        const response = await fetch("/interrupt", { method: "POST" });
+        if (!response.ok) throw new Error(t("anchor.stopFailed", { status: response.status }));
+    }
+
+    stopBtn.addEventListener("click", () => {
+        if (!busy || stopRequested) return;
+        stopRequested = true;
+        stopBtn.disabled = true;
+        hint = t("anchor.stopping");
+        setFoot();
+        interruptRun().catch((err) => fail(err));
+    });
+
     async function historyCount() {
         try {
             const response = await fetch("/history");
@@ -483,6 +521,7 @@ export function installAnchorStrip(ed) {
         const deadline = Date.now() + timeoutMs;
         do {
             await sleep(5000);
+            if (stopRequested) return false;
             const now = await historyCount();
             if (now > before) return true;
         } while (Date.now() < deadline);
@@ -506,6 +545,11 @@ export function installAnchorStrip(ed) {
         const deadline = Date.now() + timeoutMs;
         do {
             await sleep(3000);
+            if (stopRequested) {
+                // Stop pressed: report what landed instead of waiting out the
+                // timeout - the callers say "stopped" and keep the PNGs.
+                return { settled: false, stopped: true, changed: await anchorChanged(wanted, before) };
+            }
             // The queued run finishing is enough: a boundary that was already on
             // disk is reused, so its PNG never changes (the old behaviour kept
             // the cell spinning until the timeout).
@@ -519,7 +563,7 @@ export function installAnchorStrip(ed) {
             }
             if (ready) return { settled: true, changed: await anchorChanged(wanted, before) };
         } while (Date.now() < deadline);
-        return { settled: false, changed: false };
+        return { settled: false, stopped: stopRequested, changed: false };
     }
 
     async function anchorChanged(indices, before) {
@@ -861,7 +905,8 @@ export function installAnchorStrip(ed) {
                         // "it was already there and got reused".
                         await refresh();
                         const onDisk = diskItems.has(index);
-                        if (!result.settled) hint = t("anchor.renderTimeout");
+                        if (result.stopped) hint = t("anchor.stoppedHint", { index: index + 1 });
+                        else if (!result.settled) hint = t("anchor.renderTimeout");
                         else if (result.changed) hint = t("anchor.renderedHint", { index: index + 1 });
                         else if (!onDisk) hint = t("anchor.renderNothing", { index: index + 1 });
                         else hint = t("anchor.renderedReused", { index: index + 1 });
@@ -1142,7 +1187,9 @@ export function installAnchorStrip(ed) {
                 persistTimeline(ed);
             }
             const settled = await waitForHistory(before, 1800000);
-            hint = settled ? t("anchor.draftDone") : t("anchor.draftTimeout");
+            hint = stopRequested
+                ? t("anchor.draftStopped")
+                : settled ? t("anchor.draftDone") : t("anchor.draftTimeout");
             setFoot();
         });
     });
@@ -1215,15 +1262,21 @@ export function installAnchorStrip(ed) {
             setFoot();
             let settled = true;
             let armed = false;
+            let stopped = false;
             try {
                 const result = await runAnchors(missing);
                 clearFailure();
                 settled = result.settled;
                 armed = result.armed === true;
+                stopped = result.stopped === true;
             } finally {
                 await refresh();
                 const still = missing.filter((index) => !diskItems.has(index));
-                if (!settled) hint = t("anchor.renderTimeout");
+                if (stopped) {
+                    hint = t("anchor.preRollStopped", {
+                        done: Math.max(0, missing.length - still.length), total: missing.length,
+                    });
+                } else if (!settled) hint = t("anchor.renderTimeout");
                 else if (still.length) hint = t("anchor.preRollPartial", { count: still.length });
                 else hint = t("anchor.preRollDone");
                 if (armed) hint = `${hint} · ${t("anchor.modeArmed")}`;
