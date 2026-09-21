@@ -24,7 +24,7 @@ import {
     preferredDurationSecFromFrames,
     resolveTaskKey,
     roundDurationSec,
-} from "./minimax_gen_timeline.js";
+} from "./minimax_gen_timeline.js?boot=numeric_field_guard_v1";
 import { t } from "./minimax_i18n.js";
 import { resolveFl2vEndpointState } from "./minimax_fl2v_state.mjs";
 

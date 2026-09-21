@@ -44,12 +44,14 @@ assert.ok(applyBody.includes("this.commit();"), "apply must commit: repaint + un
 // Continuity is owned by the output bar's controls, and the editor re-derives
 // timeline.output from them on every commit. Writing the key directly would be
 // silently discarded, so the plan must be routed through the controls.
+// (Numeric controls go through setNumericFieldValue so a preset cannot eat a
+// half-typed number like "9." — see minimax_numeric_field_guard.test.mjs.)
 assert.ok(
     applyBody.includes("this.segmentContinuityCb.checked"),
     "continuityEnabled must be applied through its control",
 );
 assert.ok(
-    applyBody.includes("this.segmentContinuityOverlap.value"),
+    applyBody.includes("setNumericFieldValue(this.segmentContinuityOverlap,"),
     "continuityOverlapFrames must be applied through its control",
 );
 assert.ok(

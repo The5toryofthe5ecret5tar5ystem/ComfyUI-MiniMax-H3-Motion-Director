@@ -35,7 +35,7 @@ import {
     resolveTaskKey,
     roundDurationSec,
     sumFrameCounts,
-} from "./minimax_gen_timeline.js";
+} from "./minimax_gen_timeline.js?boot=numeric_field_guard_v1";
 import { wirePromptImageMentions } from "./minimax_prompt_mentions.js?boot=director_ui_v3";
 import {
     allKnownReferenceAssets,

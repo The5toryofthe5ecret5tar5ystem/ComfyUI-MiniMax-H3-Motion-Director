@@ -5,7 +5,7 @@ import {
     MAX_REFERENCE_IMAGES,
     MAX_REFERENCE_VIDEOS,
     newBatchSegment,
-} from "./minimax_gen_timeline.js";
+} from "./minimax_gen_timeline.js?boot=numeric_field_guard_v1";
 import { batchReferencingPrompts, normalizeImageBatchSegments } from "./minimax_image_batch.js";
 import { newFl2vShot, syncFl2vFromShots } from "./minimax_fl2v.js";
 import {

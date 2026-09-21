@@ -15,7 +15,7 @@ import {
     refVideoLabel,
     refVideoPromptTag,
     resolveTaskKey,
-} from "./minimax_gen_timeline.js";
+} from "./minimax_gen_timeline.js?boot=numeric_field_guard_v1";
 import {
     hydrateOfficialReferenceTags,
     referenceAssetStates,

@@ -57,6 +57,27 @@ export function parseMegapixelsInput(raw) {
     return Math.min(MAX_MEGAPIXELS, n);
 }
 
+/**
+ * Write a computed number into a numeric field without eating an in-progress draft.
+ *
+ * `<input type="number">` never hands back its raw text: while the visible text is
+ * "1." the `.value` getter already reports "1" (Chromium drops the trailing dot and
+ * leaves `badInput` false), so a background refresh that assigns `.value` silently
+ * turns "1." into "1" — the decimal point vanishes mid-typing and the next keystroke
+ * produces "12" instead of "1.2". While the field owns the caret the text belongs to
+ * the user; the explicit commit paths (change / blur) write the canonical text.
+ *
+ * @returns {boolean} true when the field was written, false when it was left alone.
+ */
+export function setNumericFieldValue(input, value) {
+    if (!input) return false;
+    const doc = input.ownerDocument || (typeof document === "undefined" ? null : document);
+    if (doc && doc.activeElement === input) return false;
+    const next = String(value);
+    if (input.value !== next) input.value = next;
+    return true;
+}
+
 /** Map legacy English labels → current Chinese labels. */
 const ASPECT_RATIO_ALIASES = {
     "1:1 (Square)": "1:1 (方形)",

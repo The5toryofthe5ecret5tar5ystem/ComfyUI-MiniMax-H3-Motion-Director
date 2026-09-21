@@ -7,6 +7,15 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Fixed
 
+- **A decimal stays where you typed it.** The output bar rewrites its numeric fields from state after
+  every keystroke (the Megapixels field debounces 280 ms), and `<input type="number">` hides an
+  in-progress draft: while the visible text is `1.` the browser already reports the value `1`, so the
+  refresh wrote `1` back over `1.`, the point vanished, and the next key produced `12` instead of
+  `1.2`. Every numeric refresh - Megapixels, Width, Height, Long edge, Max export frames, FPS and the
+  continuity overlap, in both standalone and Mixed mode - now goes through `setNumericFieldValue()`,
+  which leaves a **focused** field alone. The debounced commit still reads and stores `1`, so nothing
+  else changes: the text stays `1.` until you type the rest, and an explicit commit (Enter/blur)
+  normalises it afterwards. Settings presets that apply continuity overlap go through the same guard.
 - **A long Pre-roll no longer reads as a fill run, and no longer claims to be finished early.** Anchor
   chunks carry the synthetic index `1000 + boundary`, which leaked into the progress log
   (`S1014/20: first-pass sampling` - it reads like a thousand-segment fill job while ten poses render);

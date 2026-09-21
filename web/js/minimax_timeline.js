@@ -85,12 +85,13 @@ import {
     resolutionFromSelector,
     resolveTaskKey,
     setBaselineFrameProvider,
+    setNumericFieldValue,
     snapResolutionDim,
     sumFrameCounts,
     taskUsesReferenceAudios,
     taskUsesReferenceImages,
     taskUsesReferenceVideo,
-} from "./minimax_gen_timeline.js";
+} from "./minimax_gen_timeline.js?boot=numeric_field_guard_v1";
 import {
     IMAGE_BATCH_STYLES,
     addImageBatchGroup,
@@ -6819,7 +6820,7 @@ class MiniMaxH3MotionDirectorEditor {
         }
         if ("continuityOverlapFrames" in plan.output && this.segmentContinuityOverlap) {
             const frames = parseInt(plan.output.continuityOverlapFrames, 10);
-            if (Number.isFinite(frames)) this.segmentContinuityOverlap.value = String(frames);
+            if (Number.isFinite(frames)) setNumericFieldValue(this.segmentContinuityOverlap, frames);
         }
         if (plan.r2vCommon) this.timeline.r2vCommon = plan.r2vCommon;
 
@@ -7229,6 +7230,9 @@ class MiniMaxH3MotionDirectorEditor {
         }
         if (this.outMp) {
             // Do not coerce incomplete drafts ("0", "0.") — that snaps back to 0.4 mid-typing.
+            // (A number field cannot even hand us the dot: while the text reads "1." the value
+            // getter already says "1", so refreshes must not touch the field at all — see
+            // setNumericFieldValue.)
             const applyMp = ({ force = false } = {}) => {
                 const parsed = parseMegapixelsInput(this.outMp.value);
                 if (parsed == null) {
@@ -7240,6 +7244,9 @@ class MiniMaxH3MotionDirectorEditor {
                     this.onOutputField("megapixels", restored);
                     return;
                 }
+                // An explicit commit (change / blur / Enter) may normalise the text: the
+                // field still shows "1." for the value 1 we just took, so write what we stored.
+                if (force) this.outMp.value = String(parsed);
                 this.onOutputField("megapixels", parsed);
             };
             this.outMp.onchange = () => applyMp({ force: true });
@@ -7975,15 +7982,15 @@ class MiniMaxH3MotionDirectorEditor {
         setWidget("width", output.width);
         setWidget("height", output.height);
         setWidget("ref_max_size", output.longEdge);
-        if (this.fpsInput) this.fpsInput.value = String(state.frameRate ?? 24);
+        setNumericFieldValue(this.fpsInput, state.frameRate ?? 24);
         if (this.outAspect) this.outAspect.value = output.aspectRatio;
-        if (this.outMp) this.outMp.value = String(output.megapixels);
-        if (this.outW) this.outW.value = String(output.width);
-        if (this.outH) this.outH.value = String(output.height);
-        if (this.outLong) this.outLong.value = String(output.longEdge);
+        setNumericFieldValue(this.outMp, output.megapixels);
+        setNumericFieldValue(this.outW, output.width);
+        setNumericFieldValue(this.outH, output.height);
+        setNumericFieldValue(this.outLong, output.longEdge);
         if (this.outMode) this.outMode.value = "fixed";
         if (this.outExportMode && output.exportMode) this.outExportMode.value = output.exportMode;
-        if (this.outMaxFrames) this.outMaxFrames.value = String(output.maxExportFrames ?? 0);
+        setNumericFieldValue(this.outMaxFrames, output.maxExportFrames ?? 0);
         if (this.outAudioMode) this.outAudioMode.value = "generate";
         this.updateOutputModeUI?.();
         this.updateOutputPreview?.();
@@ -9483,7 +9490,7 @@ class MiniMaxH3MotionDirectorEditor {
         const fps = coerceTimelineFps(value ?? this.fpsInput?.value ?? this.frameRateWidget?.value ?? this.timeline.frameRate ?? 24);
         this.timeline.frameRate = fps;
         if (this.frameRateWidget) this.frameRateWidget.value = fps;
-        if (this.fpsInput) this.fpsInput.value = fps;
+        setNumericFieldValue(this.fpsInput, fps);
         return fps;
     }
 
@@ -9605,7 +9612,7 @@ class MiniMaxH3MotionDirectorEditor {
             const state = this._ensureMixedTimeline();
             state.frameRate = fps;
             if (this.frameRateWidget) this.frameRateWidget.value = fps;
-            if (this.fpsInput) this.fpsInput.value = String(fps);
+            setNumericFieldValue(this.fpsInput, fps);
             this.mixedTimeline = normalizeMixedTimeline(state);
             this.scheduleTimelineSync();
             this.updateVideoNameLabel();
@@ -9828,11 +9835,12 @@ class MiniMaxH3MotionDirectorEditor {
                 this.timeline.output = { ...out };
             }
         }
-        if (this.outMp) this.outMp.value = String(out.megapixels ?? DEFAULT_MEGAPIXELS);
-        if (this.outLong) this.outLong.value = String(out.longEdge ?? 864);
-        if (this.outW) this.outW.value = String(out.width ?? 864);
-        if (this.outH) this.outH.value = String(out.height ?? 480);
-        if (this.outMaxFrames) this.outMaxFrames.value = String(out.maxExportFrames ?? 0);
+        // Numeric fields keep whatever the user is typing; see setNumericFieldValue.
+        setNumericFieldValue(this.outMp, out.megapixels ?? DEFAULT_MEGAPIXELS);
+        setNumericFieldValue(this.outLong, out.longEdge ?? 864);
+        setNumericFieldValue(this.outW, out.width ?? 864);
+        setNumericFieldValue(this.outH, out.height ?? 480);
+        setNumericFieldValue(this.outMaxFrames, out.maxExportFrames ?? 0);
         if (this.outExportMode) this.outExportMode.value = out.exportMode === "segments" ? "segments" : "all";
         if (this.outAudioMode) {
             const am = normalizeAudioMode(out.audioMode);
@@ -9843,9 +9851,7 @@ class MiniMaxH3MotionDirectorEditor {
             }
         }
         if (this.segmentContinuityCb) this.segmentContinuityCb.checked = isContinuityEnabled(out);
-        if (this.segmentContinuityOverlap) {
-            this.segmentContinuityOverlap.value = String(out.continuityOverlapFrames ?? 9);
-        }
+        setNumericFieldValue(this.segmentContinuityOverlap, out.continuityOverlapFrames ?? 9);
         this.syncFrameRateUI(this.timeline.frameRate);
         this.updateOutputModeUI();
         this.updateSegmentContinuityUI();
@@ -9891,13 +9897,11 @@ class MiniMaxH3MotionDirectorEditor {
         if (this.widthWidget) this.widthWidget.value = resolved.width;
         if (this.heightWidget) this.heightWidget.value = resolved.height;
         if (this.refMaxWidget) this.refMaxWidget.value = Math.max(resolved.width, resolved.height);
-        if (this.outW) this.outW.value = String(resolved.width);
-        if (this.outH) this.outH.value = String(resolved.height);
+        setNumericFieldValue(this.outW, resolved.width);
+        setNumericFieldValue(this.outH, resolved.height);
         if (this.outAspect) this.outAspect.value = resolved.aspectRatio;
         // Keep the in-progress typed text while the field is focused.
-        if (this.outMp && document.activeElement !== this.outMp) {
-            this.outMp.value = String(resolved.megapixels);
-        }
+        setNumericFieldValue(this.outMp, resolved.megapixels);
         return resolved;
     }
 
@@ -9920,10 +9924,10 @@ class MiniMaxH3MotionDirectorEditor {
         if (this.widthWidget) this.widthWidget.value = w;
         if (this.heightWidget) this.heightWidget.value = h;
         if (this.refMaxWidget) this.refMaxWidget.value = Math.max(w, h);
-        if (this.outW) this.outW.value = String(w);
-        if (this.outH) this.outH.value = String(h);
+        setNumericFieldValue(this.outW, w);
+        setNumericFieldValue(this.outH, h);
         if (this.outAspect) this.outAspect.value = CUSTOM_ASPECT_RATIO;
-        if (this.outMp) this.outMp.value = String(this.timeline.output.megapixels);
+        setNumericFieldValue(this.outMp, this.timeline.output.megapixels);
         return {
             width: w,
             height: h,

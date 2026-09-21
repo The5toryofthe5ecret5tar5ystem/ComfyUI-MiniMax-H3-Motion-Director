@@ -8,7 +8,7 @@
 /** LLM prompt enhancer panel for MiniMax H3 Motion Director (Ollama / Zhipu). */
 
 import { api } from "../../scripts/api.js";
-import { resolveTaskKey, taskUsesReferenceImages, taskUsesReferenceVideo } from "./minimax_gen_timeline.js";
+import { resolveTaskKey, taskUsesReferenceImages, taskUsesReferenceVideo } from "./minimax_gen_timeline.js?boot=numeric_field_guard_v1";
 import { stripFl2vPromptBody } from "./minimax_fl2v.js";
 // Versioned import: ComfyUI's cache rule covers .js paths only, so an unversioned
 // .mjs can be answered from the browser cache long after it changed, and the
@@ -2397,7 +2397,7 @@ export function registerDirectorPromptEnhancerEvents(findDirectorNode) {
 setTimeout(async () => {
     if (globalThis.__MMX_MOTION_DIRECTOR_EXTENSION_REGISTERED__) return;
     try {
-        await import("./minimax_timeline.js?boot=director_ui_recovery_v18");
+        await import("./minimax_timeline.js?boot=director_ui_recovery_v19");
         if (!globalThis.__MMX_MOTION_DIRECTOR_EXTENSION_REGISTERED__) {
             throw new Error("Director extension did not register after recovery import.");
         }
