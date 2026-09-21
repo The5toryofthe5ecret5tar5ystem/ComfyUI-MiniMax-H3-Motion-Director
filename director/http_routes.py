@@ -20,6 +20,7 @@ from aiohttp import web
 from server import PromptServer
 
 from .face_refine_validation import compatible_sam_models
+from .anchor_routes import register_anchor_routes
 from .director_presets_routes import register_director_preset_routes
 from .material_library_routes import register_material_library_routes
 from .prompt_enhance_routes import register_prompt_enhance_routes
@@ -677,6 +678,9 @@ def register_routes() -> bool:
     _register_route(routes, "POST", "/minimax/motion-director/clear_run", minimax_clear_run)
     register_material_library_routes(routes)
     register_director_preset_routes(routes)
+    # Anchor ladder strip (P2): list / approve / delete boundary anchors + the
+    # preflight estimate the strip prints above the timeline.
+    register_anchor_routes(routes)
     # App-wide Setup panel: machine profile + baselines, cache manager, diagnostics.
     register_motion_settings_routes(routes)
     # Registered last: this module was defined but never called, so every

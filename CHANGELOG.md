@@ -3,6 +3,79 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## v1.13.0 — 2026-09-20
+
+### Added
+
+- **Boundary anchors: the storyboard is rendered first, and the fills are locked to it.** An optional
+  **anchor pass** now runs ahead of the segment fills. It renders one short chunk per segment
+  boundary (default 22 frames ≈ 0.92 s, snapped to the `17k+5` grid so a boundary can carry its own
+  frame count) from that segment's own references, the shared prompt and the boundary's **beat**, and
+  caches the settled frame as `A<ii>_s<seed>_v1_f22.png` plus a JSON sidecar next to the segment
+  caches - so an approved anchor is rendered once and reused by every later run and by Resume. The
+  fills then receive the anchors that open and close them as extra `<Picture N>` references
+  (`mode: soft`), with the matching prompt lines.
+- **Measured, not asserted.** Chained fills condition segment *N+1* on segment *N*'s render, and the
+  errors compound. Over a 6 × 7.3 s A/B (`docs/ANCHOR_LADDER_PROPOSAL.md`), frame-histogram
+  correlation against segment 1 holds ~0.80 for three segments and then falls to **0.53 at segment 5
+  and 0.41 at segment 6**, background/lighting drift climbs to Δ72, and the chain went *off-script*
+  (segment 2 improvised a lunge that was never in the prompt). The same fills conditioned on boundary
+  anchors stay flat at **0.72-0.81 across all six segments** with the lowest world drift (Δ23.9-43.4).
+  A full anchor pass costs ~10 % of the fill pass (4 anchors × 0.9 min against ~32 min of fills).
+- **Per-boundary control from the payload**: `timeline_data["anchors"]` carries `mode`, `chunkFrames`,
+  `seedBase` / `seeds[]`, `beats[]`, `promptTemplate` (`{{shared}}`, `{{beat}}`, `{{index}}`),
+  `injectPrompt`, `renderPass`, `preRollOnly`, `forceRender`, `onlyIndices`, `boundaries` and `draft`,
+  and a segment can name its own **end pose** (`anchorPrompt`, or `anchorIn` / `anchorOut` to point at
+  a boundary explicitly). The selection is **strict**: `all` / `bookends` / `none` / an index list
+  decides which boundaries exist, and an unselected boundary is neither rendered nor conditioned on -
+  "bookends only" really costs two renders.
+- **Pre-roll: the whole project as a storyboard, before a single fill.** `Pre-roll` renders the
+  selected anchors, skips the fills, and assembles them into a storyboard MP4 (through the pack's
+  normal `CreateVideo`/`SaveVideo` outputs) plus a labelled contact sheet, so the beats can be judged
+  while they are still 0.9 s each. **Draft** goes the other way: fills at a fraction of the canvas and
+  steps (`scale`, `steps`), written into their own cache namespace (`cache_variant`), so a preview
+  never poisons the real segment cache.
+- **The anchor strip** (`web/js/minimax_anchor_strip.mjs`) sits under the timeline and collapses to a
+  small bar: one cell per boundary with its thumbnail, index, seed, status and beat, plus per-cell
+  buttons to select or deselect it, **render just this anchor**, approve it, or re-roll it with a new
+  seed, and the bar's presets (**All** / **Bookends** / **Rendered**), **Pre-roll**, **Draft**,
+  approve all / clear. Clicking a thumbnail moves the playhead to that boundary, ctrl+click opens the
+  PNG, and the collapsed state and per-cell data persist with the workflow.
+- New routes in `director/anchor_routes.py` (plan, status, render one, approve, delete) registered on
+  top of the pack's existing node routes, and `docs/ANCHOR_LADDER_PROPOSAL.md` documents the
+  experiments, the numbers and the phase plan (hard first/last-frame mode is not shipped).
+
+### Changed
+
+- `SegmentPlan` gained `anchor_prompt` / `anchor_in` / `anchor_out` / `anchor_index` /
+  `seed_override`; the segment cache fingerprint only changes when a `cache_variant` is set, so every
+  existing cache stays valid.
+- Synthetic anchor chunks carry an index offset (`1000 + n`) that does not address the timeline, so the
+  continuity resolver and the anchor injection both treat them as standalone; anchors are deliberately
+  silent (no audio conditioning), and each boundary renders with its own seed (`seedBase + index`).
+
+### Fixed
+
+- **A failed anchor no longer disappears.** The synthetic index was used to look up the previous
+  segment, raised `IndexError`, and was swallowed into a warning list nobody printed: the pass
+  reported success with zero files on disk and no explanation. Every anchor failure is now logged with
+  its boundary and reason.
+- **The per-cell render button no longer looks stuck.** It reused the PNG already on disk, so the
+  thumbnail never changed and the cell stayed "rendering" forever; it now forces the re-render, waits
+  for the run to appear in the history, and reports a timeout instead of spinning. Re-rolls leave
+  several seeds' files behind, so the strip prefers the file matching the boundary's current seed and
+  the delete button removes all of them.
+- **A preview can no longer swallow the next real run.** The strip's transient flags live in the same
+  `timeline_data` the node renders from, and they were restored only after the strip had waited for
+  its own run to finish - so a **Start run** pressed in that window inherited "pre-roll only": it
+  stopped after the anchor pass and reported success in ~1.2 s with no fills. The flags are restored as
+  soon as the prompt is queued, and leftovers are cleared when the strip loads.
+- The `first-pass sampling` log line reported the node's base seed rather than the seed the segment
+  actually sampled with, which made per-boundary seeds look ignored.
+- `web/js/tests/minimax_motion_settings.test.mjs` split the i18n file at half its length to separate the
+  two dictionaries; adding the strip's strings moved that midpoint into the English block. It now
+  splits on the `const EN = {` boundary.
+
 ## v1.12.0 — 2026-09-19
 
 ### Fixed

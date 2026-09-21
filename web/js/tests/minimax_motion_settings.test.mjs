@@ -216,8 +216,15 @@ assert.match(gen, /catch \{\s*\n\s*return fallback;/, "a broken provider cannot 
 
 // The enhancer button had to stop being called "Settings" now that a real
 // app-wide Settings button exists.
-const zhBlock = i18n.slice(0, Math.floor(i18n.length / 2));
-const enBlock = i18n.slice(Math.floor(i18n.length / 2));
+//
+// Split on the block boundary rather than at half the file length: the packs
+// add strings to both dictionaries, and a byte-count midpoint silently drifts
+// into whichever block grew more (it cut the English block's first keys off
+// the moment the anchor strip was added).
+const enStart = i18n.indexOf("const EN = {");
+assert.ok(enStart > 0, "the i18n module declares an EN dictionary");
+const zhBlock = i18n.slice(0, enStart);
+const enBlock = i18n.slice(enStart);
 assert.match(zhBlock, /"panel.enhanceSettings": "扩写设置"/);
 assert.match(enBlock, /"panel.enhanceSettings": "Enhancer…"/);
 for (const block of [zhBlock, enBlock]) {

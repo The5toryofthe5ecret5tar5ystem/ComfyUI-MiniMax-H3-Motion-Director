@@ -286,6 +286,10 @@ def resolve_prev_segment_output(
     prev_idx = seg_index - 1
     if prev_idx < 0:
         return None
+    if prev_idx >= len(all_segments):
+        # Synthetic segments (anchor-ladder chunks) carry an offset index that
+        # does not address the timeline; they never inherit a previous output.
+        return None
     if prev_idx in completed:
         return completed[prev_idx]
     prev_seg = all_segments[prev_idx]

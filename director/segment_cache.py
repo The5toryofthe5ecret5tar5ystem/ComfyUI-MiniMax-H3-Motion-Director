@@ -88,6 +88,13 @@ def segment_cache_fingerprint(seg: SegmentPlan, plan: DirectorPlan) -> dict[str,
         "ref_videos": ref_video_files,
         "ref_video": ref_video_file,
         "ref_video_start": seg.reference_video_start_frame,
+        # Only present for non-final renders (draft passes): keeps reduced-step
+        # previews out of the final cache namespace without touching existing keys.
+        **(
+            {"variant": str(plan.cache_variant)}
+            if str(getattr(plan, "cache_variant", "") or "")
+            else {}
+        ),
         "continuity": plan.continuity_enabled,
         "continuity_overlap": plan.continuity_overlap_frames if plan.continuity_enabled else 0,
         # Bump when continuity sampling/handoff semantics change (invalidates stale segs).

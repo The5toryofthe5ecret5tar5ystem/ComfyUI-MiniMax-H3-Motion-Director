@@ -1,0 +1,149 @@
+// Wiring contract for the anchor ladder strip (P2).
+//
+// The strip itself is a browser module (it imports ComfyUI's scripts/api.js
+// through minimax_anchor_api.mjs), so these tests assert on source text the way
+// the pack's other wiring tests do. What is pinned here:
+//
+//   * the editor imports + mounts the strip and refreshes its cells from
+//     commit(), which is the only place the segment count can change,
+//   * the strip writes anchor state through the widget (never a local copy),
+//   * the boundary cell exposes approve + re-roll, and re-roll re-seeds,
+//   * the "render fill" pass stays disabled until the fill pass can be skipped,
+//   * every anchor route the frontend calls has a matching backend route,
+//   * every anchor.* i18n key exists in both dictionaries.
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const read = (relative) => readFileSync(join(repoRoot, ...relative.split("/")), "utf8");
+
+const timeline = read("web/js/minimax_timeline.js");
+const strip = read("web/js/minimax_anchor_strip.mjs");
+const api = read("web/js/minimax_anchor_api.mjs");
+const routes = read("director/anchor_routes.py");
+const i18n = read("web/js/minimax_i18n.js");
+
+// --- editor wiring ----------------------------------------------------------- //
+
+assert.ok(
+    timeline.includes('from "./minimax_anchor_strip.mjs?boot=anchor_ladder_v1"'),
+    "the timeline must import the strip with its boot token",
+);
+assert.ok(
+    timeline.includes("this._anchorStrip = installAnchorStrip(this);"),
+    "bindEvents must mount the strip next to the other page mounts",
+);
+assert.ok(
+    timeline.includes("this._anchorStrip?.requestRefresh?.();"),
+    "commit() must ask the strip to re-key its cells (segment count can change)",
+);
+
+// commit() is the refresh site: keep it inside the method, near the continuity
+// refresh that already reacts to segment changes.
+{
+    const start = timeline.indexOf("    commit(skipRender = false");
+    assert.ok(start !== -1, "commit() not found");
+    const body = timeline.slice(start, timeline.indexOf("\n    normalizeSegments()", start));
+    assert.ok(body.includes("_anchorStrip"), "the strip refresh must live inside commit()");
+}
+
+// --- strip behaviour --------------------------------------------------------- //
+
+assert.ok(strip.includes('from "./minimax_i18n.js"'), "the strip must use the shared i18n helper");
+assert.ok(
+    strip.includes('from "./minimax_anchor_api.mjs?boot=anchor_ladder_v1"'),
+    "the strip must use the anchor API client (with a boot token)",
+);
+assert.ok(strip.includes("function anchorsBlock(ed)"), "anchor state must be read through anchorsBlock()");
+assert.ok(
+    strip.includes("ed._writeTimelineWidget()") && strip.includes('onWidgetChanged?.("timeline_data"'),
+    "anchor edits must be persisted into the timeline widget",
+);
+assert.ok(
+    strip.includes('data-cell="approve"') && strip.includes('data-cell="reroll"'),
+    "each boundary cell needs approve + re-roll actions",
+);
+assert.ok(
+    strip.includes("nextAnchorSeed(previous)") && strip.includes('anchorAction(nodeIdOf(ed), "delete", index)'),
+    "re-roll must delete the rendered anchor and pick a new seed",
+);
+assert.ok(
+    strip.includes('option.disabled = mode === "hard"'),
+    "hard mode is reserved (P4) and must not be selectable",
+);
+assert.ok(
+    strip.includes('data-t="renderFill" disabled'),
+    "the fill pass cannot be skipped yet, so its checkbox ships disabled",
+);
+assert.ok(
+    strip.includes("requestRefresh: () =>") &&
+        strip.includes("if (refreshTimer) clearTimeout(refreshTimer);"),
+    "requestRefresh must be debounced (commit() fires on every drag)",
+);
+assert.ok(
+    strip.includes("ed.mainBody.insertBefore(el, ed.viewport)"),
+    "the strip belongs directly above the timeline canvas",
+);
+assert.ok(
+    strip.includes("applyI18nDom(el)") && strip.includes("onLocaleChange?."),
+    "the strip must re-localise on locale change",
+);
+
+// --- frontend endpoints vs backend routes ------------------------------------ //
+
+const frontendPaths = ["/minimax/motion-director/anchors", "/action", "/plan"];
+assert.ok(
+    api.includes('const BASE = "/minimax/motion-director/anchors";'),
+    "the API client must target /minimax/motion-director/anchors",
+);
+assert.ok(
+    api.includes("anchorsApiUrl(`?node_id=${encodeURIComponent(nodeId ?? \"\")}`)") ||
+        api.includes("anchorsApiUrl(`?node_id="),
+    "listing must pass node_id as a query parameter",
+);
+for (const path of ["/action", "/plan"]) {
+    assert.ok(
+        api.includes(`anchorsApiUrl("${path}")`),
+        `the API client must POST to ${path}`,
+    );
+}
+assert.ok(
+    strip.includes("anchorsApiUrl(") === false,
+    "the strip must go through the client functions, not build URLs itself",
+);
+assert.ok(
+    routes.includes('_route(routes, "GET", BASE, anchors_list)') &&
+        routes.includes('_route(routes, "POST", BASE + "/action", anchors_action)') &&
+        routes.includes('_route(routes, "POST", BASE + "/plan", anchors_plan_route)'),
+    "every frontend anchor endpoint must have a registered backend route",
+);
+assert.ok(
+    read("director/http_routes.py").includes("register_anchor_routes(routes)"),
+    "register_routes() must call register_anchor_routes()",
+);
+assert.ok(
+    api.includes("function anchorThumbUrl"),
+    "thumbnails must go through the cache-busted URL helper",
+);
+
+// --- i18n -------------------------------------------------------------------- //
+
+const anchorKeys = [...strip.matchAll(/\bt\("(anchor\.[A-Za-z0-9_.]+)"/g)].map((match) => match[1]);
+const uniqueKeys = [...new Set(anchorKeys)];
+assert.ok(uniqueKeys.length >= 10, `expected the strip to use anchor.* keys, saw ${uniqueKeys.length}`);
+for (const key of uniqueKeys) {
+    const occurrences = i18n.split(`"${key}":`).length - 1;
+    assert.ok(occurrences >= 2, `${key} must exist in both the ZH and EN dictionaries (saw ${occurrences})`);
+}
+// Dynamic status keys are built as `anchor.status.${status}`.
+for (const status of ["pending", "ready", "approved", "rejected"]) {
+    assert.ok(
+        (i18n.split(`"anchor.status.${status}":`).length - 1) >= 2,
+        `anchor.status.${status} must exist in both dictionaries`,
+    );
+}
+
+console.log(`anchor strip wiring: ${uniqueKeys.length} keys, ${frontendPaths.length} endpoints ok`);

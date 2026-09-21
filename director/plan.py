@@ -133,6 +133,17 @@ class SegmentPlan:
     # "generate" (a source-free segment rendered from its prompt and references).
     # Declared beside refmod_enabled for the same construction-order reason.
     kind: str = SEGMENT_KIND_REPLACE
+    # Anchor ladder (P1). ``anchor_prompt`` is this segment's END pose (payload
+    # "anchorPrompt") and becomes the next boundary's beat. ``anchor_in`` /
+    # ``anchor_out`` are boundary indices (filled by parse_anchor_config).
+    # ``anchor_index`` / ``seed_override`` are set on the synthetic standalone
+    # segments that the anchor pass renders, so the executor can tell them apart
+    # from fill segments and give each boundary its own seed.
+    anchor_prompt: str = ""
+    anchor_in: int | None = None
+    anchor_out: int | None = None
+    anchor_index: int | None = None
+    seed_override: int | None = None
 
     @property
     def frame_count(self) -> int:
@@ -171,6 +182,9 @@ class DirectorPlan:
     export_max_frames: int = 0
     export_mode: str = "all"  # "all" | "segments"
     run_indices: frozenset[int] | None = None  # None = run all segments
+    # Cache namespace for non-final renders ("draft" passes). Empty for normal
+    # runs so existing fingerprints stay byte-identical.
+    cache_variant: str = ""
     # Kept separately because an enabled, all-selected run also needs to build
     # reusable full-segment caches even though run_indices collapses to None.
     run_select_enabled: bool = False
@@ -199,10 +213,25 @@ class DirectorPlan:
     global_ref_audios: list[SegmentRefAudio] = field(default_factory=list)
     # Populated by the executor before any persistent cache access.
     cache_settings: dict | None = None
+    # Anchor ladder plan (parsed from timeline["anchors"]); None when disabled.
+    # ``anchors_root`` is filled by the executor with the directory the anchor
+    # PNGs live in (next to the segment caches) before the anchor pass runs.
+    anchors: object | None = None
+    anchors_root: str = ""
 
     @property
     def segment_count(self) -> int:
         return len(self.segments)
+
+
+def _optional_int(value) -> int | None:
+    """Best-effort int for optional payload fields (None when absent/garbage)."""
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _ref_video_has_file(ref_block: dict | None) -> bool:
@@ -1013,6 +1042,9 @@ def build_director_plan(
                 reference_tags=reference_tags,
                 refmod_enabled=parse_refmod_enabled(seg_data),
                 kind=row_kind,
+                anchor_prompt=str(seg_data.get("anchorPrompt") or seg_data.get("anchor_prompt") or "").strip(),
+                anchor_in=_optional_int(seg_data.get("anchorIn", seg_data.get("anchor_in"))),
+                anchor_out=_optional_int(seg_data.get("anchorOut", seg_data.get("anchor_out"))),
             )
         )
 
@@ -1031,6 +1063,10 @@ def build_director_plan(
     continuity_enabled, continuity_overlap = resolve_continuity_settings(
         timeline, segment_count=len(segments)
     )
+
+    from .anchor_ladder import parse_anchor_config
+
+    anchors = parse_anchor_config(timeline, segments)
 
     return DirectorPlan(
         frame_rate=float(timeline.get("frameRate") or frame_rate or 24),
@@ -1059,6 +1095,7 @@ def build_director_plan(
         continuity_enabled=continuity_enabled,
         continuity_overlap_frames=continuity_overlap,
         global_ref_audios=global_ref_audios,
+        anchors=anchors,
     )
 
 

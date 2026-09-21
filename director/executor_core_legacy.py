@@ -146,6 +146,7 @@ from .segment_cache import (
     resolve_resume_from_index,
 )
 from . import resume_state
+from . import anchor_ladder
 from .cache_policy import (
     resolve_nominal_segment_frames,
     should_persist_segment_cache,
@@ -244,6 +245,21 @@ def _segment_has_reference_video(segment) -> bool:
         return True
     meta = getattr(segment, "reference_video_meta", None) or {}
     return bool(str(meta.get("videoFile") or meta.get("fileName") or "").strip())
+
+
+def _anchor_directory(node_id):
+    """Directory the anchor-ladder PNGs live in (next to the segment caches)."""
+    try:
+        import folder_paths
+
+        from .cache_path import cache_root
+
+        return cache_root(
+            folder_paths.get_output_directory(), "minimax_seg_cache", node_id or "unknown"
+        ) / "anchors"
+    except OSError as exc:
+        log.warning("Anchor ladder: anchor directory unavailable (%s); anchors disabled.", exc)
+        return None
 
 
 def _build_minimax_inputs(
@@ -764,8 +780,15 @@ def execute_director_plan_core(
             )
 
         ui_idx = seg.timeline_index
+        anchor_index = getattr(seg, "anchor_index", None)
+        is_anchor = anchor_index is not None
+        # Anchor chunks render standalone: their own seed, no inherited context,
+        # no persistent caches. They only exist to become boundary pictures.
+        seg_seed = int(getattr(seg, "seed_override", None) or seed)
+        seg_persist_cache = bool(persist_segment_cache) and not is_anchor
         meta = {
-            "frames_label": frames_label(seg), "task_key": seg.task_key,
+            "frames_label": (f"anchor {int(anchor_index) + 1}" if is_anchor else frames_label(seg)),
+            "task_key": seg.task_key,
             "timeline_segment_index": ui_idx, "timeline_segment_total": timeline_seg_total,
         }
         report_director_progress(
@@ -798,6 +821,15 @@ def execute_director_plan_core(
             "actual_frames": 0,
             "legacy": not context_link.explicit,
         }
+        if is_anchor:
+            # A boundary anchor is a standalone pose: no inherited context, no
+            # replace window, no source pixels - it renders from its references.
+            apply_visual_context = False
+            apply_audio_context = False
+            boundary_diagnostics[timeline_slot]["visual"] = False
+            boundary_diagnostics[timeline_slot]["audio"] = False
+            boundary_diagnostics[timeline_slot]["visual_reason"] = "anchor chunk (standalone)"
+            boundary_diagnostics[timeline_slot]["audio_reason"] = "anchor chunk (standalone)"
         # ---- Character Replace window (Phase 1) ---------------------------
         # A replace segment is a standalone masked window: Previous Context /
         # Motion Context are disabled (the source background is the continuity)
@@ -863,7 +895,7 @@ def execute_director_plan_core(
                         f"Segment {timeline_slot + 1}: continuity anchor from Segment "
                         f"{max(prev_slots) + 1} (previous window's last rendered frame)."
                     )
-        elif bool(getattr(seg, "is_generated", False)):
+        elif not is_anchor and bool(getattr(seg, "is_generated", False)):
             # A generated row opens from the previous segment's rendered frames
             # exactly like a window does, and it has no window of its own: the
             # previous output's last frame becomes a <Picture N> anchor. i2v goes
@@ -879,9 +911,9 @@ def execute_director_plan_core(
                     )
         if not context_link.explicit:
             warning_messages.append(f"S{timeline_slot + 1}: legacy workflow fallback is being used")
-        if context_link.requested_audio and not apply_audio_context and not replace_active:
+        if context_link.requested_audio and not apply_audio_context and not replace_active and not is_anchor:
             warning_messages.append(f"S{timeline_slot + 1}: Audio inherit requested but {context_link.audio_reason}")
-        if context_link.requested_visual and not apply_visual_context and not replace_active:
+        if context_link.requested_visual and not apply_visual_context and not replace_active and not is_anchor:
             warning_messages.append(
                 f"S{timeline_slot + 1}: Visual inherit disabled because {context_link.visual_reason}"
             )
@@ -1121,9 +1153,12 @@ def execute_director_plan_core(
                     visible_clip_frames, minimax_align_frame_count(target_len)
                 )
         prev_tail = None
-        if not context_pipeline_active and is_continuity_active(plan, seg):
+        # Anchor-ladder chunks are standalone poses: they own their seed and
+        # inherit nothing, so neither continuity branch applies to them (their
+        # synthetic index would not even resolve inside ``all_segments``).
+        if not is_anchor and not context_pipeline_active and is_continuity_active(plan, seg):
             prev_tail = resolve_prev_segment_output(plan, all_segments, seg.index, completed_outputs, node_id)
-        elif bool(getattr(seg, "is_generated", False)) and (
+        elif not is_anchor and bool(getattr(seg, "is_generated", False)) and (
             seg.task_key == "i2v" or bool(getattr(replace_spec, "continuity", True))
         ):
             # A generated row opens from the previous segment's rendered frames -
@@ -1575,7 +1610,7 @@ def execute_director_plan_core(
                     int(timeline_slot) + 1, exc,
                 )
 
-        seg_first_pass_settings = first_pass_settings
+        seg_first_pass_settings = None if is_anchor else first_pass_settings
         if first_pass_settings is not None and replace_active and replace_spec is not None:
             seg_first_pass_settings = dict(first_pass_settings)
             seg_first_pass_settings["first_pass_replace_identity"] = replace_first_pass_identity(
@@ -1585,8 +1620,9 @@ def execute_director_plan_core(
                 mode="anchor" if replace_render_anchor else "inpaint",
             )
         log.info(
-            "[Motion Director] S%d/%d: first-pass sampling (%d frames, seed %d)",
-            int(timeline_slot) + 1, int(seg_total), int(num_frames), int(seed),
+            "[Motion Director] S%d/%d: first-pass sampling (%d frames, seed %d%s)",
+            int(timeline_slot) + 1, int(seg_total), int(num_frames), int(seg_seed),
+            "" if int(seg_seed) == int(seed) else f" [own seed; base {int(seed)}]",
         )
         _h3_sample_started = time.perf_counter()
         try:
@@ -1615,7 +1651,7 @@ def execute_director_plan_core(
                         int(timeline_slot) + 1, int(seg_total),
                     )
                     samples = sample_single_stage(
-                        model=model, positive=positive, negative=negative, latent=latent, seed=seed,
+                        model=model, positive=positive, negative=negative, latent=latent, seed=seg_seed,
                         cfg=cfg, steps=steps, sampler_name=sampler, scheduler=scheduler,
                         shift_video=shift_video, shift_audio=shift_audio,
                         external_sampler=external_sampler, external_sigmas=external_sigmas,
@@ -1634,7 +1670,7 @@ def execute_director_plan_core(
                     )
             else:
                 samples = sample_single_stage(
-                    model=model, positive=positive, negative=negative, latent=latent, seed=seed,
+                    model=model, positive=positive, negative=negative, latent=latent, seed=seg_seed,
                     cfg=cfg, steps=steps, sampler_name=sampler, scheduler=scheduler,
                     shift_video=shift_video, shift_audio=shift_audio,
                     external_sampler=external_sampler, external_sigmas=external_sigmas,
@@ -1932,16 +1968,16 @@ def execute_director_plan_core(
                 "sample_rate": int(audio_dict["sample_rate"]),
             }
         write_segment_cache_if_required(
-            persist_segment_cache,
+            seg_persist_cache,
             lambda: save_segment_cache(node_id, seg, plan, chunk),
         )
         write_segment_cache_if_required(
-            persist_segment_cache,
+            seg_persist_cache,
             lambda: save_segment_audio_cache(
                 node_id, seg, plan, audio_dict if audio_mode == AUDIO_MODE_GENERATE else None,
             ),
         )
-        if context_pipeline_active:
+        if context_pipeline_active and not is_anchor:
             if not save_motion_context_cache(
                 node_id, seg, plan, frames=chunk,
                 audio=audio_dict if audio_mode == AUDIO_MODE_GENERATE else None,
@@ -2247,6 +2283,94 @@ def execute_director_plan_core(
             f"({int(cached.shape[0])} frames)"
         )
         return True
+
+    # ---- Anchor ladder (P1, soft mode) ----------------------------------
+    # Boundary anchors are rendered FIRST, then injected into the fill segments
+    # as extra <Picture N> references plus the matching prompt lines. Anchors
+    # already on disk are reused, so Resume and repeat runs never re-render an
+    # approved boundary. See director/anchor_ladder.py and
+    # docs/ANCHOR_LADDER_PROPOSAL.md.
+    if plan.anchors is not None and getattr(plan.anchors, "enabled", False):
+        _anchor_root = _anchor_directory(node_id)
+        plan.anchors_root = str(_anchor_root or "")
+        if getattr(plan.anchors, "render_pass", True):
+            _anchor_tensors = anchor_ladder.run_anchor_pass(
+                plan,
+                root=_anchor_root,
+                render=lambda _anchor_seg: _run_one_segment(_anchor_seg, progress_index=0)[0],
+                reports=reports,
+                warnings=warning_messages,
+                only=(getattr(plan.anchors, "only_indices", ()) or None),
+                force=bool(getattr(plan.anchors, "force_render", False)),
+            )
+        else:
+            _anchor_tensors = anchor_ladder.load_anchor_tensors(
+                plan, root=_anchor_root, warnings=warning_messages,
+            )
+            reports.append(
+                f"Anchor ladder ({plan.anchors.mode}): reused {len(_anchor_tensors)} "
+                "on-disk anchor(s); anchor pass skipped."
+            )
+        anchor_ladder.apply_injection(
+            plan, _anchor_tensors, reports=reports, warnings=warning_messages,
+        )
+        _draft = getattr(plan.anchors, "draft", None)
+        if _draft is not None and _draft.enabled:
+            # Draft pass: same story, cheap settings. The anchors above rendered at
+            # full size (they are reused by the final pass); only the fills shrink.
+            # The cache fingerprint carries width/height (+ the variant below), so
+            # a draft frame can never stand in for a final-resolution render.
+            _scale = float(getattr(_draft, "scale", 0.5) or 0.5)
+            if 0 < _scale < 1:
+                plan.width = max(32, int(int(plan.width) * _scale) // 32 * 32)
+                plan.height = max(32, int(int(plan.height) * _scale) // 32 * 32)
+            _draft_steps = int(getattr(_draft, "steps", 0) or 0)
+            if _draft_steps > 0:
+                steps = _draft_steps
+            plan.cache_variant = "draft"
+            _draft_note = (
+                f"Draft pass: fills at {int(plan.width)}x{int(plan.height)}"
+                + (f" @ {_draft_steps} steps" if _draft_steps > 0 else "")
+                + f" (scale {_scale:g}). This is a preview - turn Draft off and run again "
+                "to render the real segments."
+            )
+            reports.append(_draft_note)
+            log.info("anchor ladder: %s", _draft_note)
+        if getattr(plan.anchors, "pre_roll_only", False) or getattr(plan.anchors, "only_indices", ()):
+            # Pre-roll: the boundary anchors ARE the story skeleton. Stop here and
+            # hand the caller a watchable animatic (plus a contact sheet) so the
+            # expensive fills only run once the poses look right.
+            _storyboard = anchor_ladder.storyboard_frames(_anchor_tensors)
+            if _storyboard is not None:
+                _sheet = anchor_ladder.write_contact_sheet(
+                    _anchor_tensors,
+                    items=plan.anchors.items,
+                    dest=(str(_anchor_root) + "/storyboard_contact_sheet.png") if _anchor_root else None,
+                )
+                _fps = float(plan.frame_rate or 24) or 24.0
+                _frames = int(_storyboard.shape[0])
+                _note = (
+                    f"Pre-roll only: {len(_anchor_tensors)} boundary anchor(s) ready and the fills were "
+                    f"skipped. Storyboard: {_frames} frames ({_frames / _fps:.1f}s at {_fps:g} fps)."
+                    + (f" Contact sheet: {_sheet}" if _sheet else "")
+                    + f" Anchors in play: {len(_anchor_tensors)} of {len(plan.anchors.items)} boundaries."
+                    + " Approve or re-roll the anchors in the Director strip, then run again with "
+                    "'Render fill pieces' checked to generate the segments from them."
+                )
+                reports.append(_note)
+                log.info("anchor ladder: %s", _note)
+                plan.total_frames = _frames
+                plan.run_indices = frozenset()
+                resume_state.mark_run_state(node_id, "done")
+                return _storyboard, [], [], _note
+            log.warning(
+                "anchor ladder: pre-roll only was requested but no boundary anchor could be built; "
+                "continuing with the fills."
+            )
+        try:
+            cache_settings["anchors"] = anchor_ladder.anchor_fingerprint(plan)
+        except Exception as exc:  # noqa: BLE001 - the digest is advisory
+            log.debug("Anchor ladder: fingerprint failed (%s)", exc)
 
     # Cooperative Stop: instead of aborting immediately (which threw away every
     # finished segment), we leave the loop and let the normal assemble path emit

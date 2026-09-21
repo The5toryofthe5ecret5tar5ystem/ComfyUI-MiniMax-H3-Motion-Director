@@ -36,6 +36,16 @@ MIN_GEN_FRAMES = 1
 MIN_GEN_VIDEO_FRAMES = 4
 
 
+def _anchor_int(value) -> int | None:
+    """Best-effort int for optional anchor payload fields (None when absent)."""
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def is_gen_task_key(task_key: str) -> bool:
     return task_key in GEN_TASK_KEYS
 
@@ -662,6 +672,9 @@ def build_gen_director_plan(
                 context_link=parse_context_link(seg_data, idx),
                 reground=bool(seg_data.get("reground") or seg_data.get("regroundSegment") or False),
                 refmod_enabled=parse_refmod_enabled(seg_data),
+                anchor_prompt=str(seg_data.get("anchorPrompt") or seg_data.get("anchor_prompt") or "").strip(),
+                anchor_in=_anchor_int(seg_data.get("anchorIn", seg_data.get("anchor_in"))),
+                anchor_out=_anchor_int(seg_data.get("anchorOut", seg_data.get("anchor_out"))),
             )
         )
 
@@ -674,6 +687,10 @@ def build_gen_director_plan(
     raw = dict(timeline)
     raw["timelineMode"] = timeline_mode
     src_w, src_h = _resolve_gen_image_source_dims(segment_ranges, global_block, output_block)
+
+    from .anchor_ladder import parse_anchor_config
+
+    anchors = parse_anchor_config(timeline, segments)
 
     return DirectorPlan(
         frame_rate=float(timeline.get("frameRate") or frame_rate or 24),
@@ -703,4 +720,5 @@ def build_gen_director_plan(
         # prefix as reusable. That mismatch is what made Resume look broken.
         resume=_resume_enabled(timeline),
         resume_from=_resume_from_index(timeline),
+        anchors=anchors,
     )

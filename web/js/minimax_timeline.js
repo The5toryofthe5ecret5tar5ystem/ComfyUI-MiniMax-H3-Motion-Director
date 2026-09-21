@@ -229,6 +229,9 @@ import {
     syncMixedGlobalsFromWidgets,
 } from "./minimax_mixed_ui.mjs?boot=mixed_issue16_v2";
 import { normalizeMixedTimeline } from "./minimax_mixed_state.mjs?boot=mixed_native_v6";
+// Anchor ladder strip (P2): one cell per segment boundary, mounted above the
+// canvas. Backed by director/anchor_routes.py + director/anchor_ladder.py.
+import { installAnchorStrip } from "./minimax_anchor_strip.mjs?boot=anchor_ladder_v1";
 
 const RULER_H = 24;
 const SEG_LABEL_H = 20;
@@ -7217,6 +7220,8 @@ class MiniMaxH3MotionDirectorEditor {
         // Character Replace window editor + numeric segment bounds (Slice F).
         installSegmentBoundsBar(this);
         installReplaceWindowsMode(this);
+        // Boundary anchors (plan phases: one cell per boundary, above the canvas).
+        this._anchorStrip = installAnchorStrip(this);
 
         this.outMode.onchange = () => this.onOutputField("mode", this.outMode.value);
         if (this.outAspect) {
@@ -10823,6 +10828,8 @@ class MiniMaxH3MotionDirectorEditor {
             else this.updateSelectionUI();
         }
         refreshDirectorContinuityUi(this.node, this);
+        // Segment count/ids may have changed - let the anchor strip re-key its cells.
+        this._anchorStrip?.requestRefresh?.();
         this._recordUndoSnapshot();
     }
 

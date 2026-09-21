@@ -1,11 +1,12 @@
 # MiniMax H3 Motion Director  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.12.0-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.13.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
 > **维护分支（fork）**：本仓库在原版 j955229 基础上新增：
 >
+> - **v1.13.0 新增**：**边界锚点（Boundary Anchors）**——在正式渲染分段之前，先为每个分段边界渲染一小段「锚点」（默认 22 帧 ≈ 0.92 秒，按 `17k+5` 网格取整，因此每个边界可以有自己的帧数），用该分段自己的参考素材、共享提示词与该边界的**节拍（beat）**生成，并把确定下来的画面缓存为 `A<ii>_s<seed>_v1_f22.png` + JSON 侧车文件（与分段缓存同目录）——锚点渲染一次、审阅一次，之后每次运行与 Resume 都复用它。正式分段随后会拿到「开边界」与「闭边界」的锚点作为额外的 `<Picture N>` 参考（`mode: soft`），并带上对应的提示词行。**不再靠断言，而是有实测量**——链式渲染让第 N+1 段依赖第 N 段的成片，误差会累积：6×7.3 秒 A/B（`docs/ANCHOR_LADDER_PROPOSAL.md`）显示，帧直方图相关性相对第 1 段在前三段维持约 0.80，随后掉到第 5 段 **0.53**、第 6 段 **0.41**，背景/光照漂移升至 Δ72，而且链条**跑偏了剧本**（第 2 段自行加了一个提示词里没有的「扑向镜头」动作）；改由边界锚点约束后，六段稳定性平在 **0.72–0.81**、世界漂移最低（Δ23.9–43.4）。整轮锚点遍历的成本约为正式渲染的 10%（4 个锚点 × 0.9 分钟，对比约 32 分钟的分段）。**每个边界都在负载里可控**：`timeline_data["anchors"]` 携带 `mode`、`chunkFrames`、`seedBase` / `seeds[]`、`beats[]`、`promptTemplate`（`{{shared}}`、`{{beat}}`、`{{index}}`）、`injectPrompt`、`renderPass`、`preRollOnly`、`forceRender`、`onlyIndices`、`boundaries`、`draft`，分段还可以用 `anchorPrompt` 声明自己的**收尾姿态**（或用 `anchorIn` / `anchorOut` 直接指向某个边界）。选区是**严格**的：`all` / `bookends` / `none` / 显式下标表决定「哪些边界存在」，未选中的边界既不渲染也不参与约束——「只做首尾」真的只花两次渲染。**预演（Pre-roll）＝整片的故事板，在花掉任何一次正式分段之前**：只渲染选中的锚点、跳过正式分段，并把它们组装成故事板 MP4（走本插件原有的 `CreateVideo`/`SaveVideo` 输出）与带标注的接触印相图，于是可以在每拍还只有 0.9 秒时就先判断节拍对不对；**草稿（Draft）**则是另一头：按比例缩减画幅与步数渲染正式分段（`scale`、`steps`），并写入独立的缓存命名空间（`cache_variant`），预览永远不会污染正式缓存。**锚点条带**（`web/js/minimax_anchor_strip.mjs`）位于时间线下方、可折叠为一条细栏：每个边界一张卡片（缩略图、序号、种子、状态、节拍文本），卡片上可选中/取消、**只渲染该锚点**、批准、换种子重掷；细栏上有预设 **All** / **Bookends** / **Rendered**、**Pre-roll**、**Draft**、全部批准 / 清空。点击缩略图会把播放头移动到该边界，ctrl+点击打开 PNG，折叠状态与卡片数据随工作流保存。新增路由模块 `director/anchor_routes.py`（计划、状态、单点渲染、批准、删除），并新增 `docs/ANCHOR_LADDER_PROPOSAL.md` 记录实验、数值与阶段计划（硬首尾帧模式尚未发布）。修复：**锚点失败不再无声消失**（合成分段用下标偏移 `1000 + n` 去查「上一段」，抛出的 `IndexError` 被吞进无人打印的告警列表——整遍渲染报告成功、磁盘上却没有任何文件，现在每个锚点失败都会连同边界与原因写进日志）；**单卡片渲染按钮不会再卡在「渲染中」**（它复用了已存在的 PNG，缩略图不变于是状态永远不结束；现在强制重渲染、改看运行历史，并在超时时明确报出；重掷会留下多个种子的文件，因此条带优先使用与当前种子匹配的那张，删除按钮会清掉全部）；**预览不会再吞掉下一次正式运行**（条带的临时标记就写在节点渲染所用的同一份 `timeline_data` 里，而它们只在条带等待自己那次运行结束后才还原——这段时间内按下的 **Start run** 会继承「只预演」，于是锚点渲染完就结束、约 1.2 秒报告成功却没有任何正式分段；现在排队后立即还原，条带载入时也会清除残留标记）；`first-pass sampling` 日志行此前打印节点基础种子而非该分段真正使用的种子（看起来像逐边界种子没生效）；以及 `web/js/tests/minimax_motion_settings.test.mjs` 用「文件长度一半」来切分两本字典，新增条带字符串后中点落进了英文块（现改为按 `const EN = {` 边界切分）。
 > - **Re-ground 分段（防累积漂移）**：时间线每段边界下方新增 **R 圆圈**，左键切换（开启后变琥珀色）。开启的段落会从「链首 root」而非上一段重新锚定上下文，用于长片每 3–5 段设置一次，配合 Latent Scale Lock 与 Color Re-anchor 抑制色彩/画面漂移。
 > - **性能修复**：修复打开 Director 面板时因超长提示词逐字裁剪导致的长时间卡顿（改为二分查找 `fitCanvasText`，实测约快 525 倍）；批量卡片启用 `content-visibility` 优化滚动。
 > - **新版 ComfyUI 兼容**：H3 节点改为关键字传参，兼容 v0.34.x 之后 io.Schema / ComfyNode 重写版 ComfyUI，修复 `//: 'str' and 'int'` 崩溃。
@@ -20,7 +21,7 @@
 > - **v1.7.0 新增**：**首轮复用（Reuse cached first pass）**——勾选后首轮 H3 采样的原始 AV 潜变量按「除后期处理外」的指纹写入磁盘，之后用相同 seed / 提示词 / 参考图 / 分辨率、但调整 Global Refine / Face Refine / Audio Room 时可直接跳过首轮采样、只重跑后期（实测 107 帧 r2v 从 363 秒降至 33 秒）；seed / 提示词 / 参考图 / 分辨率 / 采样器 / 模型改变时缓存自动失效。另新增 **平铺精修（tiled refine）**（把 Global Refine 二段采样切成重叠空间块以降低显存占用）、**对比导出（export comparison）**（同时写出 `_raw_firstpass` 与 `_postprocessed` 便于对比）、**外部 patch 时跳过精修（allow_refine_on_external_patch）**，以及**实验性「潜空间接续」（latent_continuation_enabled，早期测试）**——把上一段末尾潜变量直接注入下一段采样流并用嵌套噪声掩码锁定。
 > - **v1.5.0 新增**：**Audio Room（逐场景声场）**——后期处理面板新增第三栏，为模型生成的音频加上真实空间感。可选 `bedroom` / `bathroom` / `bar` / `office` / `car` / `hall` / `cathedral` / `outdoor` / `dry` 等预设（一次设定全部六个混响参数），也可选 **Custom** 自行调整混响量、高频衰减、空间尺寸、立体声深度、预延迟与湿声增益；另有独立的**电平**（标准化 / 增益）。每个片段可在时间线的 `room` 字段声明自己的空间，同一支影片里的浴室与卧室不再共用一套声场。该处理在输出组装阶段执行、位于片段音频缓存之后，**不会使任何片段、上下文缓存或已完成渲染失效**；立体声与采样数完整保留，处理失败的音轨保持干声并**在报告中点名**。另新增**共享提示块静音守卫**，以及一批 **Resume 正确性修复**（四个 plan builder 各自漏传 resume 标志、引擎接管起点、预览与音频检查盲区、停止后状态残留）和 **CUDA OOM 被误报为采样器不兼容**的修复。**Audio Room（逐场景声场）**——后期处理面板新增第三栏，为模型生成的音频加上真实空间感。可选 `bedroom` / `bathroom` / `bar` / `office` / `car` / `hall` / `cathedral` / `outdoor` / `dry` 等预设（一次设定全部六个混响参数），也可选 **Custom** 自行调整混响量、高频衰减、空间尺寸、立体声深度、预延迟与湿声增益；另有独立的**电平**（标准化 / 增益）。每个片段可在时间线的 `room` 字段声明自己的空间，同一支影片里的浴室与卧室不再共用一套声场。该处理在输出组装阶段执行、位于片段音频缓存之后，**不会使任何片段、上下文缓存或已完成渲染失效**；立体声与采样数完整保留，处理失败的音轨保持干声并**在报告中点名**。另新增**共享提示块静音守卫**，以及一批 **Resume 正确性修复**（四个 plan builder 各自漏传 resume 标志、引擎接管起点、预览与音频检查盲区、停止后状态残留）和 **CUDA OOM 被误报为采样器不兼容**的修复。
 > - **v1.4.0 新增**：**Stop 部分导出**（停止时把已完成片段合成为可用的部分视频，Resume 仍从第一个未完成片段继续）、**时间线撤销/重做**（Ctrl+Z / Ctrl+Shift+Z，输入框内不会抢撤销）、**命名预设**（只保存采样/接续/输出设置，不含片段、提示词与种子）、**多种子 Sweep**（同一项目按不同种子渲染多次对比）、以及 **Validate / Preview prompt / References** 预检工具。
-> - **测试与 CI**：`python -m pytest`（807 个测试，无需 ComfyUI 即可运行）+ 前端 jsdom 测试，CI 见 `.github/workflows/tests.yml`。
+> - **测试与 CI**：`python -m pytest`（1141 个测试，无需 ComfyUI 即可运行）+ 前端 jsdom 测试，CI 见 `.github/workflows/tests.yml`。
 > - **示例工作流**：`example_workflows/` 内含可直接运行的 **ref2va** 示例与配套 AI 生成参考图。
 >
 > 英文详情见 [Improvements in this fork](README.md#-improvements-in-this-fork)；示例默认模型下载见 [Models used by the example workflow](README.md#models-used-by-the-example-workflow-defaults)。
@@ -33,7 +34,7 @@
 
 在一个生产界面中完成 `T2V / I2V / FL2V / R2V / V2V / RV2V`，按片段混合不同生成方式，在镜头之间传递画面与生成音频上下文，只重跑需要修改的片段，管理可复用素材，实时预览生成过程，完成后期精修并导出最终视频，而不需要把 ComfyUI 节点图堆成一堵墙。
 
-> 当前版本：**v1.12.0**
+> 当前版本：**v1.13.0**
 
 <!-- IMAGE SLOT 1
 把 Mixed + Selective Run 主截图放到：

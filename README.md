@@ -1,10 +1,10 @@
 # MiniMax H3 Motion Director.  [English](README.md) | [简体中文](README_zh.md)
 
-![Version](https://img.shields.io/badge/version-v1.12.0-2ea44f)
+![Version](https://img.shields.io/badge/version-v1.13.0-2ea44f)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![ComfyUI](https://img.shields.io/badge/ComfyUI-custom%20node-6f42c1)
 
-> **Maintained fork** — upstream features plus a **per-scene Audio Room**, **Re-ground segments (anti-drift)**, an **in-process prompt enhancer** (no Ollama, no API key), a big **Generation-tab UI performance fix**, **newer-ComfyUI compatibility**, **CI**, and a ready-to-run **ref2va example workflow**. See [✨ Improvements in this fork](#-improvements-in-this-fork).
+> **Maintained fork** — upstream features plus a **per-scene Audio Room**, **Re-ground segments (anti-drift)**, **boundary anchors that lock a long project's beat**, an **in-process prompt enhancer** (no Ollama, no API key), a big **Generation-tab UI performance fix**, **newer-ComfyUI compatibility**, **CI**, and a ready-to-run **ref2va example workflow**. See [✨ Improvements in this fork](#-improvements-in-this-fork).
 
 **One Director. From a single MiniMax H3 shot to a complete multi-segment video project.**
 
@@ -14,7 +14,7 @@ Here is  tutorial, or you like to read the introduction first? / 下面连结是
 
 Build `T2V / I2V / FL2V / R2V / V2V / RV2V` shots in one production interface, mix generation methods segment by segment, carry visual and generated-audio context across shots, rerun only the segments that need work, manage reusable assets, preview the pipeline live, refine the result, and export the final video without turning the ComfyUI graph into a wall of nodes.
 
-> Current version: **v1.12.0**
+> Current version: **v1.13.0**
 
 ![MiniMax H3 Motion Director — Mixed Mode](docs/images/hero-mixed-selective-run.png)
 
@@ -25,6 +25,32 @@ The screenshot above shows the native **Mixed** timeline: five segments using di
 ## ✨ Improvements in this fork
 
 Maintained at [`The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director`](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director), on top of upstream `j955229/…`.
+
+### v1.13.0 — Boundary anchors: the storyboard is rendered first, and the fills are locked to it
+
+**The cheapest way to stop a long project from drifting is to decide what happens at every boundary
+before you pay for the segments.** A new **anchor pass** runs ahead of the fills: one short chunk per
+segment boundary (default 22 frames ≈ 0.92 s) rendered from that segment's own references, the shared
+prompt and the boundary's *beat*. Each anchor is cached as a PNG plus a JSON sidecar next to the
+segment caches, so it is rendered once, reviewed, and then reused by every later run and by Resume.
+
+**Fills stop being a game of telephone.** Chained rendering conditions segment *N+1* on segment *N*'s
+render, and the errors compound: measured over a 6 × 7.3 s A/B (`docs/ANCHOR_LADDER_PROPOSAL.md`),
+frame-histogram correlation against segment 1 holds ~0.80 for three segments and then falls to 0.53
+(segment 5) and **0.41 (segment 6)**, background/lighting drift climbs to Δ72 — and the chain also went
+*off-script* (segment 2 improvised a lunge that was never in the prompt). The same fills conditioned on
+boundary anchors stay flat at **0.72–0.81 across all six segments** with the lowest world drift
+(Δ23.9–43.4), because every segment is anchored to a pose instead of to the previous segment's
+mistakes. A full anchor pass costs ~10 % of the fill pass.
+
+**You decide which boundaries exist, and you can look at them before you spend a fill.** The strip
+under the timeline has one cell per boundary with its own thumbnail, seed, status and beat: select or
+deselect it, render just that one, approve it, or re-roll it with a new seed. **Pre-roll** renders the
+anchors *and skips the fills*, returning a storyboard MP4 and a labelled contact sheet; **Draft** runs
+the fills at a fraction of the canvas and steps in its own cache namespace, so a preview never poisons
+the real render. Presets (**All** / **Bookends** / **Rendered**) set the selection in one click, and the
+selection is strict — an unselected boundary is neither rendered nor conditioned on, so two bookends
+really cost two renders. Clicking a thumbnail moves the playhead to that boundary.
 
 ### v1.12.0 — Responsive under load, and a segment's memory cost before you pay it
 
@@ -771,7 +797,7 @@ See [`NOTICE`](NOTICE), [`LICENSE`](LICENSE), and [`LICENSES`](LICENSES) for the
 The test suites run without a live ComfyUI instance (CPU is enough for the Python tests):
 
 ```bash
-# Python unit + contract tests (492 tests) — any working directory, no ComfyUI needed
+# Python unit + contract tests (1141 tests) — any working directory, no ComfyUI needed
 python -m pytest
 
 # Frontend unit tests (jsdom is a dev-only dependency)
