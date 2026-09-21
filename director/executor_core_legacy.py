@@ -180,6 +180,20 @@ from .replace_runtime import (
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director.core")
 
 
+def _progress_tag(seg, label: str) -> str:
+    """How one unit of work names itself in the progress log.
+
+    Anchor chunks are synthetic segments carrying ``1000 + boundary`` as their
+    index (so they can never collide with a timeline segment), which means a
+    Pre-roll grinding through ten poses printed lines like ``S1014/20`` - it reads
+    like a thousand-segment fill run. Name them for what they are.
+    """
+    anchor_index = getattr(seg, "anchor_index", None)
+    if anchor_index is not None:
+        return f"anchor for boundary {int(anchor_index) + 1}"
+    return label
+
+
 def _stable_cache_value(value, depth: int = 0):
     """Describe MODEL patch options without memory-address-based repr strings."""
     if depth > 6:
@@ -949,10 +963,9 @@ def execute_director_plan_core(
             # with no references is indistinguishable from a t2v shot, and that
             # is worth seeing before the frames are decoded.
             log.info(
-                "[Motion Director] S%d/%d: %d picture(s), %d video(s), %d standalone audio "
+                "[Motion Director] %s: %d picture(s), %d video(s), %d standalone audio "
                 "reference(s) in the effective reference set",
-                int(timeline_slot) + 1,
-                int(seg_total),
+                _progress_tag(seg, f"S{int(timeline_slot) + 1}/{int(seg_total)}"),
                 len(seg.refs or []),
                 len(getattr(seg, "ref_videos", None) or []),
                 len(seg.ref_audios or []),
@@ -1681,8 +1694,9 @@ def execute_director_plan_core(
                 mode="anchor" if replace_render_anchor else "inpaint",
             )
         log.info(
-            "[Motion Director] S%d/%d: first-pass sampling (%d frames, seed %d%s)",
-            int(timeline_slot) + 1, int(seg_total), int(num_frames), int(seg_seed),
+            "[Motion Director] %s: first-pass sampling (%d frames, seed %d%s)",
+            _progress_tag(seg, f"S{int(timeline_slot) + 1}/{int(seg_total)}"),
+            int(num_frames), int(seg_seed),
             "" if int(seg_seed) == int(seed) else f" [own seed; base {int(seed)}]",
         )
         _h3_sample_started = time.perf_counter()
@@ -2235,8 +2249,9 @@ def execute_director_plan_core(
                 )
             reports.append(f"Segment {ui_idx + 1}: Color Re-anchor: {motion_info.color_reanchor_status}")
         log.info(
-            "MiniMax H3 Motion Director segment %d/%d done (%d frames, task=%s)",
-            ui_idx + 1, timeline_seg_total, target_len, seg.task_key,
+            "MiniMax H3 Motion Director %s done (%d frames, task=%s)",
+            _progress_tag(seg, f"segment {int(ui_idx) + 1}/{int(timeline_seg_total)}"),
+            target_len, seg.task_key,
         )
         resume_state.mark_segment_done(node_id, int(seg.index), timeline_slot)
         report_director_segment_done(

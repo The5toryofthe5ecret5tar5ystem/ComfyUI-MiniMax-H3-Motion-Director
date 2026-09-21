@@ -7,6 +7,14 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Fixed
 
+- **A long Pre-roll no longer reads as a fill run, and no longer claims to be finished early.** Anchor
+  chunks carry the synthetic index `1000 + boundary`, which leaked into the progress log
+  (`S1014/20: first-pass sampling` - it reads like a thousand-segment fill job while ten poses render);
+  the anchor lines now say `anchor for boundary 15: first-pass sampling (...)`, and the strip's footer
+  shows live progress (`rendering anchors: 3 of 10 done`) next to the Stop button. The strip also waits
+  for **its own** queued prompt (by `prompt_id`) instead of "a history entry appeared", which under a
+  busy queue reported `10 boundary anchor(s) are still missing - check the run log for why` while its run
+  was in fact still rendering.
 - **An approved boundary anchor can no longer drop out of a run.** Anchors were looked up by the
   filename their seed implies (`A01_s424243_v1_f22.png`), so a boundary whose PNG had been rendered
   under a different seed - a re-roll, a cleared `seeds` array, an edited `seedBase` - rendered with

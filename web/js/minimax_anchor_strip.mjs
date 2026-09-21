@@ -482,7 +482,24 @@ export function installAnchorStrip(ed) {
     async function queueDirectorRun() {
         const comfy = window.app || window.comfyAPI?.app?.app;
         if (!comfy?.queuePrompt) throw new Error(t("anchor.noApp"));
-        await comfy.queuePrompt(0);
+        const response = await comfy.queuePrompt(0);
+        // The prompt id lets the strip wait for *its own* run. Waiting for the
+        // history count to grow instead was wrong whenever another prompt
+        // finished in the meantime: Pre-roll then reported "N still missing"
+        // while its own run was still rendering.
+        return String(response?.prompt_id || response?.promptId || "");
+    }
+
+    async function promptFinished(promptId) {
+        if (!promptId) return null;
+        try {
+            const response = await fetch(`/history/${encodeURIComponent(promptId)}`);
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data && typeof data === "object" && Object.keys(data).length ? data : null;
+        } catch (err) {
+            return null;
+        }
     }
 
     /** Interrupt the running prompt - the anchor pass stops where it is.
@@ -516,12 +533,16 @@ export function installAnchorStrip(ed) {
         }
     }
 
-    async function waitForHistory(before, timeoutMs) {
-        if (before < 0) return false;
+    async function waitForHistory(before, timeoutMs, promptId = "") {
+        if (!promptId && before < 0) return false;
         const deadline = Date.now() + timeoutMs;
         do {
             await sleep(5000);
             if (stopRequested) return false;
+            if (promptId) {
+                if (await promptFinished(promptId)) return true;
+                continue;
+            }
             const now = await historyCount();
             if (now > before) return true;
         } while (Date.now() < deadline);
@@ -538,7 +559,7 @@ export function installAnchorStrip(ed) {
         }
     }
 
-    async function waitForAnchors(indices, timeoutMs, historyBefore) {
+    async function waitForAnchors(indices, timeoutMs, historyBefore, promptId = "") {
         const wanted = (indices || []).map(Number);
         const before = new Map();
         for (const index of wanted) before.set(index, await anchorMtime(index));
@@ -550,9 +571,21 @@ export function installAnchorStrip(ed) {
                 // timeout - the callers say "stopped" and keep the PNGs.
                 return { settled: false, stopped: true, changed: await anchorChanged(wanted, before) };
             }
-            // The queued run finishing is enough: a boundary that was already on
-            // disk is reused, so its PNG never changes (the old behaviour kept
-            // the cell spinning until the timeout).
+            if (promptId) {
+                // Our own prompt finished: every anchor it rendered is on disk.
+                if (await promptFinished(promptId)) {
+                    return { settled: true, changed: await anchorChanged(wanted, before) };
+                }
+                // Live progress, so a ten-pose pass does not look like a hang.
+                hint = t("anchor.progressAnchors", {
+                    done: await anchorLanded(wanted, before), total: wanted.length,
+                });
+                setFoot();
+                continue;
+            }
+            // Legacy fallback (no prompt id from the frontend): the queued run
+            // finishing is enough, because a boundary that was already on disk is
+            // reused and its PNG never changes.
             if (historyBefore >= 0 && (await historyCount()) > historyBefore) {
                 return { settled: true, changed: await anchorChanged(wanted, before) };
             }
@@ -564,6 +597,15 @@ export function installAnchorStrip(ed) {
             if (ready) return { settled: true, changed: await anchorChanged(wanted, before) };
         } while (Date.now() < deadline);
         return { settled: false, stopped: stopRequested, changed: false };
+    }
+
+    async function anchorLanded(indices, before) {
+        let count = 0;
+        for (const index of indices) {
+            const mtime = await anchorMtime(index);
+            if (mtime && mtime !== before.get(index)) count += 1;
+        }
+        return count;
     }
 
     async function anchorChanged(indices, before) {
@@ -645,6 +687,7 @@ export function installAnchorStrip(ed) {
     async function runAnchors(onlyIndices, options = {}) {
         const force = options.force === true;
         const block = anchorsBlock(ed);
+        let promptId = "";
         const previous = {
             preRollOnly: block.preRollOnly === true,
             forceRender: block.forceRender === true,
@@ -676,7 +719,7 @@ export function installAnchorStrip(ed) {
             else delete block.onlyIndices;
             persistTimeline(ed);
             setFoot();
-            await queueDirectorRun();
+            promptId = await queueDirectorRun();
         } finally {
             // Restore immediately: the queued prompt is already a snapshot, and
             // leaving these flags armed would make the next manual "Start run"
@@ -690,7 +733,7 @@ export function installAnchorStrip(ed) {
             else current.onlyIndices = previous.onlyIndices;
             persistTimeline(ed);
         }
-        const result = await waitForAnchors(targets, 1500000, historyBefore);
+        const result = await waitForAnchors(targets, 1500000, historyBefore, promptId);
         return { ...result, armed };
     }
 
@@ -1180,13 +1223,14 @@ export function installAnchorStrip(ed) {
             persistTimeline(ed);
             hint = t("anchor.draftRunning", { scale: Math.round(block.draft.scale * 100) });
             setFoot();
+            let promptId = "";
             try {
-                await queueDirectorRun();
+                promptId = await queueDirectorRun();
             } finally {
                 block.draft.enabled = false;
                 persistTimeline(ed);
             }
-            const settled = await waitForHistory(before, 1800000);
+            const settled = await waitForHistory(before, 1800000, promptId);
             hint = stopRequested
                 ? t("anchor.draftStopped")
                 : settled ? t("anchor.draftDone") : t("anchor.draftTimeout");
