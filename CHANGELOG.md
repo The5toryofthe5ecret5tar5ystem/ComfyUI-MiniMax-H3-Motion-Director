@@ -44,6 +44,26 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Added
 
+- **A boundary anchor can be prompted from the shots around it.** A boundary sits between two shots -
+  the one that **ends** on it and the one that **starts** on it - and `anchors.promptSource`
+  (`auto` | `template` | `from` | `to` | `both`) decides which of them lends its words. `auto` follows
+  the placement, because the right source depends on where the pose lives: a **lead** pose is a frame
+  of the shot that ends there (so it prompts from that shot), while a pose **on the cut** is a hand-off
+  both sides converge on (so it prompts from both). The body gains `{from_tail}` (the action that
+  arrives at the boundary), `{to_head}` (the action that leaves it), `{from_camera}` / `{to_camera}` /
+  `{camera}` (the framing line), `{from_label}` / `{to_label}`, and now also fills `{subject}` in the
+  built-in bodies. Extraction is deliberate: dialogue and `[Shot N]` markers are dropped (an anchor is a
+  silent chunk), framing sentences are kept out of the action clauses so they cannot fight `{camera}`,
+  and each clause is capped (~240 chars) because 0.9 s cannot stage a whole shot. A token whose source
+  does not exist is reported rather than left as a hole (`boundary 2: {from_tail} has no source - the
+  shot that ends on it has no text to borrow ...`).
+- **A per-boundary prompt editor in the strip** (the ✎ on every cell): the composed prompt, editable,
+  with the neighbour material as insertable chips (`{from_tail}`, `{to_head}`, `{camera}`), a *renders
+  as* preview of the exact text the anchor will be sent, `Save override` / `Back to auto`
+  (`anchors.prompts[k]`), and the two shots named in the header (`#2 - Shot 1 -> Shot 2`). The preview
+  comes from the same function the render path uses (`compose_anchor_prompt`), so panel and engine
+  cannot disagree, and it works while the anchors mode is **off** - writing prompts no longer requires
+  arming the ladder first.
 - **`{subject}` in the anchor prompt template**: the owning segment's own `subject_definitions:`
   block, so an anchor can be described in exactly the words its fill uses instead of the global
   prompt alone.

@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlencode
@@ -346,10 +347,23 @@ def anchors_plan(node_id: str, timeline: dict, *, width: int, height: int,
     segments = [seg for seg in (timeline.get("segments") or []) if isinstance(seg, dict)]
     boundaries = len(segments) + 1
     shims = [
-        SimpleNamespace(anchor_prompt=str(seg.get("anchorPrompt") or ""))
+        SimpleNamespace(
+            anchor_prompt=str(seg.get("anchorPrompt") or ""),
+            prompt=str(seg.get("prompt") or ""),
+        )
         for seg in segments
     ]
     plan = anchor_ladder.parse_anchor_config(timeline, shims)
+    # The per-boundary prompt editor has to work before the mode is switched on,
+    # so when the ladder is off, compose the previews from an "as if soft" copy
+    # of the same config - the stored timeline is never touched.
+    preview_plan = plan
+    if preview_plan is None and isinstance((timeline or {}).get("anchors"), dict):
+        relaxed = dict(timeline)
+        block = dict(relaxed.get("anchors") or {})
+        block["mode"] = anchor_ladder.ANCHOR_MODE_SOFT
+        relaxed["anchors"] = block
+        preview_plan = anchor_ladder.parse_anchor_config(relaxed, shims)
 
     pictures = 0
     if ref_pictures is not None:
@@ -394,10 +408,43 @@ def anchors_plan(node_id: str, timeline: dict, *, width: int, height: int,
     ]
     missing = [index for index in active if index not in on_disk]
 
+    global_prompt = str((timeline.get("global") or {}).get("prompt") or "")
+    boundary_text: list[dict] = []
+    if preview_plan is not None:
+        for item in preview_plan.items:
+            words = anchor_ladder.boundary_text(preview_plan.segments, int(item.index))
+            try:
+                composed = anchor_ladder.compose_anchor_prompt(
+                    item,
+                    anchors=preview_plan,
+                    segments=preview_plan.segments,
+                    global_prompt=global_prompt,
+                )
+            except Exception:  # noqa: BLE001 - a preview must never fail the preflight
+                composed = ""
+            boundary_text.append({
+                "index": int(item.index),
+                "source": anchor_ladder.effective_prompt_source(preview_plan, item),
+                "override": bool(getattr(item, "prompt_override", "")),
+                "fromLabel": words.from_label,
+                "toLabel": words.to_label,
+                "fromTail": words.from_tail,
+                "toHead": words.to_head,
+                "camera": words.camera,
+                "body": anchor_ladder.anchor_prompt_body(item, anchors=preview_plan),
+                "bodyAuto": anchor_ladder.anchor_prompt_body(
+                    replace(item, prompt_override=""), anchors=preview_plan,
+                ),
+                "prompt": composed,
+            })
+
     return {
         "ok": True,
         "enabled": planned,
         "mode": plan.mode if plan is not None else anchor_ladder.ANCHOR_MODE_OFF,
+        "promptSource": (
+            (plan or preview_plan).prompt_source if (plan or preview_plan) is not None else ""
+        ),
         "chunkFrames": int(chunk_frames),
         "boundaries": boundaries,
         "boundariesTotal": boundaries,
@@ -420,6 +467,7 @@ def anchors_plan(node_id: str, timeline: dict, *, width: int, height: int,
         "worstFillTokens": int(worst_tokens),
         "worstFillWorkspaceGb": round(attention_workspace_gb(worst_tokens), 3) if worst_tokens else 0.0,
         "beats": [item.beat for item in plan.items] if plan is not None else [],
+        "boundaryText": boundary_text,
     }
 
 

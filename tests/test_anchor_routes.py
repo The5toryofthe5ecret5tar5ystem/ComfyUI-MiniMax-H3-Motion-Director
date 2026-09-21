@@ -320,6 +320,44 @@ def test_plan_uses_segment_anchor_prompt_for_beats(anchor_dir):
     assert data["beats"][0] == ""  # boundary 0 is the opening pose (anchors.open)
 
 
+def test_plan_previews_the_composed_prompt_for_every_boundary(anchor_dir):
+    """The per-boundary prompt editor needs the text even while the ladder is off."""
+    timeline = _timeline(175, 175, anchors={"mode": "off"})
+    timeline["segments"][0]["prompt"] = (
+        "summary:\nA.\ndetailed_description:\nShe lifts the cup and sets it down."
+    )
+    timeline["segments"][1]["prompt"] = (
+        "summary:\nB.\ndetailed_description:\nShe reaches toward the lens."
+    )
+
+    data = anchors_plan("42", timeline, width=640, height=384)
+
+    assert data["enabled"] is False          # off means off - only the preview is built
+    previews = data["boundaryText"]
+    assert len(previews) == 3
+    middle = previews[1]
+    assert middle["fromLabel"] == "Shot 1" and middle["toLabel"] == "Shot 2"
+    assert "sets it down" in middle["fromTail"]
+    assert "reaches toward the lens" in middle["toHead"]
+    assert "sets it down" in middle["prompt"]          # composed, token-free
+    assert "{from_tail}" in middle["body"]              # the editable body keeps them
+    assert middle["bodyAuto"] == middle["body"]
+    assert middle["override"] is False
+
+
+def test_plan_preview_marks_a_per_boundary_override(anchor_dir):
+    timeline = _timeline(175, anchors={"mode": "soft", "prompts": ["MINE {beat}"]})
+    timeline["segments"][0]["prompt"] = "detailed_description:\nShe reaches."
+
+    data = anchors_plan("42", timeline, width=640, height=384)
+
+    first = data["boundaryText"][0]
+    assert first["override"] is True
+    assert first["body"] == "MINE {beat}"
+    assert "MINE" not in first["bodyAuto"]
+    assert data["promptSource"] == ""
+
+
 def test_plan_route_accepts_string_and_object_payloads(anchor_dir):
     timeline = _timeline(175, anchors={"mode": "soft"})
     as_string = _payload(

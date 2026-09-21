@@ -105,6 +105,57 @@ DEFAULT_PROMPT_TEMPLATE = (
     "Audio: calm room tone and soft breathing."
 )
 
+#: Where a boundary anchor's prompting comes from. ``template`` is the old
+#: behaviour (the user's promptTemplate, or the built-in quiet-beat one, alone);
+#: ``from`` / ``to`` / ``both`` pull the neighbouring shots' own words in through
+#: {{from_tail}} / {{to_head}}; ``auto`` picks by placement, because the right
+#: source depends on where the pose lives: a lead pose is a frame of the shot
+#: that ENDS on the boundary, while a pose on the cut has to be a hand-off both
+#: sides converge on.
+PROMPT_SOURCE_TEMPLATE = "template"
+PROMPT_SOURCE_AUTO = "auto"
+PROMPT_SOURCES: tuple[str, ...] = (PROMPT_SOURCE_TEMPLATE, PROMPT_SOURCE_AUTO, "from", "to", "both")
+
+#: How much of a neighbouring shot a 0.9 s chunk is allowed to be asked for.
+DEFAULT_CLAUSE_CHARS = 240
+DEFAULT_CAMERA_CHARS = 160
+
+#: Built-in bodies for the neighbour sources (used when no promptTemplate is set).
+DEFAULT_SOURCE_TEMPLATES: dict[str, str] = {
+    "from": (
+        "{shared}\n\n"
+        "{subject}\n\n"
+        "summary:\n"
+        "The closing beat of this shot: {beat}\n\n"
+        "detailed_description:\n"
+        "Live-action, the same location and lighting as the surrounding shots. {from_tail}\n"
+        "The action settles on the boundary pose as the chunk ends. {camera}\n"
+        "Audio: calm room tone and soft breathing."
+    ),
+    "to": (
+        "{shared}\n\n"
+        "{subject}\n\n"
+        "summary:\n"
+        "The opening beat of this shot: {beat}\n\n"
+        "detailed_description:\n"
+        "Live-action, the same location and lighting as the surrounding shots. "
+        "Holding the boundary pose, about to begin: {to_head}\n"
+        "{camera}\n"
+        "Audio: calm room tone and soft breathing."
+    ),
+    "both": (
+        "{shared}\n\n"
+        "{subject}\n\n"
+        "summary:\n"
+        "Hand-off beat: {beat}\n\n"
+        "detailed_description:\n"
+        "Live-action, the same location and lighting as the surrounding shots. {from_tail}\n"
+        "The action arrives at the boundary pose and is about to begin: {to_head}\n"
+        "{camera}\n"
+        "Audio: calm room tone and soft breathing."
+    ),
+}
+
 
 # --------------------------------------------------------------------------- #
 # grid + paths
@@ -225,6 +276,11 @@ class AnchorItem:
     variant: int = 1
     path: str = ""
     status: str = "pending"   # pending | ready | approved | rejected
+    # ``prompt_override`` (anchors.prompts[k]) replaces the whole prompt body while
+    # still expanding tokens; ``prompt_source`` (anchors.promptSources[k]) switches
+    # one boundary between the neighbour sources.
+    prompt_override: str = ""
+    prompt_source: str = ""
 
     def merged_beat(self) -> str:
         return (self.beat or "").strip() or DEFAULT_BEAT
@@ -271,6 +327,12 @@ class AnchorPlan:
     selected_indices: tuple[int, ...] | None = None
     draft: "DraftPass | None" = None
     prompt_template: str = ""
+    # ``prompt_source`` picks what a boundary's prompt is built from: the template
+    # alone, or the neighbouring shots' own words (see PROMPT_SOURCES).
+    prompt_source: str = ""
+    #: The shots this ladder was parsed from, so a preview can be composed from the
+    #: same text the render will use (the render path passes the plan's segments).
+    segments: list = field(default_factory=list, repr=False)
     # ``placement`` decides where a boundary pose is expected to land:
     # ``boundary`` = both neighbouring shots aim at the cut (the original
     # behaviour); ``lead`` = only the shot that *ends* on it passes through the
@@ -389,6 +451,18 @@ def parse_anchor_config(
         log.warning("Unknown anchors.mode %r; anchors disabled.", mode)
         return None
     if mode == ANCHOR_MODE_OFF:
+        # Anchors are off, so this run is a plain fill run - but the strip's render
+        # actions (per-boundary ▶, Pre-roll) set onlyIndices / preRollOnly, and
+        # dropping those silently is what made "render this one boundary" start the
+        # whole timeline. Say it out loud; the strip also arms the mode itself.
+        _only = block.get("onlyIndices", block.get("only_indices"))
+        _pre = block.get("preRollOnly", block.get("pre_roll_only"))
+        if _only or _pre:
+            log.warning(
+                "Anchors mode is off: this run ignored the boundary request "
+                "(onlyIndices=%r, preRollOnly=%r) and renders the whole timeline as fills.",
+                _only, _pre,
+            )
         return None
 
     seg_list = list(segments or [])
@@ -449,6 +523,9 @@ def parse_anchor_config(
         selected_indices=selected_indices,
         draft=DraftPass.parse(block.get("draft")),
         prompt_template=_clean_str(block.get("promptTemplate") or block.get("prompt_template")),
+        prompt_source=_clean_str(
+            block.get("promptSource") or block.get("prompt_source")
+        ).lower(),
         placement=placement,
         lead_frames=lead_frames,
         lead_hard=bool(block.get("leadHard", block.get("lead_hard", False))),
@@ -463,6 +540,21 @@ def parse_anchor_config(
         raw_out = getattr(seg, "anchor_out", None)
         seg.anchor_in = position if raw_in is None else int(raw_in)
         seg.anchor_out = (position + 1) if raw_out is None else int(raw_out)
+
+    # Per-boundary prompt overrides, index-aligned with the boundaries (sparse is
+    # fine): ``prompts[k]`` is a whole body that still expands tokens, and
+    # ``promptSources[k]`` switches one boundary's neighbour source.
+    override_prompts = block.get("prompts") or block.get("promptOverrides")
+    override_sources = block.get("promptSources") or block.get("prompt_sources")
+    if isinstance(override_prompts, (list, tuple)):
+        for position, entry in enumerate(items):
+            if position < len(override_prompts):
+                items[position].prompt_override = _clean_str(override_prompts[position])
+    if isinstance(override_sources, (list, tuple)):
+        for position, entry in enumerate(items):
+            if position < len(override_sources):
+                items[position].prompt_source = _clean_str(override_sources[position]).lower()
+    plan.segments = seg_list
     return plan
 
 
@@ -470,25 +562,44 @@ def parse_anchor_config(
 # prompt helpers
 # --------------------------------------------------------------------------- #
 def anchor_prompt(item: AnchorItem, *, shared_prompt: str, template: str = "",
-                  subject_text: str = "") -> str:
+                  subject_text: str = "", boundary: "BoundaryText | None" = None) -> str:
     """Prompt used to render one boundary anchor chunk.
 
-    ``{shared}`` is the project's global prompt and ``{subject}`` is the owner
-    segment's own character definition (its ``subject_definitions:`` block, when
-    it has one). The anchors of a segment render with the same references the
-    fill does, so mentioning the subject keeps an anchor's identity anchored to
-    the same words the fill uses instead of to the global prompt alone.
+    Tokens: ``{shared}`` (the project's global prompt), ``{subject}`` (the owner
+segment's own ``subject_definitions:`` block), ``{beat}``, ``{index}``, and the
+neighbour tokens ``{from_tail}``, ``{to_head}``, ``{from_camera}``,
+``{to_camera}``, ``{camera}``, ``{from_label}``, ``{to_label}``. Both ``{token}``
+and ``{{token}}`` spellings work (the doubled form is replaced first - ``{shared}``
+is a substring of ``{{shared}}``).
     """
     body = (template or DEFAULT_PROMPT_TEMPLATE)
-    text = (
-        body.replace("{shared}", (shared_prompt or "").strip())
-        .replace("{subject}", (subject_text or "").strip())
-        .replace("{beat}", item.merged_beat())
-        .replace("{index}", str(item.index))
-    )
-    for marker in ("{{shared}}", "{{subject}}", "{{beat}}", "{{index}}"):
-        text = text.replace(marker, "")
-    return text.strip()
+    text = boundary or BoundaryText()
+    shared_value = (shared_prompt or "").strip()
+    subject_value = (subject_text or "").strip()
+    # A project prompt that already carries the character block would otherwise be
+    # repeated verbatim by {subject} (the anchor then states the subject twice).
+    if subject_value and re.sub(r"\s+", " ", subject_value) in re.sub(r"\s+", " ", shared_value):
+        subject_value = ""
+    values = {
+        "shared": shared_value,
+        "subject": subject_value,
+        "beat": item.merged_beat(),
+        "index": str(item.index),
+        "from_tail": text.from_tail,
+        "to_head": text.to_head,
+        "from_camera": text.from_camera,
+        "to_camera": text.to_camera,
+        "camera": text.camera,
+        "from_label": text.from_label,
+        "to_label": text.to_label,
+    }
+    rendered = body
+    for name, value in values.items():
+        rendered = rendered.replace("{{%s}}" % name, value)
+        rendered = rendered.replace("{%s}" % name, value)
+    for name in values:  # a token with no value leaves no braces behind
+        rendered = rendered.replace("{{%s}}" % name, "")
+    return rendered.strip()
 
 
 def subject_block(prompt: str) -> str:
@@ -506,6 +617,279 @@ def subject_block(prompt: str) -> str:
     if match is None:
         return tail.strip()
     return tail[: len("subject_definitions:") + match.start()].strip()
+
+
+# --------------------------------------------------------------------------- #
+# neighbour text: what the shots around a boundary lend to its prompt
+# --------------------------------------------------------------------------- #
+#: The section vocabulary the pack and the H3 prompt guide agree on. Only these
+#: end a section, so an inline "Audio:" cue inside detailed_description does not
+#: split it in half.
+_SECTION_NAMES = (
+    "subject_definitions",
+    "summary",
+    "retention_analysis",
+    "overall_soundscape",
+    "non_diegetic_music",
+    "detailed_description",
+)
+_SECTION_RE = re.compile(
+    r"^[ \t]*(%s)[ \t]*:" % "|".join(_SECTION_NAMES), re.MULTILINE | re.IGNORECASE,
+)
+_DIALOGUE_RE = re.compile(r"<d>.*?</d>", re.DOTALL | re.IGNORECASE)
+_MARKUP_RE = re.compile(r"<[^>]+>")
+#: "[Shot 2]" style timeline markers are structure, not something an anchor can act on.
+_SHOT_MARKER_RE = re.compile(r"\[\s*(?:shot|beat|scene)[^\]]*\]", re.IGNORECASE)
+#: Framing vocabulary, word-bounded: a POV action like "reaches toward the lens"
+#: is action, not camera work, and must not be mistaken for a framing line.
+_CAMERA_PATTERNS = (
+    r"camera",
+    r"\bshot\b",
+    r"framing",
+    r"close[- ]up",
+    r"\bwide\b",
+    r"medium shot",
+    r"\bpans?\b",
+    r"\bpann?ing\b",
+    r"dolly",
+    r"hand ?held",
+    r"\bpov\b",
+    r"point of view",
+    r"\bangle\b",
+    r"\bzooms?\b",
+    r"\bstatic\b",
+    r"steadicam",
+    r"cut to",
+    r"pushes? in",
+    r"pulls? out",
+    r"\btilts?\b",
+)
+_CAMERA_RE = re.compile("|".join(_CAMERA_PATTERNS), re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class BoundaryText:
+    """What the two shots around a boundary can give its prompt.
+
+    ``from_*`` is the shot that ENDS on the boundary, ``to_*`` the shot that
+    STARTS on it; the opening and closing boundaries have only one side.
+    """
+
+    from_label: str = ""
+    to_label: str = ""
+    from_tail: str = ""
+    to_head: str = ""
+    from_camera: str = ""
+    to_camera: str = ""
+
+    @property
+    def camera(self) -> str:
+        """The framing line to reuse - the shot the pose lands in wins."""
+        return self.from_camera or self.to_camera
+
+    def value(self, name: str) -> str:
+        if name == "from_tail":
+            return self.from_tail
+        if name == "to_head":
+            return self.to_head
+        if name == "from_camera":
+            return self.from_camera
+        if name == "to_camera":
+            return self.to_camera
+        if name == "camera":
+            return self.camera
+        if name == "from_label":
+            return self.from_label
+        if name == "to_label":
+            return self.to_label
+        return ""
+
+
+def _section_text(prompt: str, name: str = "detailed_description") -> str:
+    """Body of one ``section:`` of a structured shot prompt (whole text when absent)."""
+    value = str(prompt or "")
+    if not value.strip():
+        return ""
+    matches = list(_SECTION_RE.finditer(value))
+    for position, match in enumerate(matches):
+        if match.group(1).lower() != name:
+            continue
+        start = match.end()
+        end = matches[position + 1].start() if position + 1 < len(matches) else len(value)
+        return value[start:end].strip()
+    return value.strip()
+
+
+def _plain_text(prompt: str) -> str:
+    """Dialogue-free, markup-free, single-spaced action text of a shot."""
+    value = _DIALOGUE_RE.sub(" ", str(prompt or ""))
+    value = _SHOT_MARKER_RE.sub(" ", value)
+    value = _MARKUP_RE.sub(" ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _sentences(text: str) -> list[str]:
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+
+
+def _is_camera_line(text: str) -> bool:
+    return bool(_CAMERA_RE.search(str(text or "")))
+
+
+def _action_sentences(text: str) -> list[str]:
+    """Action sentences only: framing is carried separately by ``{camera}``."""
+    sentences = _sentences(text)
+    return [s for s in sentences if not _is_camera_line(s)] or sentences
+
+
+def _clamp(text: str, limit: int, *, keep: str = "start") -> str:
+    """Cut to ``limit`` characters from the chosen end, never mid-word."""
+    value = str(text or "").strip()
+    limit = max(24, int(limit or 0))
+    if len(value) <= limit:
+        return value
+    if keep == "end":
+        cut = value[-limit:]
+        space = cut.find(" ")
+        return cut[space + 1:].strip() if 0 <= space < 24 else cut.strip()
+    cut = value[:limit]
+    space = cut.rfind(" ")
+    return cut[:space].strip() if space > limit - 24 else cut.strip()
+
+
+def tail_clause(prompt: str, *, limit: int = DEFAULT_CLAUSE_CHARS) -> str:
+    """The action that *arrives* at a boundary (the end of the shot before it)."""
+    body = _plain_text(_section_text(prompt))
+    if not body:
+        return ""
+    return _clamp(" ".join(_action_sentences(body)[-2:]), limit, keep="end")
+
+
+def head_clause(prompt: str, *, limit: int = DEFAULT_CLAUSE_CHARS) -> str:
+    """The action that *leaves* a boundary (the start of the shot after it)."""
+    body = _plain_text(_section_text(prompt))
+    if not body:
+        return ""
+    return _clamp(" ".join(_action_sentences(body)[:2]), limit, keep="start")
+
+
+def camera_clause(prompt: str, *, limit: int = DEFAULT_CAMERA_CHARS, side: str = "start") -> str:
+    """Best-effort framing line: the sentence of a shot that talks about the camera."""
+    body = _plain_text(_section_text(prompt))
+    if not body:
+        return ""
+    hits = [s for s in _sentences(body) if _is_camera_line(s)]
+    if not hits:
+        return ""
+    chosen = hits[0] if side == "start" else hits[-1]
+    return _clamp(chosen, limit, keep=("start" if side == "start" else "end"))
+
+
+def boundary_text(segments: Iterable[Any], index: int) -> BoundaryText:
+    """The two shots around boundary ``index`` as prompt material."""
+    shots = list(segments or [])
+    position = int(index)
+    before = shots[position - 1] if 0 <= position - 1 < len(shots) else None
+    after = shots[position] if 0 <= position < len(shots) else None
+    return BoundaryText(
+        from_label=("Shot %d" % position) if before is not None else "",
+        to_label=("Shot %d" % (position + 1)) if after is not None else "",
+        from_tail=tail_clause(getattr(before, "prompt", "") or "") if before is not None else "",
+        to_head=head_clause(getattr(after, "prompt", "") or "") if after is not None else "",
+        from_camera=(
+            camera_clause(getattr(before, "prompt", "") or "", side="end")
+            if before is not None else ""
+        ),
+        to_camera=(
+            camera_clause(getattr(after, "prompt", "") or "", side="start")
+            if after is not None else ""
+        ),
+    )
+
+
+def effective_prompt_source(anchors: Any, item: AnchorItem) -> str:
+    """Which neighbours a boundary prompts from: per-boundary, then plan, then placement."""
+    raw = (
+        getattr(item, "prompt_source", "") or getattr(anchors, "prompt_source", "") or ""
+    ).strip().lower()
+    if not raw or raw == PROMPT_SOURCE_AUTO:
+        # A lead pose is a frame of the shot that ENDS here; on the cut itself the
+        # pose is a hand-off, so both sides need to be named.
+        return "from" if getattr(anchors, "is_lead", False) else "both"
+    return raw if raw in PROMPT_SOURCES else PROMPT_SOURCE_TEMPLATE
+
+
+#: Why a neighbour token can be empty, reported instead of silently dropped.
+_TOKEN_HINTS = {
+    "from_tail": "the shot that ends on it has no text to borrow",
+    "to_head": "the shot that starts on it has no text to borrow",
+    "camera": "neither neighbouring shot names a camera",
+    "from_camera": "the shot that ends on it names no camera",
+    "to_camera": "the shot that starts on it names no camera",
+}
+
+
+def used_prompt_tokens(body: str) -> list[str]:
+    """Neighbour tokens a body actually asks for (either spelling)."""
+    return [
+        name for name in _TOKEN_HINTS
+        if ("{%s}" % name) in body or ("{{%s}}" % name) in body
+    ]
+
+
+def _tidy_prompt(text: str) -> str:
+    """Collapse the gaps an empty token leaves behind, without reflowing the body."""
+    value = re.sub(r"[ \t]+", " ", str(text or ""))
+    value = "\n".join(line.strip() for line in value.split("\n"))
+    return re.sub(r"\n{3,}", "\n\n", value).strip()
+
+
+def anchor_prompt_body(item: AnchorItem, *, anchors: Any = None, source: str = "") -> str:
+    """The prompt body a boundary renders with - tokens still unexpanded.
+
+    Precedence: the per-boundary override (``anchors.prompts[k]``), then the
+    user's ``promptTemplate``, then the built-in body for the effective source.
+    """
+    override = (getattr(item, "prompt_override", "") or "").strip()
+    if override:
+        return override
+    template = (getattr(anchors, "prompt_template", "") or "").strip()
+    if template:
+        return template
+    resolved = source or effective_prompt_source(anchors, item)
+    if resolved == PROMPT_SOURCE_TEMPLATE:
+        return DEFAULT_PROMPT_TEMPLATE
+    return DEFAULT_SOURCE_TEMPLATES.get(resolved, DEFAULT_PROMPT_TEMPLATE)
+
+
+def compose_anchor_prompt(item: AnchorItem, *, anchors: Any = None,
+                          segments: Iterable[Any] = (), global_prompt: str = "",
+                          warnings: list | None = None) -> str:
+    """The exact text one boundary anchor renders with (single source of truth).
+
+    Precedence: the per-boundary override (``anchors.prompts[k]``) wins, then the
+    user's ``promptTemplate``, then the built-in body for the effective source.
+    A derived body that asks for a neighbour token it cannot get is reported
+    instead of quietly rendering a prompt with a hole in it.
+    """
+    shots = list(segments or ())
+    boundary = boundary_text(shots, int(item.index))
+    source = effective_prompt_source(anchors, item)
+    body = anchor_prompt_body(item, anchors=anchors, source=source)
+    for name in used_prompt_tokens(body):
+        if boundary.value(name):
+            continue
+        note = (
+            "boundary %d: {%s} has no source - %s, so the anchor renders without it."
+            % (int(item.index) + 1, name, _TOKEN_HINTS.get(name, "it stays empty"))
+        )
+        log.warning("anchor ladder: %s", note)
+        if warnings is not None:
+            warnings.append(note)
+    owner = shots[min(int(item.index), len(shots) - 1)] if shots else None
+    subject = subject_block(getattr(owner, "prompt", "") or "") if owner is not None else ""
+    return _tidy_prompt(anchor_prompt(item, shared_prompt=global_prompt, template=body,
+                                      subject_text=subject, boundary=boundary))
 
 
 # --------------------------------------------------------------------------- #
@@ -739,9 +1123,12 @@ def build_anchor_segment(plan, item: AnchorItem):
         index=offset,
         start_frame=0,
         end_frame=int(item.chunk_frames),
-        prompt=anchor_prompt(item, shared_prompt=getattr(plan, "global_prompt", "") or "",
-                             template=("" if plan.anchors is None else plan.anchors.prompt_template),
-                             subject_text=subject_block(getattr(owner, "prompt", "") or "")),
+        prompt=compose_anchor_prompt(
+            item,
+            anchors=getattr(plan, "anchors", None),
+            segments=segments,
+            global_prompt=getattr(plan, "global_prompt", "") or "",
+        ),
         task_type=getattr(owner, "task_type", "r2v — 参考主体生视频(Reference to Video)"),
         task_key="r2v",
         use_global=False,
@@ -1130,6 +1517,19 @@ __all__ = [
     "parse_anchor_config",
     "anchor_prompt",
     "subject_block",
+    "BoundaryText",
+    "boundary_text",
+    "tail_clause",
+    "head_clause",
+    "camera_clause",
+    "effective_prompt_source",
+    "compose_anchor_prompt",
+    "anchor_prompt_body",
+    "used_prompt_tokens",
+    "DEFAULT_SOURCE_TEMPLATES",
+    "PROMPT_SOURCES",
+    "PROMPT_SOURCE_AUTO",
+    "PROMPT_SOURCE_TEMPLATE",
     "expand_segment_prompt",
     "build_anchor_segment",
     "anchor_image_tensor",

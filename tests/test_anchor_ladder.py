@@ -10,6 +10,7 @@ torch/PIL the same way the runtime does.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -99,6 +100,29 @@ def test_parse_returns_none_when_absent_or_off():
     assert al.parse_anchor_config({"anchors": {"mode": "off"}}, segs) is None
     assert al.parse_anchor_config({"anchors": {"mode": "bogus"}}, segs) is None
     assert al.parse_anchor_config({"anchors": {"mode": "soft"}}, []) is None
+
+
+def test_mode_off_says_out_loud_that_a_boundary_request_was_dropped(caplog):
+    """Mode off erases the whole anchor block - onlyIndices included.
+
+    The strip's render actions pass onlyIndices / preRollOnly. With the mode off the
+    engine drops the block entirely, so "render THIS boundary" silently became a
+    normal run and rendered the whole timeline - the failure the user saw as "it
+    started rendering the entire job". Warn instead of dropping it in silence.
+    """
+    segs = [_fake_segment(0), _fake_segment(1)]
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert al.parse_anchor_config(
+            {"anchors": {"mode": "off", "onlyIndices": [1], "preRollOnly": True}}, segs,
+        ) is None
+    assert "mode is off" in caplog.text
+    assert "onlyIndices" in caplog.text
+    # A plain "off" project (no boundary request) stays quiet.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert al.parse_anchor_config({"anchors": {"mode": "off"}}, segs) is None
+    assert "mode is off" not in caplog.text
 
 
 def test_parse_builds_one_item_per_boundary_with_seeds_and_beats(tmp_path):
@@ -210,6 +234,146 @@ def test_subject_block_extracts_only_the_definitions():
     assert al.subject_block("no definitions here") == ""
     assert al.subject_block("") == ""
     assert al.subject_block("subject_definitions:\n<Subject 1> only.") == "subject_definitions:\n<Subject 1> only."
+
+
+# --------------------------------------------------------------------------- #
+# neighbour text: where a boundary's prompt comes from
+# --------------------------------------------------------------------------- #
+_SHOT_A = (
+    "subject_definitions:\n<Subject 1> is the woman.\n"
+    "summary:\nShe leans in.\n"
+    "detailed_description:\n"
+    "[Shot 1] She lifts the cup and takes a slow sip. The camera pushes in slowly. "
+    "<Subject 1> (S1) says: <d>[English] Mmm.</d> She sets the cup down and smiles."
+)
+_SHOT_B = (
+    "subject_definitions:\n<Subject 1> is the woman.\n"
+    "summary:\nShe reaches out.\n"
+    "detailed_description:\n"
+    "[Shot 2] She reaches toward the lens with both hands. The camera holds still. "
+    "Her fingers curl."
+)
+
+
+def _shot(prompt: str):
+    return SimpleNamespace(prompt=prompt)
+
+
+def test_tail_clause_keeps_the_end_of_a_shot_and_drops_dialogue():
+    text = al.tail_clause(_SHOT_A)
+    assert "sets the cup down and smiles" in text
+    assert "Mmm" not in text  # an anchor is a silent chunk: no dialogue
+    assert "subject_definitions" not in text and "summary:" not in text
+
+
+def test_head_clause_keeps_the_start_of_a_shot():
+    text = al.head_clause(_SHOT_B)
+    assert text.startswith("She reaches toward the lens")
+    assert "camera" not in text.lower()  # framing is carried by {camera}, not here
+
+
+def test_camera_clause_finds_the_framing_sentence():
+    assert "pushes in" in al.camera_clause(_SHOT_A, side="end")
+    assert "holds still" in al.camera_clause(_SHOT_B, side="start")
+    assert al.camera_clause("she hums softly and smiles") == ""
+    assert al.camera_clause("") == ""
+
+
+def test_boundary_text_reads_the_two_neighbours():
+    shots = [_shot(_SHOT_A), _shot(_SHOT_B)]
+    middle = al.boundary_text(shots, 1)
+    assert middle.from_label == "Shot 1" and middle.to_label == "Shot 2"
+    assert "sets the cup down" in middle.from_tail
+    assert "reaches toward the lens" in middle.to_head
+    assert middle.camera == middle.from_camera  # the arriving shot wins
+    opening = al.boundary_text(shots, 0)
+    assert opening.from_label == "" and opening.from_tail == ""
+    assert opening.to_head
+    closing = al.boundary_text(shots, 2)
+    assert closing.to_label == "" and closing.to_head == ""
+    assert closing.from_tail
+
+
+def test_prompt_source_follows_the_placement():
+    anchors = al.AnchorPlan(mode=al.ANCHOR_MODE_SOFT)
+    item = al.AnchorItem(index=1, seed=1, beat="b")
+    assert al.effective_prompt_source(anchors, item) == "both"
+    anchors.placement = al.ANCHOR_PLACEMENT_LEAD
+    assert al.effective_prompt_source(anchors, item) == "from"  # a frame of the ending shot
+    anchors.prompt_source = "to"
+    assert al.effective_prompt_source(anchors, item) == "to"
+    item.prompt_source = "template"
+    assert al.effective_prompt_source(anchors, item) == "template"
+
+
+def test_compose_anchor_prompt_pulls_in_both_neighbours():
+    anchors = al.AnchorPlan(mode=al.ANCHOR_MODE_SOFT)
+    item = al.AnchorItem(index=1, seed=1, beat="hands still on the cup")
+    text = al.compose_anchor_prompt(
+        item, anchors=anchors, segments=[_shot(_SHOT_A), _shot(_SHOT_B)],
+        global_prompt="GLOBAL STYLE",
+    )
+    assert "GLOBAL STYLE" in text
+    assert "hands still on the cup" in text
+    assert "sets the cup down" in text         # {from_tail}
+    assert "reaches toward the lens" in text   # {to_head}
+    assert "<Subject 1> is the woman" in text  # the owner's own subject block
+    assert "Mmm" not in text
+    assert "{" not in text  # every token resolved
+
+
+def test_compose_anchor_prompt_reports_a_missing_source(caplog):
+    anchors = al.AnchorPlan(mode=al.ANCHOR_MODE_SOFT)
+    item = al.AnchorItem(index=1, seed=1, beat="b")
+    warnings: list[str] = []
+    with caplog.at_level(logging.WARNING):
+        text = al.compose_anchor_prompt(item, anchors=anchors, segments=[], warnings=warnings)
+    assert "has no source" in caplog.text
+    assert any("from_tail" in note for note in warnings)
+    assert "{" not in text
+
+
+def test_compose_anchor_prompt_lets_a_override_win_and_keeps_tokens():
+    anchors = al.AnchorPlan(mode=al.ANCHOR_MODE_SOFT)
+    item = al.AnchorItem(index=1, seed=1, beat="b", prompt_override="MINE {from_tail} END")
+    text = al.compose_anchor_prompt(
+        item, anchors=anchors, segments=[_shot(_SHOT_A), _shot(_SHOT_B)],
+    )
+    assert text.startswith("MINE")
+    assert "sets the cup down" in text
+    assert al.anchor_prompt_body(item, anchors=anchors) == "MINE {from_tail} END"
+
+
+def test_parse_reads_prompt_source_and_per_boundary_overrides(tmp_path):
+    plan = _fake_plan(
+        tmp_path, n=2, promptSource="From", prompts=["", "OVERRIDE {beat}"],
+        promptSources=["", "to"],
+    )
+    assert plan.anchors.prompt_source == "from"
+    assert plan.anchors.item(1).prompt_override == "OVERRIDE {beat}"
+    assert plan.anchors.item(1).prompt_source == "to"
+    assert plan.anchors.item(0).prompt_override == ""
+    # the ladder keeps the shots it parsed with, so previews and the render path
+    # compose from exactly the same text
+    assert plan.anchors.segments == plan.segments
+
+
+def test_build_anchor_segment_uses_the_neighbour_prompt(tmp_path):
+    from mmx_pkg.director.plan import SegmentPlan
+
+    plan = _fake_plan(tmp_path, n=2, placement="boundary")
+    owner = SegmentPlan(
+        index=0, start_frame=0, end_frame=175, prompt=_SHOT_A, task_type="t",
+        task_key="r2v", use_global=False, refs=[],
+    )
+    plan.segments = [owner, SimpleNamespace(prompt=_SHOT_B, refs=[], task_key="r2v",
+                                           task_type="t", negative_prompt="")]
+    plan.anchors = al.parse_anchor_config(
+        {"anchors": {"mode": "soft", "promptSource": "both"}}, plan.segments,
+    )
+    seg = al.build_anchor_segment(plan, plan.anchors.item(1))
+    assert "sets the cup down" in seg.prompt
+    assert "reaches toward the lens" in seg.prompt
 
 
 # --------------------------------------------------------------------------- #

@@ -33,13 +33,18 @@ const DEFAULT_ANCHORS = {
     placement: "boundary",
     leadFrames: 24,
     leadHard: false,
+    promptSource: "auto",
     beats: [],
     seeds: [],
+    prompts: [],
+    promptSources: [],
 };
 
 const MODES = ["off", "soft", "hard"];
 /** Where a boundary pose sits: at the cut, or one second before it. */
 const PLACEMENTS = ["boundary", "lead"];
+/** What a boundary anchor's prompt is built from (director/anchor_ladder.py). */
+const PROMPT_SOURCES = ["auto", "template", "from", "to", "both"];
 const PLAN_DEBOUNCE_MS = 420;
 
 const STYLES = `
@@ -94,6 +99,22 @@ const STYLES = `
 .mmxa-foot .mmxa-sel{color:#9fd0a8}
 .mmxa-foot .mmxa-hint{color:#e8c98a;opacity:1}
 .mmxa-foot .mmxa-preroll{color:#e0b25a;font-weight:600}
+.mmxa-prompt{border-top:1px solid rgba(255,255,255,.07);padding:7px 8px;display:flex;flex-direction:column;gap:6px}
+.mmxa-prompt[hidden]{display:none}
+.mmxa-prompt-head{display:flex;align-items:center;gap:6px;font-size:11px;flex-wrap:wrap}
+.mmxa-prompt-head b{font-size:12px}
+.mmxa-prompt-shots{opacity:.8}
+.mmxa-badge{border-radius:9px;padding:1px 7px;font-size:10px;border:1px solid rgba(255,255,255,.16);opacity:.85}
+.mmxa-badge[data-on="1"]{border-color:rgba(224,178,90,.7);color:#e8c98a;opacity:1}
+.mmxa-prompt textarea{background:#1b1b1f;color:#dcdcdc;border:1px solid rgba(255,255,255,.14);border-radius:5px;padding:5px;font-size:11px;min-height:104px;resize:vertical;font-family:inherit;line-height:1.45}
+.mmxa-prompt-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.mmxa-chips{display:flex;gap:4px;flex-wrap:wrap}
+.mmxa-chip{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:9px;padding:1px 7px;font-size:10px;cursor:pointer;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mmxa-chip:hover{background:rgba(255,255,255,.13)}
+.mmxa-chip[data-empty="1"]{opacity:.45}
+.mmxa-strip[data-busy="1"] .mmxa-chip{pointer-events:none;opacity:.5}
+.mmxa-rendered{font-size:10px;opacity:.62;white-space:pre-wrap;max-height:92px;overflow:auto;border-left:2px solid rgba(255,255,255,.12);padding-left:6px;line-height:1.45}
+.mmxa-cell[data-prompt="1"] [data-cell="prompt"]{border-color:rgba(224,178,90,.75);color:#e8c98a}
 `;
 
 function cn(value) {
@@ -124,6 +145,12 @@ function anchorsBlock(ed) {
         }
         if (block[key] === undefined || block[key] === null) block[key] = value;
     }
+    for (const key of ["beats", "seeds", "prompts", "promptSources"]) {
+        if (!Array.isArray(block[key])) block[key] = [];
+    }
+    block.promptSource = PROMPT_SOURCES.includes(String(block.promptSource).toLowerCase())
+        ? String(block.promptSource).toLowerCase()
+        : DEFAULT_ANCHORS.promptSource;
     block.mode = MODES.includes(String(block.mode).toLowerCase()) ? String(block.mode).toLowerCase() : "off";
     block.chunkFrames = clampInt(block.chunkFrames, 5, 425, DEFAULT_ANCHORS.chunkFrames);
     block.candidates = clampInt(block.candidates, 1, 4, 1);
@@ -234,6 +261,9 @@ export function installAnchorStrip(ed) {
             <label class="mmxa-lbl" data-i18n-title="anchor.placementTitle"><span data-i18n="anchor.placement">Placement</span>
                 <select class="mmxa-select" data-t="placement"></select>
             </label>
+            <label class="mmxa-lbl" data-i18n-title="anchor.promptSourceTitle"><span data-i18n="anchor.promptSource">Prompt</span>
+                <select class="mmxa-select" data-t="promptSource"></select>
+            </label>
             <label class="mmxa-lbl" data-i18n-title="anchor.leadPinTitle">
                 <input type="checkbox" data-t="leadHard"> <span data-i18n="anchor.leadPin">Pin pose</span>
             </label>
@@ -259,6 +289,25 @@ export function installAnchorStrip(ed) {
             <button type="button" class="mmxa-btn mmxa-btn-warn" data-t="clear" data-i18n="anchor.clear">Clear</button>
         </div>
         <div class="mmxa-cells" data-t="cells"></div>
+        <div class="mmxa-prompt" data-t="promptPanel" hidden>
+            <div class="mmxa-prompt-head">
+                <b data-t="promptTitle"></b>
+                <span class="mmxa-prompt-shots" data-t="promptShots"></span>
+                <span class="mmxa-badge" data-t="promptBadge"></span>
+                <span class="mmxa-spacer"></span>
+                <span data-i18n="anchor.promptMaterial"></span>
+                <span class="mmxa-chips" data-t="promptChips"></span>
+            </div>
+            <textarea data-t="promptBody" spellcheck="false" data-i18n-placeholder="anchor.promptBodyHint"></textarea>
+            <div class="mmxa-prompt-actions">
+                <button type="button" class="mmxa-btn mmxa-btn-ok" data-t="promptSave" data-i18n="anchor.promptSave">Save</button>
+                <button type="button" class="mmxa-btn mmxa-btn-warn" data-t="promptClear" data-i18n="anchor.promptClear">Back to auto</button>
+                <button type="button" class="mmxa-btn" data-t="promptClose" data-i18n="anchor.promptClose">Close</button>
+                <span class="mmxa-spacer"></span>
+                <span data-i18n="anchor.promptRendered"></span>
+            </div>
+            <div class="mmxa-rendered" data-t="promptRendered"></div>
+        </div>
         <div class="mmxa-foot" data-t="foot"></div>`;
 
     const modeSelect = el.querySelector('[data-t="mode"]');
@@ -280,6 +329,23 @@ export function installAnchorStrip(ed) {
         placementSelect.appendChild(option);
     }
     const leadHardBox = el.querySelector('[data-t="leadHard"]');
+    const promptSourceSelect = el.querySelector('[data-t="promptSource"]');
+    for (const source of PROMPT_SOURCES) {
+        const option = document.createElement("option");
+        option.value = source;
+        option.textContent = t(sourceKey(source));
+        promptSourceSelect.appendChild(option);
+    }
+    const promptPanel = el.querySelector('[data-t="promptPanel"]');
+    const promptTitleEl = el.querySelector('[data-t="promptTitle"]');
+    const promptShotsEl = el.querySelector('[data-t="promptShots"]');
+    const promptBadgeEl = el.querySelector('[data-t="promptBadge"]');
+    const promptBodyEl = el.querySelector('[data-t="promptBody"]');
+    const promptChipsEl = el.querySelector('[data-t="promptChips"]');
+    const promptRenderedEl = el.querySelector('[data-t="promptRendered"]');
+    const promptSaveBtn = el.querySelector('[data-t="promptSave"]');
+    const promptClearBtn = el.querySelector('[data-t="promptClear"]');
+    const promptCloseBtn = el.querySelector('[data-t="promptClose"]');
     const renderPassBox = el.querySelector('[data-t="renderPass"]');
     const renderFillBox = el.querySelector('[data-t="renderFill"]');
     const approveAllBtn = el.querySelector('[data-t="approveAll"]');
@@ -316,6 +382,7 @@ export function installAnchorStrip(ed) {
         renderPassBox.disabled = busy;
         placementSelect.disabled = busy;
         leadHardBox.disabled = busy;
+        promptSourceSelect.disabled = busy;
     }
 
     function setFoot() {
@@ -532,10 +599,18 @@ export function installAnchorStrip(ed) {
             forceRender: block.forceRender === true,
             renderPass: block.renderPass !== false,
             onlyIndices: Array.isArray(block.onlyIndices) ? block.onlyIndices.slice() : null,
+            mode: String(block.mode || "off").toLowerCase(),
         };
+        // "Mode: off" means the project has no anchors at all - and the engine drops
+        // the ENTIRE anchor block for such a run, so onlyIndices, preRollOnly and
+        // renderPass are never even parsed. That is why ▶ on a boundary used to
+        // render the whole timeline: the request was thrown away and the run fell
+        // through to the fills. A render action arms the mode for its own run.
+        const armed = previous.mode === "off";
         const historyBefore = await historyCount();
         const targets = onlyIndices && onlyIndices.length ? onlyIndices : boundariesMissing();
         try {
+            if (armed) block.mode = "soft";
             block.preRollOnly = true;
             block.forceRender = force;
             // Every strip action that says "render" means it: the "Render anchors"
@@ -559,12 +634,135 @@ export function installAnchorStrip(ed) {
             current.preRollOnly = previous.preRollOnly;
             current.forceRender = previous.forceRender;
             current.renderPass = previous.renderPass;
+            current.mode = previous.mode;
             if (previous.onlyIndices === null) delete current.onlyIndices;
             else current.onlyIndices = previous.onlyIndices;
             persistTimeline(ed);
         }
-        return waitForAnchors(targets, 1500000, historyBefore);
+        const result = await waitForAnchors(targets, 1500000, historyBefore);
+        return { ...result, armed };
     }
+
+    // ---- prompt material: source policy + the per-boundary editor ---------- //
+    let promptInfo = [];
+    let promptIndex = null;
+    let promptDirty = false;
+
+    function sourceKey(source) {
+        const value = String(source || "auto").toLowerCase();
+        return `anchor.source${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+    }
+
+    function promptEntry(index) {
+        return promptInfo.find((entry) => Number(entry?.index) === Number(index)) || null;
+    }
+
+    function promptShotsText(index) {
+        const entry = promptEntry(index);
+        if (!entry) return "";
+        const from = String(entry.fromLabel || "");
+        const to = String(entry.toLabel || "");
+        if (from && to) return t("anchor.promptShots", { from, to });
+        return from || to || t("anchor.promptNoNeighbours");
+    }
+
+    function promptIsOverridden(index) {
+        const block = anchorsBlock(ed);
+        return Boolean(String(block.prompts?.[index] ?? "").trim());
+    }
+
+    function insertToken(token) {
+        const value = promptBodyEl.value;
+        const start = promptBodyEl.selectionStart ?? value.length;
+        const end = promptBodyEl.selectionEnd ?? start;
+        const head = value.slice(0, start);
+        const glue = head.trim() && !/\s$/.test(head) ? " " : "";
+        promptBodyEl.value = `${head}${glue}${token}${value.slice(end)}`;
+        const caret = start + glue.length + token.length;
+        promptBodyEl.selectionStart = caret;
+        promptBodyEl.selectionEnd = caret;
+        promptDirty = true;
+        promptBodyEl.focus();
+    }
+
+    function paintPromptEditor() {
+        if (promptIndex === null) return;
+        const entry = promptEntry(promptIndex);
+        const overridden = promptIsOverridden(promptIndex);
+        promptTitleEl.textContent = `#${promptIndex + 1}`;
+        promptShotsEl.textContent = promptShotsText(promptIndex);
+        promptBadgeEl.textContent = overridden
+            ? t("anchor.promptOverride")
+            : t("anchor.promptDerived", { source: t(sourceKey(entry?.source)) });
+        promptBadgeEl.dataset.on = overridden ? "1" : "0";
+        promptChipsEl.innerHTML = "";
+        const material = [
+            ["{{from_tail}}", entry?.fromTail],
+            ["{{to_head}}", entry?.toHead],
+            ["{{camera}}", entry?.camera],
+            ["{{beat}}", ""],
+            ["{{subject}}", ""],
+        ];
+        for (const [token, text] of material) {
+            const chip = document.createElement("span");
+            chip.className = "mmxa-chip";
+            chip.textContent = token;
+            chip.title = text ? `${token} \u2192 ${text}` : token;
+            chip.dataset.empty = text ? "0" : "1";
+            chip.addEventListener("click", () => insertToken(token));
+            promptChipsEl.appendChild(chip);
+        }
+        promptRenderedEl.textContent = String(entry?.prompt || "");
+        if (!promptDirty) promptBodyEl.value = String(entry?.body || "");
+    }
+
+    function openPromptEditor(index) {
+        promptIndex = index;
+        promptDirty = false;
+        const stored = String(anchorsBlock(ed).prompts?.[index] ?? "");
+        if (stored.trim()) promptBodyEl.value = stored;
+        promptPanel.hidden = false;
+        paintPromptEditor();
+        schedulePlan();
+    }
+
+    promptBodyEl.addEventListener("input", () => {
+        promptDirty = true;
+    });
+    promptSaveBtn.addEventListener("click", () => {
+        if (promptIndex === null) return;
+        const block = anchorsBlock(ed);
+        if (!Array.isArray(block.prompts)) block.prompts = [];
+        block.prompts[promptIndex] = promptBodyEl.value;
+        persistTimeline(ed);
+        promptDirty = false;
+        hint = t("anchor.promptSaved", { index: promptIndex + 1 });
+        setFoot();
+        paintPromptEditor();
+        schedulePlan();
+        refresh();
+    });
+    promptClearBtn.addEventListener("click", () => {
+        if (promptIndex === null) return;
+        const block = anchorsBlock(ed);
+        if (Array.isArray(block.prompts)) {
+            block.prompts[promptIndex] = "";
+            if (!block.prompts.some((entry) => String(entry || "").trim())) delete block.prompts;
+        }
+        persistTimeline(ed);
+        promptDirty = false;
+        promptBodyEl.value = "";
+        hint = t("anchor.promptCleared", { index: promptIndex + 1 });
+        setFoot();
+        paintPromptEditor();
+        schedulePlan();
+        refresh();
+    });
+    promptCloseBtn.addEventListener("click", () => {
+        promptPanel.hidden = true;
+        promptIndex = null;
+        promptDirty = false;
+    });
 
     // ---- cells ------------------------------------------------------------ //
     function buildCells() {
@@ -585,6 +783,7 @@ export function installAnchorStrip(ed) {
                     <button type="button" class="mmxa-btn mmxa-btn-go" data-cell="render" data-i18n-title="anchor.renderTitle">▶</button>
                     <button type="button" class="mmxa-btn mmxa-btn-ok" data-cell="approve" data-i18n-title="anchor.approve">✓</button>
                     <button type="button" class="mmxa-btn" data-cell="reroll" data-i18n-title="anchor.reroll">↻</button>
+                    <button type="button" class="mmxa-btn" data-cell="prompt" data-i18n-title="anchor.promptEditTitle">✎</button>
                 </div>`;
             const beatInput = cell.querySelector(".mmxa-beat");
             beatInput.addEventListener("change", () => {
@@ -630,6 +829,14 @@ export function installAnchorStrip(ed) {
                 if (event.ctrlKey || event.metaKey || event.shiftKey) return;
                 event.preventDefault();
                 seekToBoundary(index);
+            });
+            cell.querySelector('[data-cell="prompt"]').addEventListener("click", () => {
+                if (promptIndex === index && !promptPanel.hidden) {
+                    promptPanel.hidden = true;
+                    promptIndex = null;
+                    return;
+                }
+                openPromptEditor(index);
             });            cell.querySelector('[data-cell="render"]').addEventListener("click", () => {
                 if (busy) return;
                 cell.dataset.rendering = "1";
@@ -651,6 +858,7 @@ export function installAnchorStrip(ed) {
                         else if (result.changed) hint = t("anchor.renderedHint", { index: index + 1 });
                         else if (!onDisk) hint = t("anchor.renderNothing", { index: index + 1 });
                         else hint = t("anchor.renderedReused", { index: index + 1 });
+                        if (result.armed) hint = `${hint} · ${t("anchor.modeArmed")}`;
                         setFoot();
                     }
                 });
@@ -675,6 +883,7 @@ export function installAnchorStrip(ed) {
             const stale = Boolean(item) && !fresh;
             cell.dataset.status = status;
             cell.dataset.stale = stale ? "1" : "0";
+            cell.dataset.prompt = promptIsOverridden(index) ? "1" : "0";
             cell.querySelector(".mmxa-idx").textContent = `#${index + 1}`;
             const leadMode = block.placement === "lead";
             const leadFrame = leadMode && index > 0 ? leadFramesOf(block) : 0;
@@ -757,6 +966,8 @@ export function installAnchorStrip(ed) {
                 refLongEdge,
             });
             if (token !== planToken) return;
+            promptInfo = Array.isArray(data.boundaryText) ? data.boundaryText : [];
+            if (promptIndex !== null) paintPromptEditor();
             lastEstimate = t("anchor.estimate", {
                 mode: data.enabled ? t(`anchor.mode${data.mode === "soft" ? "Soft" : "Hard"}`) : t("anchor.modeOff"),
                 boundaries: data.boundaries,
@@ -817,6 +1028,7 @@ export function installAnchorStrip(ed) {
         if (document.activeElement !== draftStepsInput) draftStepsInput.value = String(block.draft?.steps ?? 0);
         if (renderPassBox.checked !== block.renderPass) renderPassBox.checked = block.renderPass;
         if (placementSelect.value !== block.placement) placementSelect.value = block.placement;
+        if (promptSourceSelect.value !== block.promptSource) promptSourceSelect.value = block.promptSource;
         if (leadHardBox.checked !== block.leadHard) leadHardBox.checked = block.leadHard;
         // "Pin pose" is the hard variant of lead placement: without lead there is
         // no interior frame to pin, so the box follows the placement.
@@ -942,6 +1154,21 @@ export function installAnchorStrip(ed) {
         refresh();
     });
 
+    promptSourceSelect.addEventListener("change", () => {
+        const block = anchorsBlock(ed);
+        block.promptSource = PROMPT_SOURCES.includes(promptSourceSelect.value)
+            ? promptSourceSelect.value
+            : DEFAULT_ANCHORS.promptSource;
+        persistTimeline(ed);
+        hint = t("anchor.promptSourceHint");
+        if (promptIndex !== null) {
+            promptDirty = false;
+            promptBodyEl.value = "";
+        }
+        schedulePlan();
+        refresh();
+    });
+
     leadHardBox.addEventListener("change", () => {
         anchorsBlock(ed).leadHard = Boolean(leadHardBox.checked);
         persistTimeline(ed);
@@ -978,16 +1205,19 @@ export function installAnchorStrip(ed) {
                 : t("anchor.preRollNothing", { count: diskItems.size });
             setFoot();
             let settled = true;
+            let armed = false;
             try {
                 const result = await runAnchors(missing);
                 clearFailure();
                 settled = result.settled;
+                armed = result.armed === true;
             } finally {
                 await refresh();
                 const still = missing.filter((index) => !diskItems.has(index));
                 if (!settled) hint = t("anchor.renderTimeout");
                 else if (still.length) hint = t("anchor.preRollPartial", { count: still.length });
                 else hint = t("anchor.preRollDone");
+                if (armed) hint = `${hint} · ${t("anchor.modeArmed")}`;
                 setFoot();
             }
         });

@@ -144,9 +144,23 @@ assert.ok(
     strip.includes("current.renderPass = previous.renderPass;"),
     "and the checkbox state must be restored after the run",
 );
+assert.ok(
+    /if \(armed\) block\.mode = "soft";/.test(strip) && strip.includes("current.mode = previous.mode;"),
+    "a render action must arm the anchors mode for its own run and put it back: with mode 'off' the " +
+        "engine drops the whole anchor block (onlyIndices included), so \u25b6 on a boundary used to " +
+        "render the entire timeline as fills",
+);
+assert.ok(
+    strip.includes('t("anchor.modeArmed")'),
+    "arming the mode must be reported - the dropdown snaps back to Off and the render would look " +
+        "like it came from nowhere",
+);
 {
-    const start = strip.indexOf('data-cell="render"');
-    const body = strip.slice(start, start + 1400);
+    // Start at the handler, not at the template occurrence: adding another cell
+    // button used to push the message code out of a fixed-size window.
+    const start = strip.indexOf(`[data-cell="render"]').addEventListener(`);
+    assert.ok(start !== -1, "the per-cell render handler was not found");
+    const body = strip.slice(start, start + 1600);
     assert.ok(
         body.includes('anchor.renderNothing') && body.includes("diskItems.has(index)"),
         "the render button must decide its message from the listing: a boundary with no PNG on " +
@@ -202,6 +216,40 @@ assert.ok(
         executor.includes("positive = append_minimax_keyframes("),
     "the executor must pin the lead keyframe on the fill conditioning",
 );
+
+// --- prompt material: source policy + per-boundary editor -------------------- //
+
+assert.ok(
+    strip.includes('const PROMPT_SOURCES = ["auto", "template", "from", "to", "both"];'),
+    "the strip must offer exactly the prompt sources the engine understands",
+);
+assert.ok(
+    strip.includes("block.promptSource = PROMPT_SOURCES.includes("),
+    "the source select must write anchors.promptSource through the widget",
+);
+assert.ok(
+    strip.includes('data-cell="prompt"') && strip.includes("function openPromptEditor("),
+    "every boundary cell needs the ✎ prompt editor",
+);
+assert.ok(
+    strip.includes("{{from_tail}}") && strip.includes("{{to_head}}") && strip.includes('"{{camera}}"'),
+    "the editor must offer the neighbour material as insertable tokens",
+);
+assert.ok(
+    strip.includes("block.prompts[promptIndex] = promptBodyEl.value"),
+    "Save must write the per-boundary override (anchors.prompts[k])",
+);
+assert.ok(
+    strip.includes("promptInfo = Array.isArray(data.boundaryText)"),
+    "the composed preview must come from the server, never be re-implemented in JS",
+);
+for (const source of ["auto", "template", "from", "to", "both"]) {
+    const key = `anchor.source${source.charAt(0).toUpperCase()}${source.slice(1)}`;
+    assert.ok(
+        (i18n.split(`"${key}":`).length - 1) >= 2,
+        `${key} must exist in both dictionaries (it is built dynamically)`,
+    );
+}
 
 // --- i18n -------------------------------------------------------------------- //
 

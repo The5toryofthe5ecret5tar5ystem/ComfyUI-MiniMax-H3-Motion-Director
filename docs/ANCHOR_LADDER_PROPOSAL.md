@@ -363,3 +363,47 @@ the final second of the shot is unconstrained, and a hard interior guide can mak
 if the pose is far from where the shot already is. Measure the seam (frame-to-frame MAD at the cut
 vs. inside the shot) before and after - the doc's §1 method, `x step` 1.0 is normal motion, 5x and up
 is a visible cut.
+
+## 9. Prompting a boundary: whose words?
+
+An anchor is the **last frame of a 0.92 s generative chunk** (`save_anchor_image` keeps `frame[-1]`), not
+a posed still - so its body should describe an *arrival*, and the most predictive text for that arrival
+is the shot it belongs to. Until this pass the anchor prompt was the project prompt + a short `beat` +
+the owner segment's `subject_definitions:` block; the neighbours' own shot text was never used.
+
+`anchors.promptSource` picks who lends the words:
+
+| value | the body is built from |
+|---|---|
+| `template` (the previous behaviour) | `promptTemplate`, or the built-in quiet-beat body |
+| `from` | the shot that **ends** on the boundary (`{from_tail}`, framing as `{from_camera}`) |
+| `to` | the shot that **starts** on it (`{to_head}`, `{to_camera}`) |
+| `both` | both, as a hand-off |
+| `auto` (default) | `from` in **lead** placement, `both` **on the cut** |
+
+`auto` follows the placement deliberately: a lead pose *is* a frame of the shot that ends there, so that
+shot's words are the truthful ones, while a pose on the cut is a hand-off both sides converge on and both
+shots have to be named. Tokens: `{shared}`, `{subject}`, `{beat}`, `{index}`, `{from_tail}`, `{to_head}`,
+`{from_camera}`, `{to_camera}`, `{camera}`, `{from_label}`, `{to_label}` (single or doubled braces).
+
+Extraction rules (`tail_clause` / `head_clause` / `camera_clause`):
+
+* only the `detailed_description:` section is read, so an inline `Audio:` cue cannot split it in half,
+* dialogue (`<d>...</d>`), markup and `[Shot N]` markers are dropped - an anchor is a **silent** chunk,
+* **framing sentences are excluded from the action clauses** so they cannot fight `{camera}`
+  ("reaches toward the lens" is a POV action, not camera work - the detector is word-bounded for exactly
+  that reason),
+* the tail keeps the last two sentences, the head the first two, each capped at ~240 characters: 0.9 s
+  cannot stage a whole shot, and a body asking for one lands the chunk mid-motion,
+* `{camera}` prefers the arriving shot (`from_camera`) and falls back to `to_camera`,
+* `{subject}` is skipped when the project prompt already carries that exact block.
+
+A token whose source does not exist is **reported** (`boundary 2: {from_tail} has no source - the shot
+that ends on it has no text to borrow ...`) and rendered empty, instead of leaving braces in the prompt.
+
+Per boundary, `anchors.prompts[k]` replaces the whole body (tokens still expand) and
+`anchors.promptSources[k]` switches one boundary's source. The strip's ✎ opens an editor holding that
+body, the neighbour material as insertable chips, and a *renders as* preview produced by
+`compose_anchor_prompt` - the same function the render path calls, so the panel and the engine cannot
+disagree. The preview is composed from an "as if soft" copy of the config, so prompts can be written
+while the anchors mode is **off**.
