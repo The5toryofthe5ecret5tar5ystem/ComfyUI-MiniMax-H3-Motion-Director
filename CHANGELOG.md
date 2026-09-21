@@ -13,8 +13,10 @@ Notable changes in this fork. Older releases are tagged in git and published on 
   **no anchor at all**, while the strip kept showing the file that is on disk; in one project only two
   of four boundaries were injected, silently. The lookup now prefers the configured seed and falls
   back to the newest PNG for that boundary, naming the file it uses in the log (`boundary 4 injects
-  A03_s24075095_v1_f22.png - no PNG exists for its configured seed 424245 ...`). A re-render still
-  writes the configured seed's filename, so nothing else moves.
+  A03_s24075095_v1_f22.png - no PNG exists for its configured seed 424245 ...`). Two files stamped in
+  the same instant are ordered by seed - the same tie-break the strip's thumbnail picker applies - so
+  the run and the strip always agree on which picture counts as newest. A re-render still writes the
+  configured seed's filename, so nothing else moves.
 - **An anchor that renders without references now says so, loudly.** A boundary anchor renders from
   the references of the segment that owns it; if that segment carries none, the anchor used to be
   produced from the prompt alone - an invented person in the right pose - and both sides of the

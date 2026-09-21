@@ -138,8 +138,22 @@ def resolve_item_path(item: "AnchorItem", root: Path | str | None) -> Path | Non
 _ANCHOR_NAME_RE = re.compile(r"^A(\d+)_s(\d+)_v(\d+)(?:_f(\d+))?\.png$")
 
 
+def _anchor_mtime(path: Path) -> float:
+    """Modification time of an anchor PNG, or 0.0 if it vanished mid-scan."""
+    try:
+        return path.stat().st_mtime
+    except OSError:  # pragma: no cover - a stat race is not worth a failure
+        return 0.0
+
+
 def scan_anchor_files(index: int, root: Path | str | None) -> list[tuple[int, Path]]:
-    """Every anchor PNG on disk for one boundary as ``(seed, path)``, newest first."""
+    """Every anchor PNG on disk for one boundary as ``(seed, path)``, newest first.
+
+    Files are ordered by modification time; two files written in the same instant
+    (a quick re-roll, a coarse filesystem clock) are ordered by seed, which is the
+    tie-break the strip applies when it picks the thumbnail to show - so the run
+    injects the picture the user is looking at, whatever the clock resolution.
+    """
     if root is None:
         return []
     directory = Path(root)
@@ -150,11 +164,8 @@ def scan_anchor_files(index: int, root: Path | str | None) -> list[tuple[int, Pa
         match = _ANCHOR_NAME_RE.match(path.name)
         if match is None or int(match.group(1)) != int(index):
             continue
-        try:
-            found.append((int(match.group(2)), path))
-        except OSError:  # pragma: no cover - a stat race is not worth a failure
-            continue
-    found.sort(key=lambda row: row[1].stat().st_mtime if row[1].exists() else 0.0, reverse=True)
+        found.append((int(match.group(2)), path))
+    found.sort(key=lambda row: (_anchor_mtime(row[1]), row[0]), reverse=True)
     return found
 
 

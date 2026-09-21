@@ -10,6 +10,7 @@ torch/PIL the same way the runtime does.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -451,12 +452,32 @@ def test_resolve_item_file_falls_back_to_the_newest_for_that_boundary(tmp_path):
     newer = tmp_path / al.anchor_file_name(1, 222, chunk_frames=22)
     older.write_bytes(b"png")
     newer.write_bytes(b"png")
-    older.touch()
+    newer.touch()  # written (and stamped) last: this is the file the strip shows
     # a file for a DIFFERENT boundary must never be borrowed
     (tmp_path / al.anchor_file_name(2, 333, chunk_frames=22)).write_bytes(b"png")
     path, exact = al.resolve_item_file(item, tmp_path)
     assert path == newer and exact is False
     assert al.scan_anchor_files(1, tmp_path) == [(222, newer), (111, older)]
+
+
+def test_scan_anchor_files_breaks_a_same_instant_tie_by_seed(tmp_path):
+    """Two files stamped in the same instant must still order deterministically.
+
+    A filesystem with a coarse clock (or a fast re-roll) gives equal mtimes; the
+    fallback must then pick the file the strip shows - the higher seed - instead
+    of whatever ``glob`` happened to return.
+    """
+    low = tmp_path / al.anchor_file_name(1, 111, chunk_frames=22)
+    high = tmp_path / al.anchor_file_name(1, 222, chunk_frames=22)
+    low.write_bytes(b"png")
+    high.write_bytes(b"png")
+    stamp = 1_700_000_000
+    for path in (low, high):
+        os.utime(path, (stamp, stamp))
+    item = al.AnchorItem(index=1, seed=4243, beat="b", chunk_frames=22)
+    assert al.scan_anchor_files(1, tmp_path) == [(222, high), (111, low)]
+    path, exact = al.resolve_item_file(item, tmp_path)
+    assert path == high and exact is False
 
 
 def test_resolve_item_file_missing_returns_the_configured_path(tmp_path):

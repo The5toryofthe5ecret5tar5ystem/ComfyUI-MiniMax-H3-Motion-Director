@@ -797,7 +797,7 @@ See [`NOTICE`](NOTICE), [`LICENSE`](LICENSE), and [`LICENSES`](LICENSES) for the
 The test suites run without a live ComfyUI instance (CPU is enough for the Python tests):
 
 ```bash
-# Python unit + contract tests (1141 tests) — any working directory, no ComfyUI needed
+# Python unit + contract tests (1157 tests) — any working directory, no ComfyUI needed
 python -m pytest
 
 # Frontend unit tests (jsdom is a dev-only dependency)
