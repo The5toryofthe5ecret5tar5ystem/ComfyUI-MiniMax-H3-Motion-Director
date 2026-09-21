@@ -7,6 +7,17 @@ Notable changes in this fork. Older releases are tagged in git and published on 
 
 ### Fixed
 
+- **Start run no longer stays greyed out with nothing running - and a greyed button says why.** The
+  button is disabled only while the panel believes a run is active, and that flag can be stranded: a run
+  that died without its end events (a ComfyUI restart or a reload mid-run), or another tab whose graph
+  uses the same node id - exported workflows carry ids like `dir`, and the run manifest is keyed by that
+  id, so a manifest that says "running" can belong to somebody else's job (the manifest-only reconcile
+  refuses to clear a flag while it says that). Validate was the button people reached for, and it changed
+  nothing. The panel now re-checks ComfyUI's own queue, counting a queued prompt as ours only if it
+  contains this node **and** was queued by this tab (`extra_data.client_id`), and clears a stranded flag;
+  Validate runs that check too and its footer reports the run bar ("A run is executing: Start run becomes
+  available again when it ends..." / "No run active - Start run is ready."), and a disabled Start run
+  explains itself in its tooltip.
 - **`boundary 1: {from_tail} has no source` is no longer printed at all.** The opening boundary sits
   before the first shot, so there is nothing to borrow from *by construction* - and because the strip
   composes every boundary's prompt on every plan refresh, that line landed in the console dozens of

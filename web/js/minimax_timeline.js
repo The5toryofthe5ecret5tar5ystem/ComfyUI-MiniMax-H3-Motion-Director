@@ -7073,11 +7073,20 @@ class MiniMaxH3MotionDirectorEditor {
                 body: JSON.stringify(postBody),
             });
             const data = await response.json();
-            this._renderValidate(data?.issues || [], data || {});
+            // The run bar is the other half of "can I run this?": a stranded flag leaves
+            // Start run greyed, so Validate re-checks it and says what it found.
+            await this._reconcileRunActive();
+            this._renderValidate(this._withRunStateNote(data?.issues || []), data || {});
         } catch (error) {
             console.warn("[MiniMax H3 Motion Director] validate failed:", error);
             this._renderValidate([{ severity: "error", code: "validate_failed", message: String(error?.message || error) }], {});
         }
+    }
+
+    /** The one line the Validate footer owes the run bar: is a run holding it? */
+    _withRunStateNote(issues) {
+        const message = this._isRunActive() ? t("run.stateBlocked") : t("run.stateIdle");
+        return [...(issues || []), { severity: "info", code: "run_state", message }];
     }
 
     _renderValidate(issues, data = {}) {
@@ -14589,6 +14598,58 @@ class MiniMaxH3MotionDirectorEditor {
         return Boolean(this._runActive);
     }
 
+    /**
+     * Clear a run flag that the engine no longer backs.
+     *
+     * The flag is raised when this panel queues a run and dropped by that prompt's
+     * own end events. Two things strand it: a run that died without them (a ComfyUI
+     * restart, a reload) and another tab whose graph shares this node's id - exported
+     * workflows carry ids like "dir", and the run manifest is keyed by that id, so its
+     * "running" state can belong to somebody else's job. Either way the panel used to
+     * sit with Start run greyed out and no way to tell why.
+     *
+     * ComfyUI's own queue is the tie-breaker: if no queued prompt contains this node,
+     * nothing of ours is running.
+     */
+    async _reconcileRunActive() {
+        if (this._destroyed || !this._isRunActive()) return false;
+        const nodeId = this._directorNodeId();
+        if (!nodeId) return false;
+        const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+        const queuedAt = Number(this._runQueuedAt || 0);
+        if (queuedAt && now - queuedAt < 4000) return false;   // just queued: the queue entry may not be visible yet
+        let ours = true;
+        try {
+            const response = await api.fetchApi("/queue");
+            const data = await response.json();
+            const entries = [
+                ...(Array.isArray(data?.queue_running) ? data.queue_running : []),
+                ...(Array.isArray(data?.queue_pending) ? data.queue_pending : []),
+            ];
+            // A queue entry is [number, prompt_id, prompt_graph, extra_data, outputs].
+            // The node id alone is not enough: two tabs of an exported workflow share
+            // it (and the manifest), so a run started elsewhere must not hold THIS
+            // panel's run bar - extra_data.client_id names the tab that queued it.
+            const clientId = String(api?.clientId ?? "");
+            ours = entries.some((entry) => {
+                const graph = Array.isArray(entry) ? entry[2] : null;
+                if (!graph || typeof graph !== "object" || !(nodeId in graph)) return false;
+                const owner = String(Array.isArray(entry) ? (entry[3]?.client_id ?? "") : "");
+                return !clientId || !owner || owner === clientId;
+            });
+        } catch (error) {
+            console.warn("[MiniMax H3 Motion Director] queue probe failed:", error);
+            return false;   // never guess from a failed probe
+        }
+        if (ours) return false;
+        console.info(
+            "[MiniMax H3 Motion Director] cleared a stranded run state: no queued prompt uses this node.",
+        );
+        this._stopRequested = false;
+        this._setRunActive(false);
+        return true;
+    }
+
     _setRunActive(active) {
         const changed = this._runActive !== Boolean(active);
         this._runActive = Boolean(active);
@@ -14658,6 +14719,9 @@ class MiniMaxH3MotionDirectorEditor {
                 this._stopRequested = false;
                 if (this._isRunActive()) this._setRunActive(false);
             }
+            // ...and a manifest that still *says* running may not be ours at all (a
+            // shared node id, or a run that died with the server): ask the queue.
+            await this._reconcileRunActive();
             this._syncRunControls?.();
             this._updateRunStatusBanner?.();
         } catch (error) {
@@ -14909,6 +14973,9 @@ class MiniMaxH3MotionDirectorEditor {
         this._applyRunIntent({ resume, from });
         if (reseed) this._rollSeed();
         this._setRunActive(true);
+        // Stamped so _reconcileRunActive does not read the moment between queuePrompt()
+        // and the prompt appearing in /queue as "our run is gone".
+        this._runQueuedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
         let queued = false;
         try {
             if (typeof this.commit === "function") {

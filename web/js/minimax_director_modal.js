@@ -357,6 +357,11 @@ export function createDirectorModal({
             applyState(stopButton, Boolean(running && canStop && typeof onStop === "function"));
             applyState(startOverButton, Boolean(canStartOver && typeof onStartOver === "function"));
             startRunButton.disabled = Boolean(running) && typeof onStop === "function";
+            // A greyed button has to say why it is grey: the panel disables Start run
+            // only while a run is active (Stop it, or wait for the end).
+            startRunButton.title = startRunButton.disabled
+                ? (translate("run.startBlocked") || "A run is active")
+                : (translate("modal.startRunTitle") || startRunButton.textContent);
             runControls.hidden = !hasRunActions;
             runNotice.textContent = notice || "";
             runNotice.hidden = !notice;
