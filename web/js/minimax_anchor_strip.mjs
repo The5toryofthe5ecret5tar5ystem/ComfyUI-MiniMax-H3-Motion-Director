@@ -53,6 +53,18 @@ const PLAN_DEBOUNCE_MS = 420;
 const STYLES = `
 .mmxa-strip{margin:6px 8px 2px;border:1px solid rgba(255,255,255,.10);border-radius:8px;background:rgba(255,255,255,.03);font-size:12px;color:#d8d8d8}
 .mmxa-strip[data-busy="1"]{opacity:.72}
+/* Project-prompt editor overlay. Asset-group mode (r2v / r2flv) hides the
+   timeline's own global-prompt panel, so the strip hosts the editor for the one
+   text block every anchor render and every fill receives. */
+.mmxa-layer{position:fixed;inset:0;background:rgba(6,7,9,.66);display:flex;align-items:center;justify-content:center;z-index:10020}
+.mmxa-layer[hidden]{display:none}
+.mmxa-card{width:min(900px,88vw);max-height:84vh;display:flex;flex-direction:column;gap:8px;background:#16181c;border:1px solid rgba(255,255,255,.16);border-radius:10px;padding:12px 14px;box-shadow:0 18px 60px rgba(0,0,0,.55);font-size:12px}
+.mmxa-card-head{display:flex;align-items:center;gap:8px;font-size:13px}
+.mmxa-card-head b{font-weight:700}
+.mmxa-card-note{opacity:.75;line-height:1.5;font-size:11px}
+.mmxa-card textarea{min-height:240px;max-height:52vh;resize:vertical;background:#101114;color:#e6e6e6;border:1px solid rgba(255,255,255,.14);border-radius:6px;padding:8px;font-size:12px;line-height:1.45;font-family:inherit}
+.mmxa-card-actions{display:flex;align-items:center;gap:8px}
+.mmxa-card-stats{opacity:.7;font-size:11px}
 .mmxa-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07)}
 .mmxa-title{font-weight:700;letter-spacing:.02em}
 .mmxa-fold{background:none;border:none;color:#d8d8d8;font-size:12px;cursor:pointer;padding:0 2px;line-height:1}
@@ -283,6 +295,7 @@ export function installAnchorStrip(ed) {
             <label class="mmxa-lbl" data-i18n-title="anchor.renderFillTitle">
                 <input type="checkbox" data-t="renderFill" disabled> <span data-i18n="anchor.renderFill">Render fill pieces</span>
             </label>
+            <button type="button" class="mmxa-btn" data-t="projectPrompt" data-i18n-title="anchor.projectPromptTitle" data-i18n="anchor.projectPrompt">全局提示词…</button>
             <span class="mmxa-spacer"></span>
             <button type="button" class="mmxa-btn" data-t="presetAll" data-i18n-title="anchor.presetAllTitle" data-i18n="anchor.presetAll">All</button>
             <button type="button" class="mmxa-btn" data-t="presetBookends" data-i18n-title="anchor.presetBookendsTitle" data-i18n="anchor.presetBookends">Bookends</button>
@@ -376,6 +389,7 @@ export function installAnchorStrip(ed) {
     const footEl = el.querySelector('[data-t="foot"]');
     const footTextEl = el.querySelector('[data-t="footText"]');
     const stopBtn = el.querySelector('[data-t="stop"]');
+    const projectPromptBtn = el.querySelector('[data-t="projectPrompt"]');
 
     let cells = [];
     let lastSignature = "";
@@ -901,6 +915,12 @@ export function installAnchorStrip(ed) {
                     const block = anchorsBlock(ed);
                     const previous = Number(block.seeds[index]) || 0;
                     await anchorAction(nodeIdOf(ed), "delete", index);
+                    // A sparse seeds[] serialises as JSON nulls for every untouched
+                    // slot, which the plan route refused; fill them with the same
+                    // defaults the panel displays before writing this fresh seed.
+                    for (let i = 0; i <= index; i += 1) {
+                        if (!block.seeds[i]) block.seeds[i] = DEFAULT_ANCHORS.seedBase + i;
+                    }
                     block.seeds[index] = nextAnchorSeed(previous);
                     persistTimeline(ed);
                     hint = t("anchor.rerollPending", { index: index + 1 });
@@ -1364,6 +1384,91 @@ export function installAnchorStrip(ed) {
             await refresh();
         });
     });
+
+    // ---- project prompt ---------------------------------------------------- //
+    // timeline.global.prompt is the one text block every anchor render AND
+    // every fill receives. The timeline panels that normally edit it are hidden
+    // in asset-group mode (r2v / r2flv), so the strip - exactly where that text
+    // shows up in the results - hosts the editor for it.
+    let projectLayer = null;
+    let projectBodyEl = null;
+    let projectStatsEl = null;
+
+    function closeProjectPrompt() {
+        if (projectLayer) projectLayer.hidden = true;
+    }
+
+    function paintProjectStats() {
+        if (projectStatsEl && projectBodyEl) {
+            projectStatsEl.textContent = t("anchor.projectPromptChars", { chars: projectBodyEl.value.length });
+        }
+    }
+
+    function openProjectPrompt() {
+        if (!projectLayer) {
+            projectLayer = document.createElement("div");
+            projectLayer.className = "mmxa-layer";
+            projectLayer.hidden = true;
+            projectLayer.addEventListener("click", (event) => {
+                if (event.target === projectLayer) closeProjectPrompt();
+            });
+            projectLayer.innerHTML = `
+                <div class="mmxa-card">
+                    <div class="mmxa-card-head">
+                        <b data-i18n="anchor.projectPrompt">全局提示词…</b>
+                        <span class="mmxa-spacer"></span>
+                        <button type="button" class="mmxa-btn" data-pp="close" aria-label="close">\u00d7</button>
+                    </div>
+                    <div class="mmxa-card-note" data-i18n="anchor.projectPromptNote"></div>
+                    <textarea data-pp="body" spellcheck="false"></textarea>
+                    <div class="mmxa-card-actions">
+                        <span class="mmxa-card-stats" data-pp="stats"></span>
+                        <span class="mmxa-spacer"></span>
+                        <button type="button" class="mmxa-btn mmxa-btn-ok" data-pp="save" data-i18n="anchor.promptSave">存为自定义</button>
+                        <button type="button" class="mmxa-btn" data-pp="cancel" data-i18n="anchor.promptClose">关闭</button>
+                    </div>
+                </div>`;
+            projectBodyEl = projectLayer.querySelector('[data-pp="body"]');
+            projectStatsEl = projectLayer.querySelector('[data-pp="stats"]');
+            projectBodyEl.addEventListener("input", paintProjectStats);
+            projectLayer.querySelector('[data-pp="close"]').addEventListener("click", closeProjectPrompt);
+            projectLayer.querySelector('[data-pp="cancel"]').addEventListener("click", closeProjectPrompt);
+            projectLayer.querySelector('[data-pp="save"]').addEventListener("click", () => {
+                const text = projectBodyEl.value;
+                const current = String(ed?.timeline?.global?.prompt || "");
+                if (ed?.timeline && current !== text) {
+                    ed.timeline.global = ed.timeline.global && typeof ed.timeline.global === "object"
+                        ? ed.timeline.global
+                        : {};
+                    ed.timeline.global.prompt = text;
+                    // Mirror the node's hidden widget and (in timeline modes) the
+                    // global textarea, then persist like every other strip control.
+                    if (ed.globalPromptWidget) ed.globalPromptWidget.value = text;
+                    const area = ed.globalPrompt;
+                    if (area && area.value !== text) {
+                        if (typeof area._mmxMentionController?.setValue === "function") {
+                            area._mmxMentionController.setValue(text);
+                        } else {
+                            area.value = text;
+                        }
+                    }
+                    hint = t("anchor.projectPromptSaved");
+                    persistTimeline(ed);
+                    schedulePlan();
+                    setFoot();
+                }
+                closeProjectPrompt();
+            });
+            el.appendChild(projectLayer);
+            applyI18nDom(projectLayer);
+        }
+        projectBodyEl.value = String(ed?.timeline?.global?.prompt || "");
+        paintProjectStats();
+        projectLayer.hidden = false;
+        projectBodyEl.focus();
+    }
+
+    projectPromptBtn.addEventListener("click", openProjectPrompt);
 
     // ---- mount ------------------------------------------------------------ //
     if (ed.viewport && ed.viewport.parentElement === ed.mainBody) {

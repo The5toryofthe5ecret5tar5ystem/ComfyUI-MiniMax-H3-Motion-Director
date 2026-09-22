@@ -118,7 +118,7 @@ class MiniMaxH3MotionDirector(_BaseDirector):
 
     DESCRIPTION = (
         "MiniMax H3 Motion Director with one unified director_inputs socket. "
-        "Supports t2v / i2v / fl2v / r2v / v2v / rv2v."
+        "Supports t2v / i2v / fl2v / r2v / r2flv / v2v / rv2v."
     )
 
     def execute(

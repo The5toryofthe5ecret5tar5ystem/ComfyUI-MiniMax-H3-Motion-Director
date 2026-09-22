@@ -36,6 +36,7 @@ _GENERATE_VALUES = frozenset(
         # task names are accepted as kind aliases too.
         "ref2va",
         "r2v",
+        "r2flv",
         "t2v",
     }
 )
@@ -64,7 +65,7 @@ GENERATED_SEGMENT_TASK = "r2v"
 # rendered frame, or the row's own first reference image), which is what turns
 # "the chain continues near where the last one stopped" into a hard join at
 # frame 0.
-GENERATED_ROW_TASKS = frozenset({"r2v", "t2v", "i2v"})
+GENERATED_ROW_TASKS = frozenset({"r2v", "t2v", "i2v", "r2flv"})
 
 
 def segment_kind(raw: Any) -> str:

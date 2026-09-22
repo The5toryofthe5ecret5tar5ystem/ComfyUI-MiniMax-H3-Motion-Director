@@ -38,7 +38,7 @@ _DEFAULT_USER_TEMPLATE = (
 )
 
 _TEMPLATE_ALIASES = {"mv2v": "v2v", "vrc2v": "rv2v"}
-_TASKS_REQUIRE_IMAGE_SLOTS = frozenset({"rv2v", "r2v", "r2i", "vi2v"})
+_TASKS_REQUIRE_IMAGE_SLOTS = frozenset({"rv2v", "r2v", "r2i", "vi2v", "r2flv"})
 
 
 def _task_key(task_type: str) -> str:

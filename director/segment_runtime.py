@@ -282,7 +282,7 @@ def segment_passthrough_chunk(plan: DirectorPlan, seg) -> torch.Tensor | None:
     """
     task_key = str(getattr(seg, "task_key", "") or "").lower()
 
-    if task_key in {"t2v", "i2v", "r2v", "fl2v"}:
+    if task_key in {"t2v", "i2v", "r2v", "fl2v", "r2flv"}:
         return None
 
     if seg.source_clip is not None and seg.source_clip.shape[0] > 0:

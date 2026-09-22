@@ -28,7 +28,7 @@ For a first test, generate a 5–10 second T2V clip:
 
 ---
 
-## 2. Choosing one of the six standalone modes
+## 2. Choosing one of the seven standalone modes
 
 | Mode | Main input | Use it when |
 |---|---|---|
@@ -36,10 +36,17 @@ For a first test, generate a 5–10 second T2V clip:
 | `I2V` | Prompt + start image | You already have a character/scene/composition image and want to animate it |
 | `FL2V` | Prompt + First / Last Image | You need explicit control over the visual start, end, or both |
 | `R2V` | Prompt + image/video/audio references | You need identity, scene, prop, motion, style or voice references |
+| `R2FLV` | Prompt + references + boundary-anchor keyframes | You want the R2V look *and* the shot to open/close on exact approved poses from the anchor ladder |
 | `V2V` | Source Video + Prompt | You want to preserve source motion/timing structure while regenerating visuals |
 | `RV2V` | Source Video + Prompt + References | You need source motion plus identity/audio/other references |
 
 If different shots in one project need different methods, use **Mixed Mode** instead of building separate Director nodes.
+
+### R2FLV (Ref2va + FL2v Hybrid)
+
+`R2FLV` is **R2V with the boundary anchors pinned as hard first/last keyframes**. Every segment keeps the full R2V reference experience (Common References, `<Picture N>` / `<Audio J>` tags, speaker identity, room), and on top of that the executor writes the shot's opening boundary anchor to frame 0 and its closing boundary anchor to the last frame as H3 keyframes - exactly the layout FL2V uses. Nothing to toggle: the anchors are pinned automatically when the mode is selected, and a boundary with no rendered PNG on disk is simply skipped (that end of the shot stays free and the soft references still apply).
+
+Use it when the anchor ladder is part of the shot design and you want each segment to really *start* and *end* on the approved boundary poses instead of only being steered toward them by the prompt.
 
 ---
 
@@ -49,7 +56,7 @@ If different shots in one project need different methods, use **Mixed Mode** ins
 
 | # | Control | What it does |
 |---:|---|---|
-| 1 | Generation mode | Selects `T2V / I2V / FL2V / R2V / V2V / RV2V / mixed` |
+| 1 | Generation mode | Selects `T2V / I2V / FL2V / R2V / R2FLV / V2V / RV2V / mixed` |
 | 2 | Output aspect/resolution | Selects the project aspect ratio such as 16:9 or 9:16 |
 | 3 | Megapixels | Controls first-pass generation scale; the calculated size is shown beside it |
 | 4 | FPS | Output frame rate; normally keep it consistent across the project |

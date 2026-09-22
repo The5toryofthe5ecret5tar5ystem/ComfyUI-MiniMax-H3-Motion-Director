@@ -2476,7 +2476,7 @@ function parseTimeline(raw, totalFrames, fps) {
             seg.genImage = seg.genImage || { imageFile: seg.imageFile || "" };
             seg.negativePrompt = seg.negativePrompt ?? "";
         }
-        if (resolveTaskKey(data.global?.taskType) === "r2v") ensureR2vReferenceAssetSchema(data);
+        if (resolveTaskKey(data.global?.taskType) === "r2v" || resolveTaskKey(data.global?.taskType) === "r2flv") ensureR2vReferenceAssetSchema(data);
         else ensureReferenceAssetSchema(data);
         data.gen = data.gen || { defaultFrameCount: 124 };
         if (data.global) {
@@ -5010,7 +5010,7 @@ class MiniMaxH3MotionDirectorEditor {
 
         if (mode === "prompt_batch" || mode === "image_batch" || isPromptBatchTask(taskKey)) {
             const prev = this.timeline.segments || [];
-            const isR2v = taskKey === "r2v" || this.hasExternalR2vGroups?.();
+            const isR2v = taskKey === "r2v" || taskKey === "r2flv" || this.hasExternalR2vGroups?.();
             const plannedCount = motionInheritance ? Math.max(prev.length, specs.length) : specs.length;
             this.timeline.segments = Array.from({ length: plannedCount }, (_, i) => {
                 const spec = specs[i];
@@ -5080,7 +5080,7 @@ class MiniMaxH3MotionDirectorEditor {
                 });
             });
             normalizeImageBatchSegments(this);
-            if (this.getTaskKey() === "r2v") ensureR2vReferenceAssetSchema(this.timeline);
+            if (this.getTaskKey() === "r2v" || this.getTaskKey() === "r2flv") ensureR2vReferenceAssetSchema(this.timeline);
             else ensureReferenceAssetSchema(this.timeline);
             this.selectedIndex = Math.min(this.selectedIndex ?? 0, Math.max(0, this.timeline.segments.length - 1));
             this.renderImageBatchGroups?.();
@@ -7607,7 +7607,7 @@ class MiniMaxH3MotionDirectorEditor {
     }
 
     hasH3ReferenceVideoConditioning(taskKey = this.getTaskKey()) {
-        if (taskKey !== "r2v") return false;
+        if (taskKey !== "r2v" && taskKey !== "r2flv") return false;
         const hasFile = (item) => !!(item?.videoFile || item?.fileName);
         if (hasFile(this.timeline.global?.referenceVideo)) return true;
         if ((this.timeline.global?.refVideos || []).some(hasFile)) return true;
@@ -8148,7 +8148,7 @@ class MiniMaxH3MotionDirectorEditor {
     }
 
     isR2vBatch() {
-        return this.isImageBatch() && this.getTaskKey() === "r2v";
+        return this.isImageBatch() && (this.getTaskKey() === "r2v" || this.getTaskKey() === "r2flv");
     }
 
     _syncR2vCardSelection() {
@@ -8652,7 +8652,7 @@ class MiniMaxH3MotionDirectorEditor {
         this._standaloneDirectorMode = mode;
 
         const taskKey = this.getTaskKey();
-        const isR2v = isBatch && taskKey === "r2v";
+        const isR2v = isBatch && (taskKey === "r2v" || taskKey === "r2flv");
         syncR2vCommonToggleForTask(this.r2vCommonToggle, {
             taskKey,
             expanded: !!this._r2vCommonPopover?.isOpen,
@@ -9698,7 +9698,24 @@ class MiniMaxH3MotionDirectorEditor {
             o.textContent = taskDisplayLabel(key) || v;
             el.appendChild(o);
         }
-        if (prev) el.value = prev;
+        if (!prev) return;
+        el.value = prev;
+        if (el.value) return;
+        // The widget option list can lag the saved value (a browser page loaded
+        // before ComfyUI restarted keeps the old list, so a newly added task is
+        // missing). Match by resolved task key first; when even that misses,
+        // append the value itself - a task selector must never render blank.
+        const wanted = resolveTaskKey(prev);
+        const match = [...el.options].find((o) => resolveTaskKey(o.value) === wanted);
+        if (match) {
+            el.value = match.value;
+            return;
+        }
+        const o = document.createElement("option");
+        o.value = prev;
+        o.textContent = taskDisplayLabel(wanted) || prev;
+        el.appendChild(o);
+        el.value = prev;
     }
 
     refreshAspectSelectLabels() {

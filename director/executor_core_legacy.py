@@ -25,6 +25,7 @@ from ..lib.image_prep import (
 )
 from ..lib.task_modes import SUPPORTED_TASK_KEYS
 from ..nodes.conditioning import (
+    append_first_last_keyframes,
     append_minimax_keyframe_anchors,
     append_minimax_keyframes,
     append_refmod_references,
@@ -311,7 +312,7 @@ def _build_minimax_inputs(
             first_frame = clip_frames[:1]
         else:
             first_frame = _ref_tensor_from_seg_refs(seg.refs, 0)
-    elif task_key == "r2v":
+    elif task_key in ("r2v", "r2flv"):
         ref_kwargs = refs_to_kwargs_for_context(task_key, seg.refs)
         ref_images = {}
         for key, tensor in ref_kwargs.items():
@@ -953,7 +954,7 @@ def execute_director_plan_core(
                 reports.append(f"Segment {timeline_slot + 1}: I2V continuation via Motion Context.")
             else:
                 reports.append(f"Segment {timeline_slot + 1}: I2V explicit source image.")
-        elif context_pipeline_active and seg.task_key == "r2v":
+        elif context_pipeline_active and seg.task_key in ("r2v", "r2flv"):
             reports.append(
                 f"Segment {timeline_slot + 1}: effective Reference Set = "
                 f"{len(seg.refs or [])} Picture, {len(getattr(seg, 'ref_videos', None) or [])} Video, "
@@ -1350,7 +1351,7 @@ def execute_director_plan_core(
             positive_prompt = reinforce_fl2v_prompt(
                 positive_prompt, has_end_frame=has_end, has_start_frame=has_start
             )
-        elif seg.task_key == "r2v":
+        elif seg.task_key in ("r2v", "r2flv"):
             ref_idxs = [int(getattr(r, "index", 0)) for r in (seg.refs or []) if r is not None]
             vid_idxs = [int(getattr(v, "index", 0)) for v in (getattr(seg, "ref_videos", None) or []) if v is not None]
             semantic_audio_tags = [
@@ -1414,10 +1415,10 @@ def execute_director_plan_core(
             timeline_slot, ref_images=ref_images, ref_videos=ref_videos,
             ref_audios=ref_audios, ref_video_audios=ref_video_audios,
         )
-        if seg.task_key in {"r2v", "v2v", "rv2v"} and (
+        if seg.task_key in {"r2v", "r2flv", "v2v", "rv2v"} and (
             ref_images or ref_videos or ref_audios or ref_video_audios
         ) and audio_vae is None:
-            raise ValueError("r2v/v2v/rv2v / reference conditioning requires audio_vae input.")
+            raise ValueError("r2v/r2flv/v2v/rv2v / reference conditioning requires audio_vae input.")
 
         positive, negative, latent, task_hint = run_minimax_conditioning(
             clip=clip, vae=vae, audio_vae=audio_vae, prompt=positive_prompt,
@@ -1425,6 +1426,41 @@ def execute_director_plan_core(
             first_frame=first_frame, last_frame=last_frame, ref_images=ref_images,
             ref_videos=ref_videos, ref_video_audios=ref_video_audios, ref_audios=ref_audios,
         )
+        if seg.task_key == "r2flv" and not is_anchor:
+            # Ref2va + FL2v Hybrid: the official reference node built minimal refs
+            # and the target latent; the boundary anchors of this shot are pinned
+            # as unmarked first/last keyframes on that same layout, so the sampler
+            # interpolates between the two approved boundary poses while the
+            # references keep steering identity.
+            _hy_first, _hy_last = None, None
+            _hy_notes: list[str] = []
+            try:
+                _hy_first, _hy_last = anchor_ladder.hybrid_boundary_tensors(
+                    plan, seg, warnings=_hy_notes
+                )
+            except Exception as _hy_exc:  # noqa: BLE001 - never break a segment over an anchor
+                _hy_notes.append(f"r2flv hybrid: boundary anchors unavailable ({_hy_exc}).")
+            if _hy_first is not None or _hy_last is not None:
+                try:
+                    positive = append_first_last_keyframes(
+                        positive, vae=vae, first_frame=_hy_first, last_frame=_hy_last,
+                        frame_count=int(num_frames), width=ctx_w, height=ctx_h,
+                    )
+                    _hy_pinned = [name for name, tensor in (("first", _hy_first), ("last", _hy_last)) if tensor is not None]
+                    reports.append(
+                        f"Segment {timeline_slot + 1}: r2flv hybrid pinned the {' + '.join(_hy_pinned)} "
+                        f"boundary anchor as H3 keyframe(s) (frames 0 / {int(num_frames) - 1})."
+                    )
+                except Exception as _hy_exc:  # noqa: BLE001 - degrade to plain r2v
+                    _hy_notes.append(f"r2flv hybrid: keyframe pinning failed ({_hy_exc}).")
+            else:
+                reports.append(
+                    f"Segment {timeline_slot + 1}: r2flv hybrid found no boundary anchor to pin; "
+                    "rendering as plain Reference-to-Video."
+                )
+            for _hy_note in _hy_notes:
+                reports.append(f"Segment {timeline_slot + 1}: {_hy_note}")
+                log.info("anchor ladder: %s", _hy_note)
         # RefMod references are appended after the native refs so the payload
         # order matches what RefMod's step curve expects.
         positive = append_refmod_references(positive, refmod_refs_for_segment(refmod_refs, seg))
@@ -2108,7 +2144,7 @@ def execute_director_plan_core(
 
         if (
             not source_bridge_active
-            and seg.task_key in {"t2v", "i2v", "r2v", "fl2v", "v2v", "rv2v"}
+            and seg.task_key in {"t2v", "i2v", "r2v", "r2flv", "fl2v", "v2v", "rv2v"}
             and decoded.shape[0] >= 1
         ):
             try:

@@ -28,7 +28,7 @@ from .h3_prompt_recipes import recipe_block, resolve_recipe
 from .prompt_enhance_templates import OUTPUT_LANGUAGE_EN, normalize_output_language
 
 # Tasks that run against Director segments. Everything here is single-segment text.
-H3_DIRECTOR_TASKS = frozenset({"default", "t2v", "i2v", "fl2v", "r2v", "v2v", "rv2v", "mixed"})
+H3_DIRECTOR_TASKS = frozenset({"default", "t2v", "i2v", "fl2v", "r2v", "v2v", "rv2v", "mixed", "r2flv"})
 
 # Replace windows edit source footage, so `VIDEO N` is an input clip rather than a
 # motion reference and the discard sentence becomes mandatory.

@@ -7,6 +7,9 @@ Applies to the **r2v (reference-to-video / ref2va)** mode and to **Character Rep
 Companion files:
 - `README.md` (this folder) - which reference slot each plan still needs attached.
 - `docs/USER_GUIDE.md` in the pack repo - what each UI control does (not prompt prose).
+- `docs/R2FLV_PROMPTING_GUIDE.md` - the Ref2va + FL2v hybrid (r2flv) workflow: boundary
+  anchors, first/last keyframe pinning, and the rules for the project prompt (the block
+  every anchor render shares).
 - `chain/minimax-h3-prompting-reference.md` - the older Contex Loop chain doc. The section
   vocabulary below supersedes it for Motion Director work.
 

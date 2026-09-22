@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-SOURCE_FREE_GENERATION_TASKS = frozenset({"t2v", "r2v"})
+SOURCE_FREE_GENERATION_TASKS = frozenset({"t2v", "r2v", "r2flv"})
 
 
 def is_source_free_generation_task(task_key: str) -> bool:

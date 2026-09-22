@@ -339,7 +339,7 @@ def _fallback_common_refs(timeline: dict, seg_task_key: str, key: str) -> list[d
     """
     if key == "refs" and seg_task_key in CONTEXT_REFERENCE_EXCLUDED_KEYS:
         return []
-    if key == "refAudios" and seg_task_key not in {"r2v", "rv2v"}:
+    if key == "refAudios" and seg_task_key not in {"r2v", "rv2v", "r2flv"}:
         return []
     return _r2v_common_list(timeline, key)
 
@@ -347,7 +347,9 @@ def _fallback_common_refs(timeline: dict, seg_task_key: str, key: str) -> list[d
 # Tasks whose segments render with numbered reference pictures. Mirrors the
 # frontend's ``taskUsesReferenceImages``; the set is disjoint from
 # CONTEXT_REFERENCE_EXCLUDED_KEYS, so the two rules can never both apply.
-REFERENCE_PICTURE_TASKS = frozenset({"r2v", "r2i", "rv2v", "vrc2v", "vi2v"})
+# r2flv (Ref2va + FL2v Hybrid) is r2v with the boundary anchors auto-pinned
+# as H3 first/last keyframes by the executor.
+REFERENCE_PICTURE_TASKS = frozenset({"r2v", "r2i", "rv2v", "vrc2v", "vi2v", "r2flv"})
 
 
 def parse_refmod_enabled(seg_data: dict | None) -> bool:
@@ -514,8 +516,8 @@ def _load_ref_audios(audio_list: list[dict]) -> list[SegmentRefAudio]:
 
 
 def segment_ref_audios_for_context(task_key: str, audios: list[SegmentRefAudio]) -> list[SegmentRefAudio]:
-    """Standalone ref audios apply to r2v / rv2v (official ReferenceToVideo)."""
-    if task_key not in {"r2v", "rv2v"}:
+    """Standalone ref audios apply to r2v / rv2v / r2flv (official ReferenceToVideo)."""
+    if task_key not in {"r2v", "rv2v", "r2flv"}:
         return []
     return audios
 
@@ -1179,8 +1181,8 @@ def reinforce_rv2v_prompt(
 
 
 def reference_video_for_segment(plan: DirectorPlan, seg: SegmentPlan, num_frames: int) -> torch.Tensor | None:
-    """Optional separate reference video for r2v (not used by v2v — source clip is the ref)."""
-    if seg.task_key != "r2v":
+    """Optional separate reference video for r2v / r2flv (not used by v2v — source clip is the ref)."""
+    if seg.task_key not in ("r2v", "r2flv"):
         return None
     if not _ref_video_has_file(seg.reference_video_meta):
         return None

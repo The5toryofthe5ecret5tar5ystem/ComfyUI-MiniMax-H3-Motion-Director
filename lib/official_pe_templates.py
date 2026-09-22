@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-JSON_MODE_TASKS = frozenset({"r2v", "r2i", "rv2v", "vrc2v"})
+JSON_MODE_TASKS = frozenset({"r2v", "r2i", "rv2v", "vrc2v", "r2flv"})
 T2V_SYSTEM_TASKS = frozenset({"t2v"})
 T2I_SYSTEM_TASKS = frozenset({"t2i"})
 
@@ -316,6 +316,7 @@ ENHANCE_TEMPLATES = {
     "rv2v": VR2V_TEMPLATE,
     "vrc2v": VR2V_TEMPLATE,
     "r2v": R2V_TEMPLATE,
+    "r2flv": R2V_TEMPLATE,
     "r2i": R2I_TEMPLATE,
     "vi2v": VI2V_TEMPLATE,
     "ads2v": ADS2V_TEMPLATE,

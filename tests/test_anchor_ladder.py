@@ -91,6 +91,95 @@ def test_free_anchor_indices_skips_used_and_respects_limit():
     assert al.free_anchor_indices(seg3, count=2, max_images=9) == [8]
 
 
+def test_null_seed_slots_fall_back_to_the_seed_base():
+    """A sparse seeds[] array (holes become JSON null) must not crash the plan.
+
+    The strip only writes the boundary the user re-rolled, so untouched slots
+    arrive as null. Those mean "no explicit seed" and fall back to
+    seedBase + boundary - exactly what the panel shows for them.
+    """
+    segs = [_fake_segment(i) for i in range(3)]
+    plan = al.parse_anchor_config(
+        {"anchors": {"mode": "soft", "seeds": [None, 777, None, None]}}, segs,
+    )
+    assert plan.item(0).seed == al.DEFAULT_SEED_BASE + 0
+    assert plan.item(1).seed == 777
+    assert plan.item(2).seed == al.DEFAULT_SEED_BASE + 2
+    assert plan.item(3).seed == al.DEFAULT_SEED_BASE + 3
+    # Blank and garbled slots fall back too instead of raising.
+    plan2 = al.parse_anchor_config(
+        {"anchors": {"mode": "soft", "seeds": ["", "nope", "12"]}}, segs,
+    )
+    assert plan2.item(0).seed == al.DEFAULT_SEED_BASE + 0
+    assert plan2.item(1).seed == al.DEFAULT_SEED_BASE + 1
+    assert plan2.item(2).seed == 12
+
+
+def test_framing_detection_needs_the_sentence_to_open_like_framing():
+    """A pose sentence that mentions the camera or uses framing words stays action.
+
+    Regression: the substring match classified "End with the camera above the
+    treetops..." (contains "camera") and "End on the wide final frame of the
+    jungle..." (contains "wide"/"frame") as camera text, so the boundary
+    anchors next to those shots borrowed no pose and rendered the wrong beat.
+    """
+    assert al._is_camera_line("The camera begins a slow, smooth pull-back and rise.")
+    assert al._is_camera_line("Camera: over her shoulder at the branch tip.")
+    assert al._is_camera_line("Wide low shot: the giant strides across the plain.")
+    assert al._is_camera_line("The last shot holds the enormous scale of that advance.")
+    assert not al._is_camera_line(
+        "End with the camera above the treetops, the elf a tiny point beside the fallen ogre."
+    )
+    assert not al._is_camera_line(
+        "End on the wide final frame of the jungle, the river, the dead ogre."
+    )
+    assert not al._is_camera_line("Music: quiet aftermath - one mournful horn line.")
+
+
+def test_tail_borrows_the_pose_even_when_it_names_the_camera():
+    prompt = (
+        "summary:\nShe watches.\n\ndetailed_description:\n"
+        "She stands at the water's edge. After a long beat she sheathes the dagger. "
+        "The camera begins a slow pull-back and rise. No dialogue. "
+        "End with the camera above the treetops, the elf a tiny point beside the fallen ogre."
+    )
+    tail = al.tail_clause(prompt)
+    assert "End with the camera above the treetops" in tail
+    assert "The camera begins" not in tail
+    assert al.camera_clause(prompt, side="end").startswith("The camera begins")
+
+
+def test_camera_head_line_reaches_the_anchor_when_the_section_has_none():
+    """A ``Camera:`` line outside detailed_description is still a camera clause.
+
+    Regression: the composer searched only the detailed_description section, so a
+    prompt whose framing line sat in the head (a layout several projects use)
+    composed every boundary anchor with no camera clause - the pinned keyframes
+    had no idea what the camera was doing.
+    """
+    prompt = (
+        "style:\nPhotoreal jungle morning.\n"
+        "Camera: the camera runs with her along the branch, then drops over the edge.\n"
+        "summary:\nShe leaps.\n\n"
+        "detailed_description:\nShe sprints and throws herself into the open air. "
+        "End with her launched mid-leap in the open air."
+    )
+    clause = al.camera_clause(prompt, side="end")
+    assert "drops over the edge" in clause
+    assert al.camera_clause(prompt, side="start") == clause
+
+
+def test_section_camera_sentence_still_wins_over_the_head_line():
+    prompt = (
+        "Camera: a stale head line that must not be chosen.\n"
+        "summary:\nShe leaps.\n\n"
+        "detailed_description:\nShe stands still. "
+        "The camera settles low behind her shoulder. End with her mid-leap."
+    )
+    assert al.camera_clause(prompt, side="end") == "The camera settles low behind her shoulder."
+    assert al.camera_clause(prompt, side="start") == "The camera settles low behind her shoulder."
+
+
 # --------------------------------------------------------------------------- #
 # config parsing
 # --------------------------------------------------------------------------- #

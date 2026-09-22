@@ -117,7 +117,9 @@ def test_an_empty_pool_and_an_empty_segment_stay_empty():
 
 def test_the_task_set_matches_the_frontend():
     # Mirrors web/js/minimax_gen_timeline.js `taskUsesReferenceImages`.
-    assert REFERENCE_PICTURE_TASKS == {"r2v", "r2i", "rv2v", "vrc2v", "vi2v"}
+    # r2flv (Ref2va + FL2v Hybrid) is r2v plus auto-pinned boundary keyframes, so
+    # it must merge the common references exactly like r2v does.
+    assert REFERENCE_PICTURE_TASKS == {"r2v", "r2flv", "r2i", "rv2v", "vrc2v", "vi2v"}
 
 
 # --- per-segment RefMod switch ----------------------------------------------

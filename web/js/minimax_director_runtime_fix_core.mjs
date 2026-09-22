@@ -2,6 +2,7 @@ export const GENERATED_AUDIO_CONTINUITY_TASKS = Object.freeze([
     "t2v",
     "i2v",
     "r2v",
+    "r2flv",
     "fl2v",
     "v2v",
     "rv2v",

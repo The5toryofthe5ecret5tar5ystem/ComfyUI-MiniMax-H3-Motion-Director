@@ -9,13 +9,14 @@ const MODE_PREFIX = Object.freeze({
     i2v: "image",
     fl2v: "fl",
     r2v: "ref",
+    r2flv: "ref",
     v2v: "video",
     rv2v: "rv",
 });
 
 export function resolveDirectorTaskKey(value) {
     const text = String(value || "").trim().toLowerCase();
-    const match = text.match(/(?:^|\b)(mixed|rv2v|fl2v|r2v|i2v|v2v|t2v)(?:\b|$)/i);
+    const match = text.match(/(?:^|\b)(mixed|r2flv|rv2v|fl2v|r2v|i2v|v2v|t2v)(?:\b|$)/i);
     return match ? match[1].toLowerCase() : "t2v";
 }
 
@@ -71,7 +72,7 @@ export function desiredDirectorInputSockets(mode, groupCount) {
                 group,
                 type: "IMAGE",
             });
-        } else if (["fl2v", "r2v", "rv2v"].includes(task)) {
+        } else if (["fl2v", "r2v", "r2flv", "rv2v"].includes(task)) {
             out.push({
                 name: `${prefix}_assets_${group}`,
                 kind: "assets",
@@ -92,7 +93,7 @@ export function desiredAssetSockets(mode) {
         ];
     }
 
-    if (task === "r2v") {
+    if (task === "r2v" || task === "r2flv") {
         return [
             ...Array.from({ length: 9 }, (_, index) => ({ name: `image_${index + 1}`, type: "IMAGE" })),
             ...Array.from({ length: 3 }, (_, index) => ({ name: `video_${index + 1}`, type: "IMAGE" })),
@@ -165,7 +166,7 @@ export function timelineGroupHasInternalMedia(timeline, groupNumber, mode) {
     if (task === "i2v" && imageRefHasMedia(globalBlock.genImage || globalBlock.gen_image)) {
         return true;
     }
-    if ((task === "r2v" || task === "rv2v")
+    if ((task === "r2v" || task === "r2flv" || task === "rv2v")
         && (blockHasReferenceMedia(globalBlock) || blockHasReferenceMedia(commonBlock))) {
         return true;
     }

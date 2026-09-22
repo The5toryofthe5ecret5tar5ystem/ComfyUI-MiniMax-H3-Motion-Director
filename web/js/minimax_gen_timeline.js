@@ -194,10 +194,10 @@ export function resolutionFromSelector(aspectRatio, megapixels, multiple = MINIM
 export const IMAGE_BATCH_TASKS = new Set();
 export const FL2V_TASKS = new Set(["fl2v"]);
 /** Blank-canvas / subject-ref batch generation (not source-video editing). */
-export const VIDEO_BATCH_TASKS = new Set(["t2v", "i2v", "r2v"]);
+export const VIDEO_BATCH_TASKS = new Set(["t2v", "i2v", "r2v", "r2flv"]);
 export const PROMPT_BATCH_TASKS = new Set([...VIDEO_BATCH_TASKS, ...FL2V_TASKS]);
 /** Tasks that never use the source-video toolbar; v2v/rv2v use the H3 video timeline. */
-export const NO_VIDEO_UPLOAD_TASKS = new Set(["t2v", "i2v", "r2v"]);
+export const NO_VIDEO_UPLOAD_TASKS = new Set(["t2v", "i2v", "r2v", "r2flv"]);
 
 export function resolveTaskKey(taskTypeValue) {
     let value = String(taskTypeValue || "").split(",[object Object]", 1)[0].trim();
@@ -237,13 +237,13 @@ export function getDirectorMode(taskTypeValue) {
 /** t2i/t2v=plain, i2i/i2v=source image, r2i/r2v=up to 9 reference images */
 export function imageBatchVariant(taskKey) {
     if (taskKey === "i2i" || taskKey === "i2v") return "source";
-    if (taskKey === "r2i" || taskKey === "r2v") return "refs";
+    if (taskKey === "r2i" || taskKey === "r2v" || taskKey === "r2flv") return "refs";
     return "plain";
 }
 
 /** t2i/r2i/t2v/r2v need fixed canvas; i2i/i2v may use long_edge. */
 export function imageBatchRequiresFixedOutput(taskKey) {
-    return taskKey === "t2i" || taskKey === "r2i" || taskKey === "t2v" || taskKey === "r2v";
+    return taskKey === "t2i" || taskKey === "r2i" || taskKey === "t2v" || taskKey === "r2v" || taskKey === "r2flv";
 }
 
 /** Maximum frames per diffusion segment (model / VRAM practical limit). */
@@ -293,8 +293,8 @@ const NO_REF_IMAGE_TASKS = new Set(["v2v", "mv2v", "ads2v", "t2v", "i2v", "fl2v"
 
 export function taskUsesReferenceImages(taskKey) {
     if (NO_REF_IMAGE_TASKS.has(taskKey)) return false;
-    // r2v batch + legacy reference-edit task keys.
-    return taskKey === "r2v" || taskKey === "r2i" || taskKey === "rv2v" || taskKey === "vrc2v" || taskKey === "vi2v";
+    // r2v / r2flv batch + legacy reference-edit task keys.
+    return taskKey === "r2v" || taskKey === "r2flv" || taskKey === "r2i" || taskKey === "rv2v" || taskKey === "vrc2v" || taskKey === "vi2v";
 }
 
 export function taskUsesReferenceVideo(taskKey) {
@@ -304,7 +304,7 @@ export function taskUsesReferenceVideo(taskKey) {
 
 /** Standalone <Audio j> slots — official r2v / Director rv2v. */
 export function taskUsesReferenceAudios(taskKey) {
-    return taskKey === "rv2v" || taskKey === "r2v";
+    return taskKey === "rv2v" || taskKey === "r2v" || taskKey === "r2flv";
 }
 
 /** Default duration seconds for video batch / fl2v (→ 124 frames @ 24fps). */

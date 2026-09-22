@@ -20,6 +20,7 @@ class MiniMaxH3Task(str, Enum):
     R2V = "r2v"
     V2V = "v2v"
     RV2V = "rv2v"
+    R2FLV = "r2flv"
 
 
 TASK_DESCRIPTIONS = {
@@ -29,6 +30,7 @@ TASK_DESCRIPTIONS = {
     MiniMaxH3Task.R2V: "Reference-to AV — subject images (+ optional tags) in prompt",
     MiniMaxH3Task.V2V: "Video edit — source timeline clip as <Video 1> reference",
     MiniMaxH3Task.RV2V: "Video edit with reference images — source <Video 1> + <Picture N>",
+    MiniMaxH3Task.R2FLV: "Ref2va + FL2v Hybrid — references with boundary anchors pinned as first/last keyframes",
 }
 
 

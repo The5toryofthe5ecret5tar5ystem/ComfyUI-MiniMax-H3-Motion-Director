@@ -417,6 +417,23 @@ def _clean_index_list(value: Any) -> tuple[int, ...]:
     return tuple(sorted(out))
 
 
+def _clean_seed(value: Any) -> int | None:
+    """An explicit boundary seed, or None when the slot is empty or invalid.
+
+    The anchor strip keeps a sparse ``seeds[]`` array; JSON turns its holes into
+    ``null``, so a null (or blank / garbled) slot must fall back to
+    ``seedBase + boundary`` instead of raising on ``int(None)``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 # Strings accepted in ``anchors.boundaries`` for the two presets.
 _BOUNDARY_ALL_ALIASES = ("all", "every", "every-boundary", "*")
 _BOUNDARY_BOOKEND_ALIASES = ("bookends", "bookend", "ends", "first-last", "final")
@@ -507,9 +524,12 @@ def parse_anchor_config(
 
     items: list[AnchorItem] = []
     for boundary in range(count + 1):
-        if boundary < len(explicit_seeds):
-            seed = int(explicit_seeds[boundary])
-        else:
+        # The strip stores a sparse `seeds[]` array, so untouched boundaries
+        # arrive as JSON null - and a null (or blank/garbled) slot means "no
+        # explicit seed for this boundary", never a broken plan route.
+        explicit = explicit_seeds[boundary] if boundary < len(explicit_seeds) else None
+        seed = _clean_seed(explicit)
+        if seed is None:
             seed = seed_base + boundary
         if boundary < len(beats) and beats[boundary].strip():
             beat = beats[boundary]
@@ -677,6 +697,17 @@ _CAMERA_PATTERNS = (
 )
 _CAMERA_RE = re.compile("|".join(_CAMERA_PATTERNS), re.IGNORECASE)
 
+#: The same vocabulary anchored to the start of a sentence, wrapped in optional
+#: framing lead-ins ("Wide low shot", "The last shot", "Final close-up").
+#: Used by ``_is_camera_line``: only a sentence that *opens* like framing is
+#: framing text - a pose sentence that merely contains "camera" or "wide" is
+#: still the pose the boundary anchor must borrow.
+_CAMERA_OPENER_RE = re.compile(
+    r"^\s*(?:(?:the|a|an|then|and|final|last|opening|closing|wide|low|high|hero|medium|close|mid|side|tracking|orbiting|slow|smooth)\s+)*"
+    r"(?:" + "|".join(_CAMERA_PATTERNS) + r")",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class BoundaryText:
@@ -744,7 +775,18 @@ def _sentences(text: str) -> list[str]:
 
 
 def _is_camera_line(text: str) -> bool:
-    return bool(_CAMERA_RE.search(str(text or "")))
+    """True when a sentence *opens* like framing text.
+
+    A framing sentence starts with (optional lead-ins and) the framing
+    vocabulary - "The camera holds...", "Camera: ...", "Wide low shot: ...",
+    "The last shot holds...". A pose sentence may merely mention the camera or
+    use a framing word - "End with the camera above the treetops...", "End on
+    the wide final frame of the jungle..." - and MUST stay in the borrowed
+    action text: the old substring match dropped exactly those sentences, so
+    the boundary anchors next to such shots borrowed no pose and rendered the
+    wrong beat.
+    """
+    return bool(_CAMERA_OPENER_RE.match(str(text or "")))
 
 
 def _action_sentences(text: str) -> list[str]:
@@ -785,11 +827,21 @@ def head_clause(prompt: str, *, limit: int = DEFAULT_CLAUSE_CHARS) -> str:
 
 
 def camera_clause(prompt: str, *, limit: int = DEFAULT_CAMERA_CHARS, side: str = "start") -> str:
-    """Best-effort framing line: the sentence of a shot that talks about the camera."""
+    """Best-effort framing line: the sentence of a shot that talks about the camera.
+
+    The shot's ``detailed_description`` is searched first, because that is where the
+    action prose and the hand-off framing live, and a camera sentence found there
+    always wins. When the section carries none, the whole prompt is searched as a
+    fallback: authors who write a ``Camera:`` line in the prompt head used to have
+    it silently ignored, and the boundary anchors next to such shots composed with
+    no framing text at all.
+    """
     body = _plain_text(_section_text(prompt))
-    if not body:
-        return ""
-    hits = [s for s in _sentences(body) if _is_camera_line(s)]
+    hits = [s for s in _sentences(body) if _is_camera_line(s)] if body else []
+    if not hits:
+        whole = _plain_text(prompt)
+        if whole != body:
+            hits = [s for s in _sentences(whole) if _is_camera_line(s)]
     if not hits:
         return ""
     chosen = hits[0] if side == "start" else hits[-1]
@@ -1112,6 +1164,58 @@ def lead_keyframes(lead: "LeadAnchor", *, vae, canvas_frames: int,
         raise ValueError("anchor ladder: lead anchor has no picture to pin")
     latent = encode_h3_keyframe_latent(vae, lead.tensor, width=width, height=height)
     return [{"resolved_frame_index": 0, MC_KEY: int(position), "latent": latent}]
+
+
+def hybrid_boundary_tensors(plan, seg, *, warnings: list[str] | None = None):
+    """Boundary-anchor IMAGE tensors for an r2flv segment as ``(first, last)``.
+
+    Segment ownership matches soft injection: ``seg.anchor_in`` is the shot's
+    opening boundary (pinned at frame 0) and ``seg.anchor_out`` is its closing
+    boundary (pinned at the last frame). A side that is disabled, unselected or
+    has no PNG on disk yields ``None``, so the hybrid degrades to whichever end
+    does exist - and to plain Reference-to-Video when neither does. User-facing
+    notes are appended to ``warnings`` when one is provided.
+    """
+    anchors = getattr(plan, "anchors", None)
+    if anchors is None or not getattr(anchors, "enabled", False):
+        return None, None
+    root = getattr(plan, "anchors_root", "") or ""
+    items = list(getattr(anchors, "items", ()) or ())
+    first = last = None
+    for side, raw_index in (("in", getattr(seg, "anchor_in", None)),
+                            ("out", getattr(seg, "anchor_out", None))):
+        if raw_index is None:
+            continue
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            continue
+        item = next((it for it in items if int(getattr(it, "index", -1)) == index), None)
+        if item is None or not anchors.is_selected(index):
+            continue
+        path, exact = resolve_item_file(item, root)
+        if path is None or not Path(path).is_file():
+            if warnings is not None:
+                warnings.append(
+                    f"r2flv hybrid: boundary {index + 1} has no anchor PNG on disk; that end "
+                    "of the shot stays free (the soft reference still applies)."
+                )
+            continue
+        if not exact and warnings is not None:
+            warnings.append(_fallback_note(item, path))
+        try:
+            tensor = anchor_image_tensor(path)
+        except Exception as exc:  # noqa: BLE001 - a bad PNG must not stop the run
+            if warnings is not None:
+                warnings.append(
+                    f"r2flv hybrid: boundary {index + 1} anchor PNG could not be read ({exc})."
+                )
+            continue
+        if side == "in":
+            first = tensor
+        else:
+            last = tensor
+    return first, last
 
 
 def lead_seconds_text(frames: int, fps: float = H3_MODEL_FPS or 24.0) -> str:
@@ -1592,6 +1696,7 @@ __all__ = [
     "expand_segment_prompt",
     "build_anchor_segment",
     "anchor_image_tensor",
+    "hybrid_boundary_tensors",
     "save_anchor_image",
     "read_sidecar",
     "write_sidecar",

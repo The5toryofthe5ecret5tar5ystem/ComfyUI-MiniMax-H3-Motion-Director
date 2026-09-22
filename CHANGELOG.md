@@ -3,6 +3,27 @@
 Notable changes in this fork. Older releases are tagged in git and published on the
 [releases page](https://github.com/The5toryofthe5ecret5tar5ystem/ComfyUI-MiniMax-H3-Motion-Director/releases).
 
+## v1.14.0 — 2026-09-22
+
+### Added
+
+- **`r2flv` — Ref2va + FL2v Hybrid: the R2V references *and* the boundary anchors pinned as hard keyframes.** The seventh standalone mode. Each segment keeps the full R2V experience — Common References (`<Picture N>` / `<Audio J>` / `<Video K>`), speaker identity, room and reference audio — and the executor additionally writes the shot's two boundary anchors onto the same conditioning as real H3 keyframes: the opening boundary at frame 0, the closing boundary at the last frame, both in the unmarked first/last shape the official FL2V node produces. The sampler therefore interpolates between the two approved boundary poses while `minimax_refs` keeps steering identity — the behaviour the anchor ladder was designed for, which before could only be asked for softly through the prompt. Nothing to toggle: pinning is automatic with the mode, a boundary with no rendered PNG is skipped (that end stays free and the soft references still apply), and a shot with neither boundary degrades to plain Reference-to-Video. `MC_KEY`-marked guides (Motion Context, lead pins) are always preserved and an unmarked keyframe already at either index is replaced. The mode is wired through the whole stack: task selector (zh/en), batch hints, Material Library targets (Common / per segment), mention chips, audio roles, Motion Context continuity, live report lines, and the prompt enhancer and recipes treat it exactly like r2v.
+- **Project prompt, editable where it is used.** Asset-group mode (r2v / r2flv) hides the timeline's global-prompt panel, yet `timeline.global.prompt` is the one text block every boundary anchor render and every fill receives. The Boundary anchors strip now carries a **Project prompt…** button that opens the editor for it — the text, a live character count, and a save that mirrors the node's hidden widget and persists like every other strip control.
+
+### Fixed
+
+- **A boundary anchor no longer mistakes a pose sentence for camera work.** Framing detection used to fire on the camera *vocabulary* anywhere in a sentence, so a closing pose like "End with the camera above the treetops..." or "End on the wide final frame of the jungle..." was classified as camera text and dropped from the borrowed pose — boundaries next to such shots rendered the wrong beat. A sentence now counts as framing only when it **opens** like framing ("The camera...", "Camera: ...", "Wide low shot...", "The last shot holds..."), so those pose sentences stay in the borrowed tail.
+- **A `Camera:` line outside the description now reaches the anchors.** The composer reads camera sentences from the shot's `detailed_description` first — that remains the winning placement — and falls back to the whole prompt when the section has none, so a head `Camera:` line is no longer silently ignored and boundary anchors stop composing with no framing at all.
+- **A sparse `seeds[]` array no longer breaks the anchor plan.** The strip writes only the boundary you re-rolled; JSON turns the untouched holes into `null`, and `int(null)` raised — the plan route refused the whole timeline. Empty, blank or garbled slots now mean "no explicit seed" and fall back to `seedBase + boundary`, and the strip fills the earlier slots with the defaults it displays before writing a fresh seed.
+- **The task selector can no longer render blank.** A page loaded before a ComfyUI restart keeps an option list that lacks a newly added task; the saved value then matched no option and the select showed nothing. It now matches by resolved task key first, and appends the saved value as an option when even that misses.
+
+### Docs
+
+- **`docs/R2FLV_PROMPTING_GUIDE.md` (new).** The full r2flv prompting guide for humans and AI writers: how a boundary-anchor prompt is composed (project prompt + beat + neighbour sentences + camera clause, the character clamps, and where a camera sentence must live to be picked up), the three text layers, the invariants-only rule for the project prompt, the ten-point checklist for cast without reference pictures, the world / standing-set checklist, the forbidden-content table with the ogre case study, boundary-beat rules, a worked example and an AI-writer output contract.
+- `docs/USER_GUIDE.md` documents the seventh mode; `docs/PROMPT_WRITING_GUIDE.md` cross-links the new document.
+
+New tests cover the release: `tests/test_r2flv_hybrid.py`, the camera and seed regressions in `tests/test_anchor_ladder.py`, the project-prompt wiring test and the shared task-set parity tests.
+
 ## v1.13.0 — 2026-09-20
 
 ### Fixed

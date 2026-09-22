@@ -20,8 +20,8 @@ export const DIRECTOR_STATE_COLORS = Object.freeze({
 });
 
 const BRIDGE_TASKS = new Set(["v2v", "rv2v"]);
-const MOTION_CONTEXT_TASKS = new Set(["t2v", "i2v", "r2v", "fl2v"]);
-const VISUAL_MOTION_CONTEXT_TASKS = new Set(["t2v", "i2v", "r2v", "fl2v", "v2v", "rv2v"]);
+const MOTION_CONTEXT_TASKS = new Set(["t2v", "i2v", "r2v", "r2flv", "fl2v"]);
+const VISUAL_MOTION_CONTEXT_TASKS = new Set(["t2v", "i2v", "r2v", "r2flv", "fl2v", "v2v", "rv2v"]);
 
 function boolValue(value) {
     if (value === false || value === 0 || value == null) return false;

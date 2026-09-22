@@ -24,6 +24,7 @@ const GENERATE_VALUES = new Set([
     // names are accepted as kind aliases too.
     "ref2va",
     "r2v",
+    "r2flv",
     "t2v",
 ]);
 

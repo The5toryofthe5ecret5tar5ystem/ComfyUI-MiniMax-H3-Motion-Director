@@ -616,7 +616,7 @@ export function ensureImageBatchTimeline(editor) {
         seg.previewFps = seg.previewFps || parseFloat(editor.frameRateWidget?.value || 24);
         if (!seg.id) seg.id = newBatchSegment().id;
     }
-    if (taskKey === "r2v") ensureR2vReferenceAssetSchema(editor.timeline);
+    if (taskKey === "r2v" || taskKey === "r2flv") ensureR2vReferenceAssetSchema(editor.timeline);
     else ensureReferenceAssetSchema(editor.timeline);
     normalizeImageBatchSegments(editor);
 }
@@ -659,7 +659,7 @@ export function normalizeImageBatchSegments(editor) {
     }
     if (!fixed.length) fixed.push(newBatchSegment({ durationSec: defSec }));
     editor.timeline.segments = fixed;
-    if (taskKey === "r2v") ensureR2vReferenceAssetSchema(editor.timeline);
+    if (taskKey === "r2v" || taskKey === "r2flv") ensureR2vReferenceAssetSchema(editor.timeline);
     else ensureReferenceAssetSchema(editor.timeline);
     editor.timeline.totalFrames = start || fixed[0].frameCount;
 }
@@ -809,7 +809,8 @@ function resolvedBatchAssetId(editor, index, kind, fileRef) {
 }
 
 function ensureBatchAssetSchema(editor) {
-    if (resolveTaskKey(editor.getTaskKey?.() || editor.taskTypeWidget?.value) === "r2v") {
+    const key = resolveTaskKey(editor.getTaskKey?.() || editor.taskTypeWidget?.value);
+    if (key === "r2v" || key === "r2flv") {
         ensureR2vReferenceAssetSchema(editor.timeline);
     } else {
         ensureReferenceAssetSchema(editor.timeline);
@@ -1768,7 +1769,7 @@ export function renderImageBatchGroups(editor) {
     }
     const externalLocked = !!(editor.hasExternalI2vGroups?.() || editor.hasExternalR2vGroups?.());
     if (editor.batchI2vNotice) {
-        const needsRefs = key === "r2i" || key === "r2v";
+        const needsRefs = key === "r2i" || key === "r2v" || key === "r2flv";
         const hasAnyMedia = (editor.timeline.segments || []).some((s) => (
             (s.refs || []).some((r) => r?.imageFile)
             || (s.refAudios || []).some((r) => r?.audioFile || r?.fileName)
@@ -1779,7 +1780,7 @@ export function renderImageBatchGroups(editor) {
         // External graph media may exist as tensors even when UI path sync failed —
         // don't scare users with a false "will degrade to t2v" notice.
         if (needsRefs && !hasAnyMedia && !externalLocked && !motionOn) {
-            editor.batchI2vNotice.textContent = t(key === "r2v" ? "batch.notice.r2vNoRefs" : "batch.notice.r2iNoRefs");
+            editor.batchI2vNotice.textContent = t(key === "r2v" || key === "r2flv" ? "batch.notice.r2vNoRefs" : "batch.notice.r2iNoRefs");
             editor.batchI2vNotice.classList.add("visible");
         } else {
             editor.batchI2vNotice.classList.remove("visible");
@@ -1788,11 +1789,11 @@ export function renderImageBatchGroups(editor) {
     }
     const addBtn = editor.batchPanel?.querySelector('[data-a="batch-add"]');
     if (addBtn) {
-        addBtn.textContent = t(key === "r2v" ? "batch.addRefGroup" : "batch.addPromptGroup");
-        addBtn.setAttribute("data-i18n", key === "r2v" ? "batch.addRefGroup" : "batch.addPromptGroup");
-        // r2v: add from toolbar (left of task select), like fl2v.
+        addBtn.textContent = t(key === "r2v" || key === "r2flv" ? "batch.addRefGroup" : "batch.addPromptGroup");
+        addBtn.setAttribute("data-i18n", key === "r2v" || key === "r2flv" ? "batch.addRefGroup" : "batch.addPromptGroup");
+        // r2v / r2flv: add from toolbar (left of task select), like fl2v.
         // External groups: never add UI cards (graph is source of truth).
-        addBtn.classList.toggle("hidden", key === "r2v" || externalLocked);
+        addBtn.classList.toggle("hidden", key === "r2v" || key === "r2flv" || externalLocked);
         addBtn.disabled = externalLocked;
     }
 
@@ -1804,7 +1805,7 @@ export function renderImageBatchGroups(editor) {
         expandTitle: t("tooltip.r2vCommonExpand"),
         collapseTitle: t("tooltip.r2vCommonCollapse"),
     });
-    if (key === "r2v") {
+    if (key === "r2v" || key === "r2flv") {
         ensureR2vReferenceAssetSchema(editor.timeline);
         if (editor._r2vCommonPopover?.isOpen) editor._r2vCommonPopover.render();
     } else {
@@ -1813,7 +1814,7 @@ export function renderImageBatchGroups(editor) {
     editor.timeline.segments.forEach((seg, index) => {
         const connector = buildContextLinkConnector(editor, index);
         if (connector) list.appendChild(connector);
-        const isR2v = key === "r2v";
+        const isR2v = key === "r2v" || key === "r2flv";
         const card = document.createElement("div");
         const layoutClass = isR2v
             ? "bd-batch-r2v"
@@ -2108,7 +2109,7 @@ export function getImageBatchUiHeight(editor) {
     const key = resolveTaskKey(editor?.getTaskKey?.() || editor?.taskTypeWidget?.value);
     // r2v cards are tall; list scrolls inside BATCH_LIST_MAX_H — do NOT sum full card
     // heights into node size or the DOM widget grows a huge empty region below.
-    const rowH = key === "r2v" ? 420 : (isVideoBatchTask(key) ? 155 : 130);
+    const rowH = (key === "r2v" || key === "r2flv") ? 420 : (isVideoBatchTask(key) ? 155 : 130);
     const listContentH = n * rowH + Math.max(0, n - 1) * BATCH_LIST_GAP;
     const listH = Math.min(listContentH, BATCH_LIST_MAX_H);
     return BATCH_TOOLBAR_H + BATCH_PANEL_CHROME + listH;

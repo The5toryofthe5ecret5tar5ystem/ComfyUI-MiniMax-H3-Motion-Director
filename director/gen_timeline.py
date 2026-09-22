@@ -24,12 +24,12 @@ from .context_links import parse_context_link
 
 log = logging.getLogger("ComfyUI-MiniMax-H3-Motion-Director.director.gen")
 
-GEN_BLANK_KEYS = frozenset({"t2v", "r2v"})
+GEN_BLANK_KEYS = frozenset({"t2v", "r2v", "r2flv"})
 GEN_IMAGE_KEYS = frozenset({"i2v"})
 FL2V_KEYS = frozenset({"fl2v"})
 GEN_TASK_KEYS = GEN_BLANK_KEYS | GEN_IMAGE_KEYS | FL2V_KEYS
-PROMPT_BATCH_KEYS = frozenset({"t2v", "i2v", "r2v", "fl2v"})
-VIDEO_BATCH_KEYS = frozenset({"t2v", "i2v", "r2v", "fl2v"})
+PROMPT_BATCH_KEYS = frozenset({"t2v", "i2v", "r2v", "fl2v", "r2flv"})
+VIDEO_BATCH_KEYS = frozenset({"t2v", "i2v", "r2v", "fl2v", "r2flv"})
 IMAGE_BATCH_KEYS = frozenset()
 
 MIN_GEN_FRAMES = 1
@@ -89,7 +89,7 @@ def gen_submode(timeline: dict, task_key: str) -> str:
 def _min_frames_for_task(task_key: str) -> int:
     if task_key in IMAGE_BATCH_KEYS or task_key in ("t2i", "i2i"):
         return MIN_GEN_FRAMES
-    if task_key in ("t2v", "i2v", "r2v"):
+    if task_key in ("t2v", "i2v", "r2v", "r2flv"):
         return MIN_GEN_VIDEO_FRAMES
     return MIN_GEN_VIDEO_FRAMES
 
@@ -549,7 +549,7 @@ def build_gen_director_plan(
                 seg_task_key,
                 _load_ref_audios(seg_data.get("refAudios") or seg_data.get("ref_audios") or []),
             )
-            if seg_task_key == "r2v":
+            if seg_task_key in ("r2v", "r2flv"):
                 seg_len = max(5, int(end) - int(start))
                 raw_vids = seg_data.get("refVideos") or seg_data.get("ref_videos") or []
                 # Backward compat: single referenceVideo → slot 0
@@ -562,7 +562,7 @@ def build_gen_director_plan(
                     _paired_video_audio_entries(list(raw_vids or []))
                 )
 
-        if edit_mode != "global" and seg_task_key == "r2v":
+        if edit_mode != "global" and seg_task_key in ("r2v", "r2flv"):
             all_common_ids = {
                 _raw_asset_id(item, kind, pos)
                 for kind, items in (
@@ -629,7 +629,7 @@ def build_gen_director_plan(
             seg_refs or seg_ref_videos or seg_ref_audios or seg_ref_video_audios
         )
 
-        if seg_task_key in ("r2v", "r2i") and not has_r2v_material:
+        if seg_task_key in ("r2v", "r2i", "r2flv") and not has_r2v_material:
             if refmod_block_count:
                 # RefMod reference latents are appended to this segment's
                 # conditioning by the executor, so the segment is genuinely

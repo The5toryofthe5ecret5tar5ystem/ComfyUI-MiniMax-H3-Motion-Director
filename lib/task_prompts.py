@@ -72,6 +72,16 @@ TASK_PROMPT_SPECS: tuple[TaskPromptSpec, ...] = (
         "同一时间线逐段选择 T2V / I2V / FL2V / R2V / Source Video。"
         "Mixed 是 Director 元模式，每段执行前会编译成现有 H3 后端任务。",
     ),
+    TaskPromptSpec(
+        "r2flv",
+        "Ref2va + FL2v Hybrid 混合(References + first/last keyframes)",
+        "",
+        "r2v 的参考图/参考音频 + fl2v 的首尾帧关键帧约束二合一：每段照常吃 Common References"
+        "（图片1-9 / 音频1-3）与 <Picture N> 提示词，同时把两端用边界锚点图钉成 H3 关键帧"
+        "（首帧=开边界锚点，末帧=闭边界锚点）；锚点是分段用自己的参考素材预渲染并审核过"
+        "的边界姿态图，因此身份、房间与声音保持 r2va 体验，而插值由首尾关键帧引导。"
+        "锚点缺失的一端自动跳过（回退为纯 r2v 软参考）。",
+    ),
 )
 
 TASK_PROMPT_BY_KEY = {spec.key: spec for spec in TASK_PROMPT_SPECS}
@@ -92,8 +102,10 @@ def task_type_combo_options() -> tuple[list[str], dict]:
     return options, {
         "default": task_type_option_label(default_spec),
         "tooltip": (
-            "MiniMax H3 Director 支持 t2v / i2v / fl2v / r2v / v2v / rv2v / mixed。"
+            "MiniMax H3 Director 支持 t2v / i2v / fl2v / r2v / v2v / rv2v / mixed / r2flv。"
             "Mixed 为逐段元模式；其 Segment 会编译成现有 H3 task，不会把 mixed 送进模型。"
+            "r2flv（Ref2va + FL2v Hybrid）在 R2V 参考与参考音频之上，把边界锚点自动钉成"
+            "H3 首尾关键帧（首帧=0，末帧=末帧索引）。"
             "提示词直接送入 MiniMaxH3ImageToVideo 或 MiniMaxH3ReferenceToVideo（内部 tokenize）。"
         ),
     }

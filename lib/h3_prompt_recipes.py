@@ -261,7 +261,7 @@ RECIPES: tuple[Recipe, ...] = (
     Recipe(
         key="ref2va",
         label="Reference segment (r2v / ref2va)",
-        tasks=("r2v",),
+        tasks=("r2v", "r2flv"),
         summary="The full segment block: subject_definitions with slot roles, Camera, Scene, Audio, summary, detailed_description.",
         block=_RECIPE_REF2VA,
     ),

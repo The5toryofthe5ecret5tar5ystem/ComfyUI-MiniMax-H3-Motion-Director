@@ -48,6 +48,7 @@ const TYPE_ALLOWED = {
     i2v: new Set(["image", "prompt"]),
     fl2v: new Set(["image", "prompt"]),
     r2v: new Set(["image", "audio", "video", "prompt"]),
+    r2flv: new Set(["image", "audio", "video", "prompt"]),
     rv2v: new Set(["image", "audio", "prompt"]),
     v2v: new Set(["video", "prompt"]),
 };
@@ -109,7 +110,7 @@ function currentMixedIndex(editor) {
 function mixedEffectiveMode(editor) {
     const mode = String(currentMixedSegment(editor)?.mode || "t2v").trim().toLowerCase();
     if (mode === "source_video") return "rv2v";
-    return ["t2v", "i2v", "fl2v", "r2v"].includes(mode) ? mode : "t2v";
+    return ["t2v", "i2v", "fl2v", "r2v", "r2flv"].includes(mode) ? mode : "t2v";
 }
 
 function currentMode(editor) {
@@ -129,7 +130,7 @@ function allowedTypes(mode) { return TYPE_ALLOWED[mode] || new Set(["prompt"]); 
  * could not be filled from here either.
  */
 function supportsCommonTarget(mode) {
-    return mode === "r2v" || mode === "rv2v";
+    return mode === "r2v" || mode === "r2flv" || mode === "rv2v";
 }
 
 function firstAllowedType(mode) {
@@ -193,7 +194,7 @@ function buildMixedMaterialPlan(state, editor) {
         pushAll(state.fl2vFirstFrames, "first", "first_frame");
         pushAll(state.fl2vLastFrames, "last", "last_frame");
         pushAll(state.prompts, "prompt", "prompt");
-    } else if (mode === "r2v") {
+    } else if (mode === "r2v" || mode === "r2flv") {
         pushAll(state.images, "image", "reference_picture");
         pushAll(state.audio, "audio", "reference_audio");
         pushAll(state.videos, "video", "reference_video");
@@ -366,7 +367,7 @@ function refreshEditor(editor, { fl2v = false, referenceSchema = null } = {}) {
     if (referenceSchema === "r2v") ensureR2vReferenceAssetSchema(editor.timeline);
     else if (referenceSchema === "generic") ensureReferenceAssetSchema(editor.timeline);
     if (fl2v) syncFl2vFromShots(editor);
-    else if (["t2v", "i2v", "r2v"].includes(currentMode(editor))) normalizeImageBatchSegments(editor);
+    else if (["t2v", "i2v", "r2v", "r2flv"].includes(currentMode(editor))) normalizeImageBatchSegments(editor);
     editor.renderImageBatchGroups?.();
     // Mention chips are rendered from the edit they were inserted into: an apply
     // that reconnects a dangling mention has to repaint them, or the chip keeps
@@ -541,7 +542,7 @@ export function mountMaterialLibrary(editor, node = null) {
                 const note = document.createElement("span"); note.className = "mmx-ml-context-label"; note.textContent = mlT("sourceLocalOnly");
                 contextEl.appendChild(note);
             }
-        } else if (state.mode === "r2v" || state.mode === "rv2v") {
+        } else if (state.mode === "r2v" || state.mode === "r2flv" || state.mode === "rv2v") {
             const label = document.createElement("span"); label.className = "mmx-ml-context-label"; label.textContent = `${mlT("target")}:`;
             const targets = document.createElement("div"); targets.className = "mmx-ml-targets";
             if (supportsCommonTarget(state.mode)) addTargetButton(targets, "common", mlT("common"));
@@ -980,7 +981,7 @@ export function mountMaterialLibrary(editor, node = null) {
                 segment.inputs.lastFrame = mixedDescriptor("image", mat, entry.item, 0);
                 removeMixedResultRole(segment, "fl2v_last");
             }
-        } else if (mode === "r2v") {
+        } else if (mode === "r2v" || mode === "r2flv") {
             await appendMixedQueue(segment, "pictures", "image", state.images, MAX_REFERENCE_IMAGES, materialize);
             await appendMixedQueue(segment, "referenceAudios", "audio", state.audio, MAX_REFERENCE_AUDIOS, materialize);
             await appendMixedQueue(segment, "referenceVideos", "video", state.videos, MAX_REFERENCE_VIDEOS, materialize);
@@ -1030,7 +1031,7 @@ export function mountMaterialLibrary(editor, node = null) {
                 }
                 applySequentialPrompts(editor.timeline.shots, state.prompts);
                 refreshEditor(editor, { fl2v: true });
-            } else if (state.mode === "r2v") {
+            } else if (state.mode === "r2v" || state.mode === "r2flv") {
                 const target = state.target === "common" ? (editor.timeline.r2vCommon ||= { refs: [], refAudios: [], refVideos: [] }) : editor.timeline.segments[parseInt(String(state.target).split(":")[1], 10)];
                 await appendReferences(target, state, materialize, setStatus, libraryAssetIdResolver(editor, state.target));
                 if (state.target !== "common" && state.prompts.length) {

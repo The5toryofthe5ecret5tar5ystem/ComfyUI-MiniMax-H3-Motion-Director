@@ -52,9 +52,9 @@ export function buildMaterialAllocationPlan({ mode, state, timeline }) {
             else warnings.push({ code: "prompt_without_segment", order: entry.order });
         });
         if (!state.videos.length && !existing && state.prompts.length) blockedReason = "v2v_prompt_without_video";
-    } else if (key === "r2v" || key === "rv2v") {
+    } else if (key === "r2v" || key === "r2flv" || key === "rv2v") {
         if (!state.target) blockedReason = "target_required";
-        const isCommon = key === "r2v" && state.target === "common";
+        const isCommon = (key === "r2v" || key === "r2flv") && state.target === "common";
         let segmentIndex = null;
         if (!isCommon && /^segment:\d+$/.test(String(state.target || ""))) {
             segmentIndex = Math.max(0, parseInt(String(state.target).split(":")[1], 10) || 0);
@@ -64,7 +64,7 @@ export function buildMaterialAllocationPlan({ mode, state, timeline }) {
         }
         state.images.forEach((entry) => assignments.push(assignment("image", entry, segmentIndex, isCommon ? "common_picture" : "reference_picture")));
         state.audio.forEach((entry) => assignments.push(assignment("audio", entry, segmentIndex, isCommon ? "common_audio" : "reference_audio")));
-        if (key === "r2v") {
+        if (key === "r2v" || key === "r2flv") {
             state.videos.forEach((entry) => assignments.push(assignment("video", entry, segmentIndex, isCommon ? "common_video" : "reference_video")));
         }
         if (isCommon && state.prompts.length) {

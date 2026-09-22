@@ -255,6 +255,33 @@ for (const source of ["auto", "template", "from", "to", "both"]) {
     );
 }
 
+// --- project prompt: the shared text is editable where it is used ------------ //
+// Asset-group mode (r2v / r2flv) hides the timeline's global-prompt panel, so
+// the strip hosts the editor for timeline.global.prompt - the one text block
+// every anchor render and every fill receives.
+assert.ok(
+    strip.includes('data-t="projectPrompt"') && strip.includes("function openProjectPrompt()"),
+    "the strip must offer the project-prompt editor (asset-group mode hides the timeline one)",
+);
+assert.ok(
+    strip.includes("ed.timeline.global.prompt = text") &&
+        strip.includes("ed.globalPromptWidget.value = text"),
+    "saving must write timeline.global.prompt and mirror the node's hidden widget",
+);
+assert.ok(
+    strip.includes('t("anchor.projectPromptSaved")') && strip.includes("persistTimeline(ed);"),
+    "the save must persist through the widget and report itself",
+);
+for (const key of [
+    "anchor.projectPrompt", "anchor.projectPromptTitle", "anchor.projectPromptNote",
+    "anchor.projectPromptChars", "anchor.projectPromptSaved",
+]) {
+    assert.ok(
+        (i18n.split(`"${key}":`).length - 1) >= 2,
+        `${key} must exist in both dictionaries`,
+    );
+}
+
 // --- stop: the footer button that interrupts a running anchor pass ---------- //
 
 assert.ok(

@@ -55,6 +55,7 @@ def director_timeline_required_inputs() -> dict:
         "User prompt — sent directly to MiniMaxH3ImageToVideo / ReferenceToVideo. "
         "r2v: <Picture 1>. v2v: source-timeline edit (<Video 1>). "
         "rv2v: source timeline + reference images (<Video 1> + <Picture N>). "
+        "r2flv: r2v references plus boundary anchors pinned as first/last keyframes. "
         "mixed: each segment compiles to an existing H3 task."
     )
 
@@ -103,7 +104,7 @@ class MiniMaxH3MotionDirector:
                 ),
                 "audio_vae": (
                     "VAE",
-                    {"tooltip": "MiniMax H3 audio VAE (minimax_h3_audio_vae). Required for r2v / v2v / rv2v."},
+                    {"tooltip": "MiniMax H3 audio VAE (minimax_h3_audio_vae). Required for r2v / r2flv / v2v / rv2v."},
                 ),
                 "clip": (
                     "CLIP",
@@ -388,7 +389,7 @@ class MiniMaxH3MotionDirector:
         "MiniMax H3 Motion Director: exported video/audio Motion Context, "
         "MiniMaxH3ImageToVideo / ReferenceToVideo conditioning, internal KSampler "
         "or external SAMPLER+SIGMAS, and LTXVSeparateAVLatent decode. "
-        "Supports t2v / i2v / fl2v / r2v / v2v / rv2v plus Mixed meta-mode. "
+        "Supports t2v / i2v / fl2v / r2v / r2flv / v2v / rv2v plus Mixed meta-mode. "
         "Optional i2v_groups / r2v_groups accept multi-group packs from Director Group nodes "
         "for standalone modes; Mixed v1 uses its own segment-local schema. "
         "Defaults: 0.4MP 16:9 (864×480), 5s / 124 frames @ 24 fps."

@@ -61,6 +61,82 @@ def append_minimax_keyframes(conditioning, *, keyframes, frame_count: int | None
     return merged
 
 
+def append_first_last_keyframes(
+    conditioning,
+    *,
+    vae,
+    frame_count: int,
+    width: int,
+    height: int,
+    first_frame=None,
+    last_frame=None,
+):
+    """Pin boundary anchors as unmarked H3 first/last keyframes (r2flv hybrid).
+
+    ``r2flv`` ("Ref2va + FL2v Hybrid") first builds reference conditioning with
+    the official ReferenceToVideo node; this helper then adds up to two
+    keyframes on that same layout: the open boundary at frame 0 and the close
+    boundary at ``frame_count - 1``. Both rows deliberately carry no ``MC_KEY``
+    marker, which is exactly the shape the official first/last (FL2V) node
+    produces - ``patches/h3_layout.py`` positions them by
+    ``resolved_frame_index`` alone, so the sampler interpolates between the two
+    boundary poses while ``minimax_refs`` keeps steering identity. A keyframe
+    already present at either index is replaced; a guide marked with ``MC_KEY``
+    (Motion Context head, lead pin) is always preserved.
+    """
+    total = int(frame_count)
+    if total < 2:
+        raise ValueError(
+            "MiniMax H3 hybrid first/last keyframes need at least two frames."
+        )
+    keyframes: list[dict] = []
+    if first_frame is not None:
+        keyframes.append(
+            {
+                "resolved_frame_index": 0,
+                "latent": encode_h3_keyframe_latent(
+                    vae, first_frame, width=width, height=height
+                ),
+            }
+        )
+    if last_frame is not None:
+        keyframes.append(
+            {
+                "resolved_frame_index": total - 1,
+                "latent": encode_h3_keyframe_latent(
+                    vae, last_frame, width=width, height=height
+                ),
+            }
+        )
+    if not keyframes:
+        return conditioning
+    if not isinstance(conditioning, (list, tuple)) or not conditioning:
+        raise ValueError("MiniMax H3 hybrid keyframe conditioning is empty.")
+    pinned = {int(item["resolved_frame_index"]) for item in keyframes}
+    merged = []
+    for entry in conditioning:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            raise ValueError("MiniMax H3 hybrid conditioning entry has an invalid shape.")
+        metadata = dict(entry[1] or {})
+        kept = []
+        for item in metadata.get("minimax_keyframes") or []:
+            row = dict(item)
+            if MC_KEY in row:
+                kept.append(row)
+                continue
+            try:
+                index = int(row.get("resolved_frame_index", -1))
+            except (TypeError, ValueError):
+                index = -1
+            if index not in pinned:
+                kept.append(row)
+        metadata["minimax_keyframes"] = kept + [dict(item) for item in keyframes]
+        if not metadata.get("minimax_frame_count"):
+            metadata["minimax_frame_count"] = total
+        merged.append([entry[0], metadata, *entry[2:]])
+    return merged
+
+
 def _encode_source_bridge_anchor(vae, frame, *, width: int, height: int):
     if not isinstance(frame, torch.Tensor) or frame.ndim != 4 or int(frame.shape[0]) != 1:
         raise ValueError("Source Bridge anchor must be one IMAGE frame [1,H,W,C].")
@@ -463,7 +539,7 @@ def run_minimax_conditioning(
     MiniMaxH3ImageToVideo, MiniMaxH3ReferenceToVideo = _load_minimax_nodes()
 
     use_reference = (
-        task_key in {"r2v", "v2v", "rv2v"}
+        task_key in {"r2v", "r2flv", "v2v", "rv2v"}
         or ref_images
         or ref_videos
         or ref_audios
@@ -472,7 +548,7 @@ def run_minimax_conditioning(
 
     if use_reference:
         if audio_vae is None:
-            raise ValueError("MiniMax H3 r2v/v2v/rv2v / reference conditioning requires audio_vae.")
+            raise ValueError("MiniMax H3 r2v/r2flv/v2v/rv2v / reference conditioning requires audio_vae.")
         out = MiniMaxH3ReferenceToVideo.execute(
             clip=clip,
             prompt=prompt,

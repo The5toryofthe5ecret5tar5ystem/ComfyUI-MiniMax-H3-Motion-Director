@@ -802,7 +802,7 @@ function syncAudioRoleUi(node) {
     ensureStyle();
     let changed = cleanOldDriveOutput(editor);
     const key = taskKey(editor);
-    if (key === "r2v") changed = syncR2v(editor, node) || changed;
+    if (key === "r2v" || key === "r2flv") changed = syncR2v(editor, node) || changed;
     else if (key === "rv2v") changed = syncRv2v(editor, node) || changed;
     else editor.root.querySelectorAll(`.${PANEL_CLASS},.mmx-audio-common-roles`).forEach((el) => el.remove());
     return changed;

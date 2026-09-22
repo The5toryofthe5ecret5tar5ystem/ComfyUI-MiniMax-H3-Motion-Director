@@ -761,9 +761,9 @@ export function wirePromptImageMentions(editor, textarea, getMedia, options = {}
 export function mountPromptImageMentions(editor) {
     if (!editor) return [];
     const controllers = [];
-    const isR2vTask = () => resolveTaskKey(
+    const isR2vTask = () => ["r2v", "r2flv"].includes(resolveTaskKey(
         editor.getTaskKey?.() || editor.taskTypeWidget?.value || "",
-    ) === "r2v";
+    ));
     const globalController = wirePromptImageMentions(editor, editor.globalPrompt, () => {
         if (isR2vTask()) {
             return {

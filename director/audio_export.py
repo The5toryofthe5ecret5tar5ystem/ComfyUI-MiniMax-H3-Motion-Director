@@ -38,7 +38,7 @@ VIDEO_EDIT_AUDIO_TASKS = frozenset({"v2v", "rv2v"})
 
 def task_passes_source_audio(task_key: str) -> bool:
     # v2v/rv2v: source-timeline extract; others may fall back after empty model audio.
-    return task_key in {"i2v", "fl2v", "r2v", "v2v", "rv2v"}
+    return task_key in {"i2v", "fl2v", "r2v", "v2v", "rv2v", "r2flv"}
 
 
 def resolve_audio_mode(plan) -> str:

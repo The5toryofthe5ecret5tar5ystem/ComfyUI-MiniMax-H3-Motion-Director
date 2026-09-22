@@ -21,7 +21,7 @@ import torch
 AUDIO_MODE_GENERATE = "generate"
 AUDIO_ROLE_REFERENCE = "reference"
 AUDIO_ROLE_AUDIO_DRIVE = "audio_drive"
-AUDIO_ROLE_TASKS = frozenset({"r2v", "rv2v"})
+AUDIO_ROLE_TASKS = frozenset({"r2v", "rv2v", "r2flv"})
 _BASE_PROMPT_ATTR = "_mmx_audio_role_base_prompt"
 _BASE_AUDIO_ATTR = "_mmx_audio_role_base_audio"
 _ACTIVE_ATTR = "_mmx_audio_role_active"

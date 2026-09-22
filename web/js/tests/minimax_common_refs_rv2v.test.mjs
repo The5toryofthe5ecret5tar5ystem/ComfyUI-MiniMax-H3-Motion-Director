@@ -64,7 +64,7 @@ const modal = fs.readFileSync(new URL("../minimax_material_library_modal.mjs", i
 
 assert.match(
     modal,
-    /function supportsCommonTarget\(mode\) \{\s*return mode === "r2v" \|\| mode === "rv2v";/,
+    /function supportsCommonTarget\(mode\) \{\s*return mode === "r2v" \|\| mode === "r2flv" \|\| mode === "rv2v";/,
     "the library must treat rv2v like r2v for the shared target",
 );
 assert.equal(

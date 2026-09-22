@@ -69,6 +69,6 @@ export function syncR2vCommonToggleForTask(button, options = {}) {
     const task = String(options.taskKey || "").toLowerCase();
     syncR2vCommonToggle(button, {
         ...options,
-        visible: task === "r2v" || task === "rv2v",
+        visible: task === "r2v" || task === "r2flv" || task === "rv2v",
     });
 }
